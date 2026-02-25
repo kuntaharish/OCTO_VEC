@@ -28,6 +28,7 @@ import { createTelegramChannel } from "./channels/telegram.js";
 import { ActiveChannelState } from "./channels/activeChannel.js";
 import { UserChatLog } from "./atp/chatLog.js";
 import { clearAgentHistory } from "./memory/messageHistory.js";
+import { shouldRunSunset } from "./memory/sessionLifecycle.js";
 import { publishAgentStream } from "./atp/agentStreamBus.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -130,7 +131,7 @@ function attachPmStreaming(pmAgent: PMAgent): void {
         // Capture it directly so it appears in Teams chat.
         // Skip if this was a Telegram-originated prompt — Telegram handles its own reply.
         const text = capturedText.trim();
-        if (text && !messageAgentCalled && ActiveChannelState.get() !== "telegram") {
+        if (text && !messageAgentCalled && !text.startsWith("NO_ACTION_REQUIRED") && ActiveChannelState.get() !== "telegram") {
           UserChatLog.log({ from: "pm", to: "user", message: text, channel: "agent" });
         }
         capturedText = "";
@@ -213,6 +214,14 @@ async function main(): Promise<void> {
   // 6. Attach streaming output to PM agent
   attachPmStreaming(pmAgent);
 
+  // 6b. Sunset / Sunrise — if PM has a stale session from a previous day,
+  //     run one final "journal your memories" prompt before clearing it.
+  //     This must happen before inbox loops start so there's no concurrent activity.
+  const sunsetCheck = shouldRunSunset("pm");
+  if (sunsetCheck.should && sunsetCheck.sessionDate) {
+    await pmAgent.runSunset(sunsetCheck.sessionDate);
+  }
+
   // 7. Start background inbox loops.
   //    afterPromptFactory: after each inbox prompt, if the agent left any tasks
   //    in_progress without calling update_my_task, route them through executeTask()
@@ -288,16 +297,18 @@ async function main(): Promise<void> {
   const userInboxHandle = setInterval(async () => {
     const msgs = AgentMessageQueue.popForAgent("user");
     for (const msg of msgs) {
+      // Silently discard NO_ACTION_REQUIRED responses — they are intentional no-ops.
+      if (msg.message.trim().startsWith("NO_ACTION_REQUIRED")) continue;
       const sender = AGENT_DISPLAY_NAMES[msg.from_agent] ?? msg.from_agent;
       const tag = msg.priority === "priority" ? " [PRIORITY]" : "";
       const line = `[${sender}${tag}]: ${msg.message}`;
       const ch = ActiveChannelState.get();
       console.log(`\n  [→ You] ${line}\n`);
       // Route reply to origin channel only:
-      // - telegram session → forward to Telegram (not Dashboard Teams)
+      // - telegram session → forward to Telegram (any agent, not just pm)
       // - dashboard session → log to UserChatLog (not Telegram)
       // - cli session → log to UserChatLog (Telegram not notified for CLI messages)
-      if (telegram && msg.from_agent === "pm" && ch === "telegram") {
+      if (telegram && ch === "telegram") {
         await telegram.sendToUser(line).catch(() => {});
       }
       if (ch !== "telegram") {

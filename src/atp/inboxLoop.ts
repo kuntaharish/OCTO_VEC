@@ -15,9 +15,10 @@ import { EventType } from "./models.js";
 import { config } from "../config.js";
 import { founder } from "../identity.js";
 import { loadAgentMemory } from "../memory/agentMemory.js";
+import { MessageDebouncer } from "./messageDebouncer.js";
 
 export const POLL_INTERVAL_MS = 15_000; // 15 seconds between inbox checks
-export const PM_PROACTIVE_INTERVAL_MS = 60_000; // 60 seconds between PM proactive checks
+export const PM_PROACTIVE_INTERVAL_MS = 30_000; // 30 seconds between PM proactive checks
 export const AGENT_PROMPT_TIMEOUT_MS = 120_000; // 2 min max per LLM call
 
 // ── Timeout wrapper ───────────────────────────────────────────────────────────
@@ -238,7 +239,7 @@ export function startInboxLoop(
         `2. QUESTION or STATUS REQUEST from any agent (pm, ba, dev, etc.): call message_agent(to_agent='<sender_key>', message='...') with a direct reply. Done.\n` +
         `3. BUILD / CREATE request with NO existing task: call self_assign_task(description='...') then STOP.\n` +
         `4. WORK on existing TASK-XXX: call read_task_details('TASK-XXX'), do the work, call update_my_task.\n` +
-        `5. INFORMATIONAL only (genuinely no reply needed): do nothing.\n\n` +
+        `5. INFORMATIONAL only (genuinely no reply needed): respond with exactly 'NO_ACTION_REQUIRED' and nothing else.\n\n` +
         "REPLY RULES:\n" +
         `- To reach ${founder.name} you MUST call message_agent(to_agent='${founder.agentKey}', ...). Plain text responses are invisible.\n` +
         `- Always address ${founder.name} as \"Sir\". Sign off: \"- ${firstName}\".\n` +
@@ -330,12 +331,16 @@ export function startInboxLoop(
         // Fallback: agent produced plain text but forgot to call message_agent.
         // Auto-forward the captured text so the user actually receives the reply.
         // Covers: (a) user messages to any agent, (b) PM task-management mode.
+        // Skip NO_ACTION_REQUIRED responses — those are intentionally silent.
         if ((hadUserMessage || isPmTaskMode) && !messageAgentCalled && capturedText.trim()) {
-          agent.inbox.send("user", capturedText.trim(), "", "normal");
-          EventLog.log(
-            EventType.MESSAGE_SENT, agentId, "",
-            `${agentId.toUpperCase()} auto-forwarded plain-text reply to user (message_agent not called)`
-          );
+          const text = capturedText.trim();
+          if (!text.startsWith("NO_ACTION_REQUIRED")) {
+            agent.inbox.send("user", text, "", "normal");
+            EventLog.log(
+              EventType.MESSAGE_SENT, agentId, "",
+              `${agentId.toUpperCase()} auto-forwarded plain-text reply to user (message_agent not called)`
+            );
+          }
         }
 
         // Cleanup: consume any messages still in queue (peek left them there).
@@ -416,9 +421,20 @@ export function startInboxLoop(
     }
   };
 
+  // Debouncer — batches rapid inbound messages into a single agent turn.
+  // Priority messages bypass debouncing and fire tick() immediately.
+  const debouncer = new MessageDebouncer({ defaultMs: config.debounceMs });
+
   // Register this agent's tick as an instant waker so any inbound message
-  // triggers processing immediately instead of waiting for the poll interval.
-  registerInboxWaker(agentId, () => { tick().catch(() => {}); });
+  // triggers processing instead of waiting for the poll interval.
+  // The waker is debounced: rapid messages within the window are collapsed
+  // into one tick() call. The inbox (peek-based) accumulates all of them,
+  // so the single tick processes the full batch in one LLM call.
+  registerInboxWaker(agentId, () => {
+    // Priority messages from user bypass debouncing — process immediately.
+    const hasPriority = agent.inbox.peek({ priority: "priority" }).length > 0;
+    debouncer.schedule(agentId, () => tick().catch(() => {}), hasPriority);
+  });
 
   // Also keep the regular poll interval as a fallback (catches missed wakes,
   // handles proactive checks, etc.)
@@ -474,6 +490,12 @@ export function startPmLiveLoop(
 
       if (!statusUpdates.length) return;
 
+      // Skip proactive if PM is already active — avoid concurrent LLM calls.
+      if (pmAgent.isRunning) {
+        EventLog.log(EventType.AGENT_THINKING, "pm", "", "PM proactive skipped — PM is already active");
+        return;
+      }
+
       const updatesBlock = statusUpdates
         .slice(-12)
         .map(
@@ -514,16 +536,10 @@ export function startPmLiveLoop(
         await withTimeout(pmAgent.prompt(prompt), AGENT_PROMPT_TIMEOUT_MS, "pm proactive");
       } catch (err) {
         const errStr = String(err);
-        // PM inbox loop may be active at the same time — queue as followUp instead of crashing.
+        // PM is already processing — skip silently, will retry on next interval.
         if (errStr.includes("already processing")) {
-          if (pmAgent.followUp) {
-            pmAgent.followUp(prompt);
-            EventLog.log(EventType.AGENT_THINKING, "pm", "",
-              "PM proactive queued as followUp (inbox loop was active)");
-          } else {
-            EventLog.log(EventType.AGENT_THINKING, "pm", "",
-              "PM proactive skipped (busy, no followUp) — will retry next interval");
-          }
+          EventLog.log(EventType.AGENT_THINKING, "pm", "",
+            "PM proactive skipped (already processing) — will retry next interval");
           return;
         }
         const isRL = isRateLimitError(err);

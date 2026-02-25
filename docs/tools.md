@@ -8,6 +8,84 @@ All tools are built using `AgentTool` from `@mariozechner/pi-agent-core`.
 
 ---
 
+## Tool Enable/Disable System (`src/atp/agentToolConfig.ts`)
+
+The dashboard lets you enable or disable individual tools per agent at runtime. The system uses a **soft disable** approach to avoid LLM hallucination.
+
+### `ToolDef.locked`
+
+Tools can be marked `locked: true` in their `ToolDef`. Locked tools:
+- Are always active — they cannot be toggled off from the dashboard
+- Are shown in the dashboard UI with a lock icon and "Always on" label (no toggle rendered)
+- Are merged back in server-side even if the client omits them from a config POST
+
+Currently locked tools: `message_agent`, `read_inbox`. These are core communication primitives — disabling them would break the entire messaging system.
+
+### Soft Disable vs. Hard Filter
+
+**Wrong (old) approach — hard filter:**
+```typescript
+// BAD: removes tool from LLM schema → LLM hallucinates the tool name anyway
+private _filteredTools() {
+  const enabled = new Set(getEnabledTools("pm"));
+  return this.allTools.filter((t) => enabled.has(t.name));
+}
+```
+
+**Correct approach — soft disable via `applyToolConfig`:**
+```typescript
+// GOOD: disabled tool stays in schema but its execute() returns an error
+private _filteredTools() {
+  return applyToolConfig("pm", this.allTools);
+}
+```
+
+### `applyToolConfig(agentId, allTools)`
+
+```typescript
+applyToolConfig(agentId: string, allTools: AgentTool[]): AgentTool[]
+```
+
+Returns the full tool list with per-tool logic applied:
+- **Locked tools** — always pass through unchanged
+- **Enabled tools** — pass through unchanged
+- **Disabled tools** — returned with a wrapped `execute` that returns a structured error instead of running the real tool. The tool still appears in the LLM's function schema.
+
+### Retry Escalation for Disabled Tools
+
+When an LLM calls a disabled tool, the response text escalates based on how many times it has been called in this session:
+
+| Call # | Response |
+|---|---|
+| 1st | Polite message: "This tool is currently disabled. Please use an alternative approach." |
+| 2nd+ | System block: "SYSTEM BLOCK: You have called this N times. Stop immediately." |
+
+This teaches the model quickly without stranding it in a confusing loop.
+
+### Applying Tool Config in Agents
+
+Every agent that supports runtime tool toggling must call `applyToolConfig` in **two places**:
+
+1. **`executeTask()`** — so tasks start with the correct tool set
+2. **`prompt()`** — so direct messages also respect the current tool config
+
+```typescript
+// Both executeTask() and prompt() must call setTools:
+this.agent.setTools(this._filteredTools());
+```
+
+**Bug that was fixed:** `baAgent.ts` and `devAgent.ts` were missing this call in `prompt()`. Tool config changes only took effect at task start — direct messages to the agent ignored runtime config. All three agents now call `setTools` at the top of every `prompt()`.
+
+### `getEnabledTools(agentId)`
+
+```typescript
+getEnabledTools(agentId: string): string[]
+```
+
+Returns the list of enabled tool IDs for an agent. Always merges locked tool IDs into the result regardless of the stored config.
+
+---
+
 ## PM Tools — Task Management (`src/tools/pm/taskTools.ts`)
 
 Only the PM agent has access to these tools.

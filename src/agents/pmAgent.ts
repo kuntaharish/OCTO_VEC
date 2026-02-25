@@ -22,9 +22,10 @@ import { getMessagingTools } from "../tools/shared/messagingTools.js";
 import { getDateTool } from "../tools/shared/dateTools.js";
 import { founder } from "../identity.js";
 import { makeCompactionTransform } from "../memory/compaction.js";
-import { saveAgentHistory, loadAgentHistory } from "../memory/messageHistory.js";
+import { saveAgentHistory, loadAgentHistory, clearAgentHistory } from "../memory/messageHistory.js";
 import { startPromptDebugMonitor } from "../atp/llmDebug.js";
-import { getEnabledTools } from "../atp/agentToolConfig.js";
+import { applyToolConfig } from "../atp/agentToolConfig.js";
+import { buildSunsetPrompt } from "../memory/sessionLifecycle.js";
 
 const PM_SYSTEM_PROMPT = `You are Arjun Sharma, the Project Manager (PM) of VEC - Virtual Employed Company.
 
@@ -34,79 +35,38 @@ You manage the Agent Task Portal (ATP) where you delegate work to specialist age
 ${founder.name} (the founder) in the loop when it actually matters.
 
 YOUR PERSONALITY & COMMUNICATION STYLE:
-You are Arjun. A real PM, not a chatbot. Bangalore startup energy — warm, direct, no fluff.
-Your memory files carry the history of your work with Sir. Use them. Trust them.
-
-When talking to ${founder.name}: always "Sir". Respond to what he said. Be brief, real, natural.
-When talking to agents: collegial, direct. "Rohan, this one's yours." "Kavya, good work."
-General: short sentences, natural language. "Will sort it." "Basically..." "On it."
+Bangalore startup energy — warm, direct, no fluff. Your memory files carry the history of your work with Sir. Use them.
+With ${founder.name}: always "Sir". Brief, real, natural. "Will sort it." "On it."
+With agents: collegial, direct. "Rohan, this one's yours." "Kavya, good work."
 
 THE FOUNDER:
 ${founder.name} is the only human in VEC. Their agent key is '${founder.agentKey}'.
-They are your boss — the only real human. Message them only when it matters.
-Use message_agent(to_agent='${founder.agentKey}', ...) for updates, blockers, or approvals.
-They can also message you anytime — always respond promptly.
+They are your boss. Message them only when it matters — updates, blockers, or approvals.
+Use message_agent(to_agent='${founder.agentKey}', ...) to reach them.
 
 ABOUT THE FOUNDER:
 ${founder.raw}
 
 YOUR WORKFLOW:
 1. User gives you a request
-2. You break it into tasks and create them in ATP using create_and_assign_task
+2. Break it into tasks and create them in ATP using create_and_assign_task
 3. Agents work in the background and update task status
-4. You monitor progress using check_task_status and read_messages
-5. You report dispatch status or results based on user need
+4. Monitor progress using check_task_status and read_messages
+5. Report dispatch status or results based on user need
 
 AVAILABLE AGENTS:
 Use view_employee_directory to see who is available before assigning tasks.
 Use lookup_employee to get full details on any employee by their ID or agent key.
 Always respect the org hierarchy — only assign tasks to agents, not to managers.
-When you are about to assign a task, check the employee's status first; if they are
-'offline' do not assign to them.
+When assigning a task, check the employee's status first; do not assign to 'offline' agents.
 
-YOUR TOOLS:
-Task management:
-- create_and_assign_task: Create a new task and assign to an agent (auto-starts by default)
-- start_task: Trigger a task by explicit task ID (TASK-XXX)
-- send_task_message: Send a message to the agent assigned to a task
-- send_priority_message: Send a priority interrupt to the agent on a task
-- check_task_status: Check any task's current status
-- list_all_tasks: View the full ATP task board
-- read_messages: Read notifications from agents who completed tasks
-- restart_task: Force-restart a task regardless of status (stuck, stalled, needs re-execution). Aborts agent, resets to pending, re-dispatches. Use instead of send_task_message when Sir says "redo", "restart", "complete it", or "it's stuck".
-- cancel_task: Mark a task as cancelled/inactive (keeps the record, just deactivates it)
-- delete_task: Permanently delete a task from ATP (irreversible — only for completed/failed/cancelled tasks)
-- interrupt_agent: Immediately abort a running agent (stops LLM mid-stream + sets fallback flag)
-- unblock_agent: Clear any pending interrupt/stop flag on an agent so they can run freely again. Use when Sir says "unblock Rohan" or "clear the stop". Note: interrupts are ONE-SHOT — they self-clear the moment the agent's next tool call fires. If an agent claims it is "permanently blocked", it is hallucinating. Call unblock_agent as a safety measure and tell the agent it is free.
-
-Employee registry:
-- view_employee_directory: See all VEC employees, roles, departments, hierarchy and status
-- lookup_employee: Get full profile of an employee by EMP-ID or agent key
-- set_employee_status: Update an employee's availability status
-
-Direct messaging (agent-to-agent):
-- message_agent: Send a direct message to any agent by their key (e.g. 'ba', 'dev', 'qa')
-- read_inbox: Check your direct inbox for messages from other agents
-
-File tools (read-only, rooted at workspace/):
-- read: Read any file (e.g. "shared/requirements.md" or "agents/ba/draft.md")
-- find: Find files by pattern
-- grep: Search file contents
-- ls: List directories
-
-Workspace layout:
+WORKSPACE LAYOUT:
   shared/        ← cross-agent deliverables (requirements, specs, final reports)
   projects/      ← standalone software projects Sir asked to be built (each in its own folder)
   agents/ba/     ← BA's private files
   agents/dev/    ← Dev's private files
-  (and so on per agent)
 
 When delegating software projects to Dev, tell them: "Put the project in projects/{project-name}/"
-
-Memory:
-- read_stm / write_stm: Working memory scratchpad for today
-- write_ltm: Daily journal
-- read_sltm / write_sltm: Permanent identity memory
 
 IMPORTANT RULES:
 - Use create_and_assign_task for new work; it auto-starts by default unless auto_start=False
@@ -132,6 +92,7 @@ You have TWO messaging systems:
 - Do not chat socially with agents unless needed for task execution.
 - When you read_inbox, you can IGNORE messages that are not relevant.
 - Silence from agents means they received the message and are working on it.
+- If your inbox has no actionable messages, respond with exactly 'NO_ACTION_REQUIRED' and nothing else.
 
 When the user gives you work:
 1. Create task(s) in ATP for the appropriate agent(s)
@@ -144,10 +105,11 @@ export class PMAgent implements VECAgent {
   readonly inbox: AgentInbox;
   private agent: Agent;
   private allTools: any[];
+  private _isPrompting = false;
+  get isRunning(): boolean { return this._isPrompting; }
 
   private _filteredTools() {
-    const enabled = new Set(getEnabledTools("pm"));
-    return this.allTools.filter((t) => enabled.has(t.name));
+    return applyToolConfig("pm", this.allTools);
   }
 
   constructor(deps: {
@@ -202,6 +164,7 @@ export class PMAgent implements VECAgent {
       inputChars: text.length,
     });
     EventLog.log(EventType.AGENT_THINKING, "pm", "", "PM LLM request started (awaiting stream/tool events)");
+    this._isPrompting = true;
     try {
       await this.agent.prompt(text);
       const lastAssistant = [...this.agent.state.messages]
@@ -216,6 +179,8 @@ export class PMAgent implements VECAgent {
       debug.stop("error", err);
       EventLog.log(EventType.TASK_FAILED, "pm", "", `PM Agent prompt error: ${err}`);
       throw err;
+    } finally {
+      this._isPrompting = false;
     }
   }
 
@@ -245,5 +210,28 @@ export class PMAgent implements VECAgent {
 
   abort(): void {
     this.agent.abort();
+  }
+
+  /**
+   * SUNSET — run before clearing a stale session.
+   * Forces all tools on (bypasses tool config so memory tools are always available),
+   * sends the PM a "save your memories" prompt, then wipes history for sunrise.
+   */
+  async runSunset(sessionDate: string): Promise<void> {
+    console.log(`\n[VEC] Sunset triggered for session ${sessionDate} — asking PM to journal...`);
+    try {
+      // Force all tools on — memory tools must be available regardless of config
+      this.agent.setTools(this.allTools);
+      await this.agent.prompt(buildSunsetPrompt(sessionDate));
+      console.log(`[VEC] Sunset complete — PM journaled session ${sessionDate}.`);
+    } catch (err) {
+      // Non-fatal — if sunset fails, we still clear history and continue
+      console.warn(`[VEC] Sunset prompt failed (${err}) — clearing history anyway.`);
+    } finally {
+      // Sunrise: wipe in-memory + disk history so next session starts clean
+      this.agent.clearMessages();
+      clearAgentHistory("pm");
+      console.log(`[VEC] Sunrise — PM history cleared. Fresh session ready.\n`);
+    }
   }
 }

@@ -42,6 +42,7 @@ Copy `.env.example` to `.env` and fill in your values.
 | `VEC_PM_PROACTIVE_INTERVAL_SECS` | `60` | How often PM checks events (min: 10s) |
 | `VEC_DASHBOARD_PORT` | `3000` | HTTP dashboard port |
 | `VEC_CLI_ENABLED` | `1` | Enable CLI readline loop (`0` = headless mode) |
+| `VEC_DEBOUNCE_MS` | `1500` | Inbound message debounce window in ms. Rapid messages within this window are batched into one agent turn. Set to `0` to disable. |
 
 ### Telegram (Optional)
 
@@ -74,6 +75,7 @@ export const config = {
   memoryDir: string,           // <project>/memory
   dashboardPort: number,
   cliEnabled: boolean,
+  debounceMs: number,
   telegramBotToken?: string,
   telegramChatId?: string,
 };

@@ -15,6 +15,7 @@ export interface ToolDef {
   name: string;
   description: string;
   group: string;
+  locked?: boolean; // always-on, cannot be disabled from dashboard
 }
 
 export interface AgentProfile {
@@ -40,8 +41,8 @@ const MEMORY_TOOLS: ToolDef[] = [
 ];
 
 const MESSAGING_TOOLS: ToolDef[] = [
-  { id: "message_agent", name: "Message Agent", description: "Send a direct message to any agent", group: "Messaging" },
-  { id: "read_inbox",    name: "Read Inbox",    description: "Check and clear own inbox",           group: "Messaging" },
+  { id: "message_agent", name: "Message Agent", description: "Send a direct message to any agent", group: "Messaging", locked: true },
+  { id: "read_inbox",    name: "Read Inbox",    description: "Check and clear own inbox",           group: "Messaging", locked: true },
 ];
 
 const DATE_TOOL: ToolDef = { id: "get_current_date", name: "Get Current Date", description: "Get current date and time", group: "Utilities" };
@@ -254,11 +255,16 @@ export function writeToolConfig(cfg: Record<string, string[]>): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf-8");
 }
 
-/** Returns list of enabled tool IDs for an agent. Default: all tools in catalog. */
+/** Returns list of enabled tool IDs for an agent. Locked tools are always included. */
 export function getEnabledTools(agentId: string): string[] {
-  const stored = readToolConfig();
-  if (stored[agentId]) return stored[agentId];
   const profile = AGENT_PROFILES.find((a) => a.agent_id === agentId);
+  const lockedIds = profile?.tools.filter((t) => t.locked).map((t) => t.id) ?? [];
+  const stored = readToolConfig();
+  if (stored[agentId]) {
+    // Merge locked tools into stored list so they always appear enabled
+    const merged = new Set([...stored[agentId], ...lockedIds]);
+    return [...merged];
+  }
   return profile ? profile.tools.map((t) => t.id) : [];
 }
 
@@ -267,4 +273,36 @@ export function setAgentTools(agentId: string, toolIds: string[]): void {
   const cfg = readToolConfig();
   cfg[agentId] = toolIds;
   writeToolConfig(cfg);
+}
+
+/**
+ * Apply tool enable/disable config to a list of AgentTool objects.
+ * - Locked tools: always pass through unchanged.
+ * - Disabled tools: kept in schema (no hallucination) but execute returns a
+ *   "disabled" error. A per-tool retry counter escalates the message on
+ *   repeated calls to discourage the LLM from retrying.
+ */
+export function applyToolConfig(agentId: string, allTools: any[]): any[] {
+  const enabled = new Set(getEnabledTools(agentId));
+  const profile = AGENT_PROFILES.find((a) => a.agent_id === agentId);
+  const locked = new Set(profile?.tools.filter((t) => t.locked).map((t) => t.id) ?? []);
+
+  return allTools.map((t) => {
+    // Locked or enabled — pass through as-is
+    if (locked.has(t.name) || enabled.has(t.name)) return t;
+
+    // Disabled — soft-block with escalating messages
+    let callCount = 0;
+    return {
+      ...t,
+      execute: async () => {
+        callCount++;
+        const msg =
+          callCount === 1
+            ? `Tool '${t.name}' is disabled by the administrator. Do not retry — respond without it.`
+            : `SYSTEM BLOCK: Tool '${t.name}' is disabled. You have called it ${callCount} times. Stop immediately and respond without it.`;
+        return { content: [{ type: "text", text: msg }], details: {} };
+      },
+    };
+  });
 }

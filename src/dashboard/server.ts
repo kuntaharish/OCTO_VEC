@@ -613,6 +613,21 @@ function getDashboardHtml(): string {
     .teams-msg.recv .teams-msg-bubble { background: #1c2128; color: #c9d1d9; border: 1px solid #30363d; border-bottom-left-radius: 4px; }
     .teams-msg-time { font-size: 0.6rem; color: #484f58; }
 
+    .chat-typing-row { display: none; padding: 0 24px 6px; }
+    .chat-typing-row.visible { display: block; }
+    .typing-dot {
+      display: inline-block;
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #8b949e;
+      animation: typing-bounce 1.4s ease infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing-bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-6px); }
+    }
+
     .teams-chat-compose {
       padding: 12px 20px;
       border-top: 1px solid #30363d;
@@ -737,6 +752,10 @@ function getDashboardHtml(): string {
     .toggle-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 13px; height: 13px; background: #6e7681; border-radius: 50%; transition: left 0.2s, background 0.2s; }
     .tool-toggle input:checked + .toggle-track { background: #1158c7; }
     .tool-toggle input:checked + .toggle-track::after { left: 18px; background: #fff; }
+    /* Locked tool row */
+    .tool-row.locked { opacity: 0.55; }
+    .tool-lock-icon { display: inline-flex; align-items: center; color: #484f58; margin-left: 2px; }
+    .tool-locked-label { font-size: 0.62rem; color: #484f58; margin-left: 5px; letter-spacing: 0.03em; text-transform: uppercase; }
 
     /* Footer */
     .hr-profile-footer { padding: 13px 28px; border-top: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; background: #161b22; flex-shrink: 0; }
@@ -1044,6 +1063,18 @@ function getDashboardHtml(): string {
           </div>
         </div>
         <div class="teams-chat-messages" id="teams-chat-messages"></div>
+        <div id="chat-typing-row" class="chat-typing-row">
+          <div class="teams-msg recv">
+            <div class="teams-msg-avatar" id="typing-row-avatar" style="background:#8b949e"></div>
+            <div class="teams-msg-content">
+              <div class="teams-msg-bubble" style="background:#1c2128;border:1px solid #30363d;border-bottom-left-radius:4px;display:flex;gap:5px;align-items:center;">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="teams-chat-compose">
           <textarea class="teams-input" id="teams-input"
             placeholder="Type a message&hellip; (Enter to send, Shift+Enter for new line)"
@@ -1470,6 +1501,7 @@ function getDashboardHtml(): string {
         streamState[agentId].toolName = '';
         pushStreamLog(agentId, 'sep', 'stream-turn-sep', '');
         pushStreamLog(agentId, 'agent_start', 'tok-agent-start', '[' + fmt(new Date().toISOString()) + '] turn started');
+        if (agentId === selectedAgent) showChatTyping(agentId);
         break;
 
       case 'text':
@@ -1527,6 +1559,7 @@ function getDashboardHtml(): string {
         streamState[agentId].toolName = '';
         pushStreamLog(agentId, 'agent_end', 'tok-agent-end', '[' + fmt(new Date().toISOString()) + '] turn finished');
         if (agentId === 'ba' || agentId === 'dev') pulseSignal(agentId, 'pm', 900);
+        if (agentId === selectedAgent) hideChatTyping();
         break;
 
       default:
@@ -1915,6 +1948,27 @@ function getDashboardHtml(): string {
     document.getElementById('teams-input').focus();
     // Mark this conversation as read
     markAsRead(key);
+    // Sync typing indicator with the newly selected agent
+    if (streamState[key]?.thinking) showChatTyping(key);
+    else hideChatTyping();
+  }
+
+  function showChatTyping(agentId) {
+    const agent = AGENTS.find(a => a.key === agentId);
+    if (!agent) return;
+    const row = document.getElementById('chat-typing-row');
+    const avatar = document.getElementById('typing-row-avatar');
+    if (!row || !avatar) return;
+    avatar.textContent = agent.initials;
+    avatar.style.background = agent.color;
+    row.classList.add('visible');
+    const container = document.getElementById('teams-chat-messages');
+    if (container) container.scrollTop = container.scrollHeight;
+  }
+
+  function hideChatTyping() {
+    const row = document.getElementById('chat-typing-row');
+    if (row) row.classList.remove('visible');
   }
 
   function renderConversation(log) {
@@ -2141,7 +2195,22 @@ function getDashboardHtml(): string {
       <div class="tool-group-section">
         <div class="tool-group-label">\${esc(group)}</div>
         <div class="tool-list">
-          \${tools.map(t => \`
+          \${tools.map(t => t.locked ? \`
+            <div class="tool-row locked">
+              <div class="tool-info">
+                <div class="tool-name">\${esc(t.name)}</div>
+                <div class="tool-desc">\${esc(t.description)}</div>
+              </div>
+              <div style="display:inline-flex;align-items:center;flex-shrink:0;">
+                <span class="tool-lock-icon">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+                  </svg>
+                </span>
+                <span class="tool-locked-label">Always on</span>
+              </div>
+            </div>
+          \` : \`
             <div class="tool-row">
               <div class="tool-info">
                 <div class="tool-name">\${esc(t.name)}</div>
@@ -2169,8 +2238,9 @@ function getDashboardHtml(): string {
     const checkboxes = document.querySelectorAll('#hr-tools-body input[type="checkbox"]');
     const checked = [...checkboxes].filter(cb => cb.checked).length;
     const profile = companyData.find(a => a.agent_id === selectedHrAgent);
+    const lockedCount = profile ? profile.tools.filter(t => t.locked).length : 0;
     const total = profile ? profile.tools.length : checkboxes.length;
-    document.getElementById('hr-tool-count').textContent = checked + '/' + total + ' tools enabled';
+    document.getElementById('hr-tool-count').textContent = (checked + lockedCount) + '/' + total + ' tools enabled';
     const btn = document.getElementById('hr-save-btn');
     btn.textContent = 'Save Changes';
     btn.classList.remove('saved');
@@ -2178,6 +2248,7 @@ function getDashboardHtml(): string {
   }
 
   function hrToggleAll(state) {
+    // Skip locked tools — they have no checkbox to toggle
     document.querySelectorAll('#hr-tools-body input[type="checkbox"]').forEach(cb => { cb.checked = state; });
     hrOnToggle();
   }
@@ -2330,8 +2401,8 @@ export function startDashboardServer(port = config.dashboardPort): void {
       res.status(400).json({ error: `Unknown agent: ${agentKey}` });
       return;
     }
-    // Mark as dashboard-originated so PM replies route to Dashboard only (not Telegram)
-    if (agentKey === "pm") ActiveChannelState.set("dashboard");
+    // Mark as dashboard-originated so all agent replies route to Dashboard (not Telegram)
+    ActiveChannelState.set("dashboard");
     AgentMessageQueue.push("user", agentKey, "", message.trim(), "normal");
     UserChatLog.log({ from: "user", to: agentKey, message: message.trim(), channel: "dashboard" });
     res.json({ ok: true, to: agentKey });
@@ -2367,8 +2438,13 @@ export function startDashboardServer(port = config.dashboardPort): void {
       res.status(400).json({ error: "agent_id (string) and tools (string[]) are required" });
       return;
     }
-    setAgentTools(agent_id.trim().toLowerCase(), tools as string[]);
-    res.json({ ok: true, agent_id, tools });
+    const id = agent_id.trim().toLowerCase();
+    // Always re-add locked tools regardless of what the client sends
+    const profile = AGENT_PROFILES.find((a) => a.agent_id === id);
+    const lockedIds = profile?.tools.filter((t) => t.locked).map((t) => t.id) ?? [];
+    const safeTools = [...new Set([...(tools as string[]), ...lockedIds])];
+    setAgentTools(id, safeTools);
+    res.json({ ok: true, agent_id: id, tools: safeTools });
   });
 
   // â”€â”€ SSE: real-time agent streaming â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

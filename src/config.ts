@@ -40,15 +40,21 @@ export const config = {
     !["0", "false", "no"].includes(
       (process.env.VEC_PM_PROACTIVE_ENABLED ?? "0").trim().toLowerCase()
     ),
-  /** How often the PM proactive loop runs (seconds). Default 60. Set via VEC_PM_PROACTIVE_INTERVAL_SECS. */
+  /** How often the PM proactive loop runs (seconds). Default 30. Set via VEC_PM_PROACTIVE_INTERVAL_SECS. */
   pmProactiveIntervalSecs: Math.max(
     10,
-    parseInt(process.env.VEC_PM_PROACTIVE_INTERVAL_SECS ?? "60", 10)
+    parseInt(process.env.VEC_PM_PROACTIVE_INTERVAL_SECS ?? "30", 10)
   ),
 
   dataDir: join(PROJECT_ROOT, "data"),
   memoryDir: join(PROJECT_ROOT, "memory"),
   dashboardPort: parseInt(process.env.VEC_DASHBOARD_PORT ?? "3000", 10),
+  /**
+   * Inbound message debounce window (ms). Rapid messages within this window
+   * are batched into a single agent turn. Set VEC_DEBOUNCE_MS=0 to disable.
+   * Default: 1500ms.
+   */
+  debounceMs: parseInt(process.env.VEC_DEBOUNCE_MS ?? "1500", 10),
   /** Set VEC_CLI_ENABLED=0 to run headless (dashboard + Telegram only, no readline loop). */
   cliEnabled: !["0", "false", "no"].includes(
     (process.env.VEC_CLI_ENABLED ?? "1").trim().toLowerCase()

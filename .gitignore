@@ -9,7 +9,7 @@ node_modules/
 # Runtime data — generated at startup, not source
 data/
 workspace/
-memory/
+/memory/
 
 # Build output
 dist/

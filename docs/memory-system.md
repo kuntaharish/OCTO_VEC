@@ -127,6 +127,67 @@ clearAgentHistory(agentId: string): void
 
 ---
 
+## Session Lifecycle — Sunset & Sunrise
+
+**File:** `src/memory/sessionLifecycle.ts`
+
+At startup the system checks whether the PM has stale conversation history from a previous day. If it does, it runs a **sunset** routine to journal that session's events into memory before clearing history. On the next start the PM wakes up with empty conversation history but all relevant knowledge pre-loaded from memory — the **sunrise** state.
+
+Only the PM gets sunset/sunrise. Specialist agents (Dev, BA, etc.) clear their conversation history before every task anyway, so they don't need this.
+
+### Day-Boundary Detection
+
+```typescript
+shouldRunSunset(agentId: string): { should: boolean; sessionDate?: string }
+```
+
+The history file's `mtime` (last-modified date) is compared to today's date. If `mtime < today`, the session is stale and sunset should run.
+
+### Sunset Flow
+
+```
+tower.ts startup:
+  1. shouldRunSunset("pm") → stale session detected
+  2. pmAgent.runSunset(sessionDate)
+       ├─ Force ALL tools on (bypass tool config — memory tools must be available)
+       ├─ Build sunset prompt:
+       │    - "The conversation history above is YOUR real session from [date]"
+       │    - "Read through that actual conversation — not from memory, from the messages above"
+       │    - write_ltm: concrete journal (what Sir asked, tasks created/completed/failed,
+       │                  decisions, follow-ups, reflection)
+       │    - write_sltm (optional): lasting learnings worth keeping forever
+       │    - "Base everything on the actual messages above. Do not summarise from assumptions."
+       │    - Model must respond with SUNSET_COMPLETE
+       ├─ On any failure: log warning, continue (non-fatal)
+       └─ Finally: clear in-memory history + clear disk history file
+```
+
+The sunset prompt is explicit about grounding the model in its actual conversation messages, not its priors. This prevents the model from writing fabricated journal entries.
+
+### Sunrise Flow
+
+After sunset completes (or if no stale session exists), the PM starts with empty conversation history. The existing `loadAgentMemory()` call automatically injects:
+
+- SLTM (permanent memory — always loaded)
+- Yesterday's LTM (written during sunset — the fresh journal of the previous session)
+- Today's LTM (empty at start of day)
+
+The PM therefore wakes up **informed but clean**: no stale conversation context, but all key decisions and task outcomes from yesterday are available in the prompt via LTM.
+
+### Placement in `tower.ts`
+
+```typescript
+// Between step 6 (attach streaming) and step 7 (start inbox loops):
+const sunsetCheck = shouldRunSunset("pm");
+if (sunsetCheck.should && sunsetCheck.sessionDate) {
+  await pmAgent.runSunset(sunsetCheck.sessionDate);
+}
+```
+
+Sunset runs synchronously before any inbox loops start, so no messages are processed while the PM is journaling.
+
+---
+
 ## History Compaction (`src/memory/compaction.ts`)
 
 Conversation history can grow too large for the LLM context window. The compaction system trims old messages.

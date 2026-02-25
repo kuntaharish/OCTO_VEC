@@ -92,6 +92,42 @@ This will burn you if you forget.
 ### Message Cleanup — Peek, Not Pop
 The inbox loop uses `peek()` to view messages without consuming them. Cleanup only happens on success. On error, messages stay queued. This is intentional — prevents message loss on LLM failures.
 
+### Tool Config — Always Use `applyToolConfig`, Always Call `setTools` in `prompt()`
+```typescript
+// WRONG — hard filter causes LLM hallucination when a tool is "missing"
+private _filteredTools() {
+  const enabled = new Set(getEnabledTools("pm"));
+  return this.allTools.filter((t) => enabled.has(t.name));
+}
+
+// RIGHT — soft disable: tool stays in schema, execute() returns error if disabled
+private _filteredTools() {
+  return applyToolConfig("pm", this.allTools);
+}
+```
+And call `setTools` at the top of **both** `executeTask()` AND `prompt()`:
+```typescript
+this.agent.setTools(this._filteredTools());
+```
+Forgetting `prompt()` means tool config changes don't apply to direct messages — only to tasks.
+
+### Locked Tools — Never Wrap or Disable `message_agent` / `read_inbox`
+`message_agent` and `read_inbox` are marked `locked: true` in `MESSAGING_TOOLS`. They are always-on, cannot be toggled from the dashboard, and are merged back server-side even if a client omits them. Do not add them to any disable list. Do not wrap their execute functions.
+
+### Sunset / Sunrise — PM Only, Runs at Startup
+```typescript
+// In tower.ts, before inbox loops start:
+const sunsetCheck = shouldRunSunset("pm");
+if (sunsetCheck.should && sunsetCheck.sessionDate) {
+  await pmAgent.runSunset(sunsetCheck.sessionDate);
+}
+```
+- Detection: history file `mtime < today` → stale session
+- Sunset: forces all tools on, runs journaling prompt, PM writes LTM (and optionally SLTM), then history is cleared
+- Sunrise: empty history + `loadAgentMemory()` auto-injects yesterday's LTM (written during sunset) → PM wakes up informed but clean
+- Only PM gets this — specialists clear history before every task anyway
+- File: `src/memory/sessionLifecycle.ts`
+
 ---
 
 ## The Memory System — Quick Ref

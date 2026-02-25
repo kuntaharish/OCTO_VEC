@@ -66,7 +66,8 @@ src/
 │   ├── agentInterrupt.ts       # Per-agent interrupt flags
 │   ├── inboxLoop.ts            # Inbox loops + VECAgent interface
 │   ├── llmDebug.ts             # LLM stall detection
-│   └── agentStreamBus.ts       # Token bus for dashboard
+│   ├── agentStreamBus.ts       # Token bus for dashboard
+│   └── messageDebouncer.ts     # Message debouncing (batches rapid inbound messages)
 │
 ├── agents/                     # AI agent implementations
 │   ├── pmAgent.ts              # Project Manager (orchestrator)
@@ -81,7 +82,8 @@ src/
 ├── memory/                     # Memory management
 │   ├── agentMemory.ts          # Memory loader
 │   ├── compaction.ts           # History compaction
-│   └── messageHistory.ts       # Persistent conversation history
+│   ├── messageHistory.ts       # Persistent conversation history
+│   └── sessionLifecycle.ts     # Sunset/sunrise session lifecycle
 │
 ├── channels/
 │   ├── types.ts                # VECChannel interface

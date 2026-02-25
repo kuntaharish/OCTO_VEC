@@ -53,6 +53,39 @@ registerInboxWaker(agentId, callback)
 // → Agent's interval check runs now, not in 15s
 ```
 
+The instant wake is routed through the debouncer (see below), so back-to-back messages within the debounce window result in a single agent turn, not one turn per message.
+
+### Message Debouncing
+
+**File:** `src/atp/messageDebouncer.ts`
+
+Rapid messages that arrive within a short window are batched into a single agent turn rather than spawning multiple LLM calls.
+
+**How it works:**
+
+```
+message arrives → AgentMessageQueue.push() → waker fires → debouncer.schedule(key, tick, bypass)
+                                                                ↓ (window resets on each call)
+                                                         1500ms of silence
+                                                                ↓
+                                                           tick() fires once
+                                                                ↓
+                                                      peek() → ALL accumulated messages → one LLM call
+```
+
+The inbox uses peek-based reads, so all messages that arrived during the debounce window are naturally present when the single `tick()` fires. No messages are dropped or lost.
+
+**Key points:**
+
+| Aspect | Detail |
+|---|---|
+| Default window | `1500ms` (controlled by `VEC_DEBOUNCE_MS`) |
+| Priority messages | Bypass debouncing — `tick()` fires immediately |
+| Disable | Set `VEC_DEBOUNCE_MS=0` |
+| Fallback | Regular 15s poll interval still runs as a safety net |
+
+**Priority bypass:** Any message with `priority === "priority"` skips the debounce and calls `tick()` immediately. This ensures urgent signals (interrupts, task failures) are never delayed.
+
 ### Message Cleanup Strategy
 
 The inbox loop uses **peek-then-cleanup** to avoid message loss:
