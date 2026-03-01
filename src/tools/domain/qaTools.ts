@@ -6,6 +6,7 @@ import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { EventLog } from "../../atp/eventLog.js";
 import { EventType } from "../../atp/models.js";
+import { runFlow, FLOW_NAMES } from "../../flows/index.js";
 
 function ok(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };
@@ -211,6 +212,99 @@ export const qaTools: AgentTool[] = [
 ### TOOLS RECOMMENDED
 - Coverage: [pytest-cov / nyc / Istanbul]
 - Reporting: [Codecov / Coveralls]`);
+    },
+  },
+
+  // ── OCTO-FLOWS tools ─────────────────────────────────────────────────────
+
+  {
+    name: "run_code_scan",
+    label: "Run Code Scan",
+    description:
+      "Run a SonarQube code scan against a workspace project directory. " +
+      "Generates a markdown report in shared/reports/ with bugs, vulnerabilities, code smells, and metrics. " +
+      "Requires SonarQube server to be running (docker compose up -d).",
+    parameters: Type.Object({
+      target_path: Type.String({
+        description:
+          "Path to the project to scan, relative to the workspace root. " +
+          "Examples: 'projects/my-app', 'shared/my-module'. " +
+          "Use ls or find to confirm the path before calling this tool.",
+      }),
+      task_id: Type.Optional(
+        Type.String({ description: "ATP task ID for tracking (e.g. TASK-042)" }),
+      ),
+    }),
+    execute: async (_, params: any) => {
+      const taskId = params.task_id ?? "TASK-UNKNOWN";
+      EventLog.log(
+        EventType.AGENT_TOOL_CALL, "qa", taskId,
+        `QA triggering Code Scan on ${params.target_path}`,
+      );
+
+      const result = await runFlow("code-scan", {
+        taskId,
+        agentId: "qa",
+        targetPath: params.target_path,
+      });
+
+      const statusLine = result.success
+        ? "Code scan completed successfully."
+        : "Code scan encountered errors (partial results may be available).";
+
+      return ok(
+        `${statusLine}\n\n` +
+        `Summary: ${result.summary}\n` +
+        (result.reportPath ? `Report: ${result.reportPath}\n` : "") +
+        (result.details ? `\nDetails:\n${result.details}` : "") +
+        `\n\nNext step: read the report with the read tool, then message Rohan (dev) about any bugs or vulnerabilities found.`,
+      );
+    },
+  },
+
+  {
+    name: "run_flow",
+    label: "Run OCTO-Flow",
+    description:
+      `Trigger any named OCTO-FLOW pipeline. Available flows: ${FLOW_NAMES.join(", ")}. ` +
+      "Use run_code_scan for the SonarQube flow (it has better defaults). " +
+      "Use run_flow for future flows or custom options.",
+    parameters: Type.Object({
+      flow_name: Type.String({
+        description: `Flow to run. One of: ${FLOW_NAMES.join(", ")}`,
+      }),
+      target_path: Type.String({
+        description: "Workspace-relative path to operate on",
+      }),
+      task_id: Type.Optional(
+        Type.String({ description: "ATP task ID for tracking" }),
+      ),
+      options: Type.Optional(
+        Type.Record(Type.String(), Type.String(), {
+          description: "Flow-specific key/value options",
+        }),
+      ),
+    }),
+    execute: async (_, params: any) => {
+      const taskId = params.task_id ?? "TASK-UNKNOWN";
+      EventLog.log(
+        EventType.AGENT_TOOL_CALL, "qa", taskId,
+        `QA triggering flow '${params.flow_name}' on ${params.target_path}`,
+      );
+
+      const result = await runFlow(params.flow_name, {
+        taskId,
+        agentId: "qa",
+        targetPath: params.target_path,
+        options: params.options,
+      });
+
+      return ok(
+        `Flow '${params.flow_name}': ${result.success ? "SUCCESS" : "FAILED"}\n\n` +
+        `${result.summary}\n` +
+        (result.reportPath ? `Report: ${result.reportPath}\n` : "") +
+        (result.details ? `\nDetails:\n${result.details}` : ""),
+      );
     },
   },
 ];

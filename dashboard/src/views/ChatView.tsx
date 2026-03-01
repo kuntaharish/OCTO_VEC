@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ArrowUp, Search, X } from "lucide-react";
 import { usePolling, postApi } from "../hooks/useApi";
 import { useAgentStream } from "../hooks/useSSE";
+import { useEmployees } from "../context/EmployeesContext";
 import type { ChatEntry, Employee } from "../types";
 
 const SYSTEM_PREFIXES = ["SUNSET_COMPLETE", "SUNRISE_", "NO_ACTION_REQUIRED", "MEMORY_UPDATED", "JOURNAL_"];
@@ -39,7 +40,7 @@ export default function ChatView() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const { data: allEntries, refresh } = usePolling<ChatEntry[]>("/api/chat-log", 2000);
-  const { data: employees } = usePolling<Employee[]>("/api/employees", 10000);
+  const { employees } = useEmployees();
   const { activeAgents } = useAgentStream();
 
   const agents = useMemo(() => {

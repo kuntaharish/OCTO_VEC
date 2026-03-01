@@ -52,8 +52,14 @@ agentStreamBus.setMaxListeners(100); // allow many concurrent SSE clients
 const REPLAY_LIMIT = 400;
 const _replayBuffer: StreamToken[] = [];
 
-/** Add a token to the replay buffer. */
+/** Add a token to the replay buffer. On agent_start, clear previous tokens for that agent. */
 function bufferToken(tok: StreamToken): void {
+  if (tok.type === "agent_start") {
+    // Clear previous tokens for this agent so stale state doesn't replay
+    for (let i = _replayBuffer.length - 1; i >= 0; i--) {
+      if (_replayBuffer[i].agentId === tok.agentId) _replayBuffer.splice(i, 1);
+    }
+  }
   _replayBuffer.push(tok);
   if (_replayBuffer.length > REPLAY_LIMIT) _replayBuffer.shift();
 }

@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback } from "react";
 import { Maximize2, Lock, X, Search, ChevronLeft } from "lucide-react";
 import { usePolling, postApi } from "../hooks/useApi";
 import { useAgentStream } from "../hooks/useSSE";
+import { useEmployees } from "../context/EmployeesContext";
 import type { Employee, Task, AgentProfile } from "../types";
 
 const ROLE_COLORS: Record<string, string> = {
@@ -24,7 +25,7 @@ const TOOL_GROUPS: { label: string; match: (t: string) => boolean }[] = [
 
 const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 const DUR = "0.44s";
-const ACTIVE_AGENTS = ["pm", "ba", "dev"];
+// All agents are now implemented — controls shown for everyone.
 
 function getInitials(name: string): string {
   const parts = name.split(" ");
@@ -163,7 +164,7 @@ function ExpandedToolsGrid({ profile }: { profile: AgentProfile }) {
 /* ── Main DirectoryView ── */
 
 export default function DirectoryView() {
-  const { data: employees } = usePolling<Employee[]>("/api/employees", 10000);
+  const { employees } = useEmployees();
   const { data: tasks } = usePolling<Task[]>("/api/tasks", 5000);
   const { data: companyData } = usePolling<{ agents: AgentProfile[] }>("/api/company", 15000);
   const { tokens, activeAgents: activeMap } = useAgentStream();
@@ -433,7 +434,7 @@ export default function DirectoryView() {
                 )}
 
                 {/* Steer / Interrupt controls */}
-                {ACTIVE_AGENTS.includes(emp.agent_key) && (
+                {(
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button onClick={() => setSteerOpen((p) => ({ ...p, [emp.agent_key]: !p[emp.agent_key] }))}
@@ -644,7 +645,7 @@ export default function DirectoryView() {
                 )}
 
                 {/* Controls section */}
-                {ACTIVE_AGENTS.includes(expandedAgent) && (
+                {(
                   <div style={{ marginTop: 24 }}>
                     <div style={{
                       fontSize: 13, fontWeight: 600, color: "var(--text-primary)",

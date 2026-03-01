@@ -1,11 +1,12 @@
 import { usePolling } from "../hooks/useApi";
 import { useAgentStream } from "../hooks/useSSE";
+import { useEmployees } from "../context/EmployeesContext";
 import type { Task, VECEvent, Employee } from "../types";
 
 export default function OverviewView() {
   const { data: tasks, lastRefresh } = usePolling<Task[]>("/api/tasks", 3000);
   const { data: events } = usePolling<VECEvent[]>("/api/events", 3000);
-  const { data: employees } = usePolling<Employee[]>("/api/employees", 10000);
+  const { employees } = useEmployees();
   const { tokens, connected, activeAgents: activeMap } = useAgentStream();
 
   const allTasks = tasks ?? [];

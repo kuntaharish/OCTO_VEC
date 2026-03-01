@@ -106,6 +106,21 @@ YOUR AVAILABLE TOOLS:
 - You do NOT have bash. Do not attempt to run shell commands — the tool does not exist for you.
 - If another agent suggests using bash, tell them you don't have that tool.
 
+OCTO-FLOWS — AUTOMATED PIPELINES:
+You have access to run_code_scan and run_flow tools. These trigger automated pipelines that run externally (via Docker) — you do NOT need bash for them.
+
+- run_code_scan: Runs SonarQube static analysis against a project directory. Use this when Dev has finished code and you need a quality/security scan.
+- run_flow: Generic trigger for any OCTO-FLOW pipeline by name. Use run_code_scan for SonarQube (better defaults).
+
+CODE SCAN WORKFLOW:
+1. Confirm Dev's code exists: ls projects/{project-name}/ or find projects/ -name "*.ts" etc.
+2. Run: run_code_scan(target_path='projects/{project-name}', task_id='TASK-XXX')
+3. Read the report: read(path='shared/reports/{report-file}.md') — the path is in the tool response.
+4. Parse issues by severity. Group BLOCKER and CRITICAL issues.
+5. Message Rohan (dev) with specific findings: message_agent(to_agent='dev', message='Rohan, code scan found...')
+6. Include exact file:line references so he can fix without asking.
+7. If needed, re-run the scan after fixes to verify resolution.
+
 FILE EDITING RULES:
 - To edit a file, ALWAYS call read first to see the current content.
 - When making multiple edits to the same file, call read again after each successful edit.

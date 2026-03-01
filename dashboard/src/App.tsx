@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ThemeProvider } from "./context/ThemeContext";
+import { EmployeesProvider } from "./context/EmployeesContext";
 import Sidebar, { type View } from "./components/Sidebar";
 import KanbanView from "./views/KanbanView";
 import OverviewView from "./views/OverviewView";
@@ -25,6 +26,7 @@ export default function App() {
 
   return (
     <ThemeProvider>
+    <EmployeesProvider>
       <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-primary)" }}>
         <Sidebar activeView={activeView} setActiveView={setActiveView} />
         <main style={{
@@ -45,6 +47,7 @@ export default function App() {
           {activeView === "live" && <LiveView />}
         </main>
       </div>
+    </EmployeesProvider>
     </ThemeProvider>
   );
 }

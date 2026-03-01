@@ -76,6 +76,12 @@ export const config = {
   cliEnabled: !["0", "false", "no"].includes(
     (process.env.VEC_CLI_ENABLED ?? "1").trim().toLowerCase()
   ),
+
+  // ── OCTO-FLOWS: SonarQube ───────────────────────────────────────────────────
+  sonarHostUrl: process.env.SONAR_HOST_URL ?? "http://localhost:9000",
+  sonarToken: process.env.SONAR_TOKEN ?? "",
+  sonarProjectBaseKey: process.env.SONAR_PROJECT_BASE_KEY ?? "vec",
+  sonarScannerImage: process.env.SONAR_SCANNER_IMAGE ?? "sonarsource/sonar-scanner-cli:latest",
 };
 
 /** Shared workspace — all agents can read/write cross-agent deliverables here. */

@@ -199,6 +199,8 @@ export const AGENT_PROFILES: AgentProfile[] = [
       ...MEMORY_TOOLS,
       ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
+      { id: "run_code_scan", name: "Run Code Scan", description: "Trigger SonarQube code scan via OCTO-FLOWS", group: "OCTO-Flows" },
+      { id: "run_flow", name: "Run OCTO-Flow", description: "Trigger any named OCTO-FLOW pipeline", group: "OCTO-Flows" },
     ],
   },
   {

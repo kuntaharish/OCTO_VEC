@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { Monitor, Waypoints, Maximize2 } from "lucide-react";
 import { useAgentStream, type ActivityEntry } from "../hooks/useSSE";
-import { usePolling } from "../hooks/useApi";
+import { useEmployees } from "../context/EmployeesContext";
 import type { Employee } from "../types";
 import NetworkPanel from "./NetworkView";
 
@@ -330,7 +330,7 @@ function ModeBar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) 
 export default function LiveView() {
   const [mode, setMode] = useState<Mode>("live");
   const { tokens, activity, connected, activeAgents } = useAgentStream();
-  const { data: employees } = usePolling<Employee[]>("/api/employees", 10000);
+  const { employees } = useEmployees();
   const emps = employees ?? [];
 
   const activeCount = Object.keys(activeAgents).filter((k) => activeAgents[k]).length;

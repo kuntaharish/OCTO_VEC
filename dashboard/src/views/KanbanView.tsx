@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import Markdown from "react-markdown";
 import { usePolling } from "../hooks/useApi";
 import { useAgentStream } from "../hooks/useSSE";
+import { useEmployees } from "../context/EmployeesContext";
 import Dropdown from "../components/Dropdown";
 import type { Task, Employee, TaskStatus } from "../types";
 
@@ -82,7 +83,7 @@ type AgentFilter = "all" | string;
 
 export default function KanbanView() {
   const { data: tasks } = usePolling<Task[]>("/api/tasks", 3000);
-  const { data: employees } = usePolling<Employee[]>("/api/employees", 10000);
+  const { employees } = useEmployees();
   const { activeAgents } = useAgentStream();
   const [agentFilter, setAgentFilter] = useState<AgentFilter>("all");
 

@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback } from "react";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 import { useAgentStream } from "../hooks/useSSE";
 import { usePolling } from "../hooks/useApi";
+import { useEmployees } from "../context/EmployeesContext";
 import type { Employee, MessageFlowEntry } from "../types";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ export default function NetworkPanel() {
   const themeRef = useRef<ThemePalette>(readTheme());
 
   const { activeAgents: activeMap } = useAgentStream();
-  const { data: employees } = usePolling<Employee[]>("/api/employees", 10000);
+  const { employees } = useEmployees();
   const { data: flowData } = usePolling<MessageFlowEntry[]>("/api/message-flow", 3000);
 
   const emps = employees ?? [];
