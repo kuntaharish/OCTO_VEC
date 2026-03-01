@@ -40,32 +40,48 @@ const MEMORY_TOOLS: ToolDef[] = [
   { id: "write_sltm", name: "Write SLTM", description: "Write permanent stable memory",              group: "Memory" },
 ];
 
+// PM messaging — includes broadcast (PM is the only coordinator who broadcasts)
 const MESSAGING_TOOLS: ToolDef[] = [
+  { id: "message_agent",     name: "Message Agent",    description: "Send a direct message to any agent",       group: "Messaging", locked: true },
+  { id: "read_inbox",        name: "Read Inbox",        description: "Check and clear own inbox",                group: "Messaging", locked: true },
+  { id: "broadcast_message", name: "Broadcast Message", description: "Send to ALL agents at once — PM use only", group: "Messaging" },
+];
+
+// Worker messaging — point-to-point only (no broadcast)
+const AGENT_MESSAGING_TOOLS: ToolDef[] = [
   { id: "message_agent", name: "Message Agent", description: "Send a direct message to any agent", group: "Messaging", locked: true },
   { id: "read_inbox",    name: "Read Inbox",    description: "Check and clear own inbox",           group: "Messaging", locked: true },
+];
+
+// BA file tools — documentation files only (.md and .mmd)
+const BA_FILE_TOOLS: ToolDef[] = [
+  { id: "read",  name: "read",  description: "Read .md and .mmd documentation files only",  group: "Files" },
+  { id: "write", name: "write", description: "Write .md and .mmd documentation files only", group: "Files" },
+  { id: "edit",  name: "edit",  description: "Edit .md and .mmd documentation files only",  group: "Files" },
 ];
 
 const DATE_TOOL: ToolDef = { id: "get_current_date", name: "Get Current Date", description: "Get current date and time", group: "Utilities" };
 
 const READONLY_FILE_TOOLS: ToolDef[] = [
-  { id: "read_file", name: "Read File",       description: "Read files from disk",           group: "Files" },
-  { id: "grep",      name: "Grep",            description: "Search file content by pattern",  group: "Files" },
-  { id: "find",      name: "Find Files",      description: "Find files by glob pattern",      group: "Files" },
-  { id: "ls",        name: "List Directory",  description: "List directory contents",         group: "Files" },
+  { id: "read", name: "read", description: "Read files from disk",           group: "Files" },
+  { id: "grep", name: "grep", description: "Search file content by pattern", group: "Files" },
+  { id: "find", name: "find", description: "Find files by glob pattern",     group: "Files" },
+  { id: "ls",   name: "ls",   description: "List directory contents",        group: "Files" },
 ];
 
 const CODING_FILE_TOOLS: ToolDef[] = [
-  { id: "read_file",  name: "Read File",   description: "Read files from disk",            group: "Files" },
-  { id: "write_file", name: "Write File",  description: "Create or overwrite files",       group: "Files" },
-  { id: "edit_file",  name: "Edit File",   description: "Make targeted edits to a file",  group: "Files" },
-  { id: "bash",       name: "Bash",        description: "Execute shell commands",          group: "Files" },
+  { id: "read",  name: "read",  description: "Read files from disk",           group: "Files" },
+  { id: "write", name: "write", description: "Create or overwrite files",      group: "Files" },
+  { id: "edit",  name: "edit",  description: "Make targeted edits to a file", group: "Files" },
+  { id: "bash",  name: "bash",  description: "Execute shell commands",         group: "Files" },
 ];
 
 const SPECIALIST_TASK_TOOLS: ToolDef[] = [
-  { id: "read_my_tasks",     name: "Read My Tasks",   description: "View tasks assigned to me",        group: "Task Management" },
-  { id: "update_my_task",    name: "Update My Task",  description: "Update task status & result",      group: "Task Management" },
-  { id: "read_task_details", name: "Task Details",    description: "Get full task information",        group: "Task Management" },
-  { id: "send_message_to_pm",name: "Message PM",      description: "Escalate or report to PM",        group: "Task Management" },
+  { id: "read_my_tasks",      name: "Read My Tasks",      description: "View tasks assigned to me",                  group: "Task Management" },
+  { id: "read_task_details",  name: "Task Details",       description: "Get full task information",                  group: "Task Management" },
+  { id: "update_my_task",     name: "Update My Task",     description: "Update task status & result",                group: "Task Management" },
+  { id: "read_task_messages", name: "Read Task Messages", description: "Read PM messages for a specific task",       group: "Task Management" },
+  { id: "self_assign_task",   name: "Self-Assign Task",   description: "Create & claim a task from direct request",  group: "Task Management" },
 ];
 
 // ── Full agent catalog ────────────────────────────────────────────────────────
@@ -82,6 +98,8 @@ export const AGENT_PROFILES: AgentProfile[] = [
     tools: [
       { id: "create_and_assign_task",  name: "Create & Assign Task", description: "Create a task and auto-assign to an agent",  group: "Task Management" },
       { id: "start_task",              name: "Start Task",           description: "Trigger a pending task by ID",               group: "Task Management" },
+      { id: "start_tasks",             name: "Start Multiple Tasks", description: "Trigger multiple pending tasks at once",      group: "Task Management" },
+      { id: "reschedule_task",         name: "Reschedule Task",      description: "Change a task's scheduled date",             group: "Task Management" },
       { id: "send_task_message",       name: "Send Task Message",    description: "Message the agent assigned to a task",       group: "Task Management" },
       { id: "send_priority_message",   name: "Priority Message",     description: "Send a priority interrupt to an agent",      group: "Task Management" },
       { id: "check_task_status",       name: "Check Task Status",    description: "Check current status of any task",           group: "Task Management" },
@@ -92,8 +110,9 @@ export const AGENT_PROFILES: AgentProfile[] = [
       { id: "delete_task",             name: "Delete Task",          description: "Permanently delete a completed task",        group: "Task Management" },
       { id: "interrupt_agent",         name: "Interrupt Agent",      description: "Abort a running agent mid-stream",           group: "Task Management" },
       { id: "unblock_agent",           name: "Unblock Agent",        description: "Clear interrupt flags on an agent",          group: "Task Management" },
-      { id: "view_employee_directory", name: "Employee Directory",   description: "List all employees and their status",        group: "HR" },
-      { id: "lookup_employee",         name: "Lookup Employee",      description: "Get full details on any employee",           group: "HR" },
+      { id: "view_employee_directory", name: "Employee Directory",   description: "List all employees and their status",     group: "HR" },
+      { id: "lookup_employee",         name: "Lookup Employee",      description: "Get full details on any employee",        group: "HR" },
+      { id: "set_employee_status",     name: "Set Employee Status",  description: "Mark an employee available/busy/offline",    group: "HR" },
       ...READONLY_FILE_TOOLS,
       ...MEMORY_TOOLS,
       ...MESSAGING_TOOLS,
@@ -107,12 +126,12 @@ export const AGENT_PROFILES: AgentProfile[] = [
     department: "Engineering",
     initials: "PN",
     color: "#e36209",
-    implemented: false,
+    implemented: true,
     tools: [
       ...SPECIALIST_TASK_TOOLS,
       ...READONLY_FILE_TOOLS,
       ...MEMORY_TOOLS,
-      ...MESSAGING_TOOLS,
+      ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
     ],
   },
@@ -126,9 +145,9 @@ export const AGENT_PROFILES: AgentProfile[] = [
     implemented: true,
     tools: [
       ...SPECIALIST_TASK_TOOLS,
-      ...READONLY_FILE_TOOLS,
+      ...BA_FILE_TOOLS,
       ...MEMORY_TOOLS,
-      ...MESSAGING_TOOLS,
+      ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
     ],
   },
@@ -139,12 +158,12 @@ export const AGENT_PROFILES: AgentProfile[] = [
     department: "Product",
     initials: "SJ",
     color: "#0891b2",
-    implemented: false,
+    implemented: true,
     tools: [
       ...SPECIALIST_TASK_TOOLS,
       ...READONLY_FILE_TOOLS,
       ...MEMORY_TOOLS,
-      ...MESSAGING_TOOLS,
+      ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
     ],
   },
@@ -159,8 +178,9 @@ export const AGENT_PROFILES: AgentProfile[] = [
     tools: [
       ...SPECIALIST_TASK_TOOLS,
       ...CODING_FILE_TOOLS,
+      { id: "glob", name: "glob", description: "Find files matching a glob pattern", group: "Files" },
       ...MEMORY_TOOLS,
-      ...MESSAGING_TOOLS,
+      ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
     ],
   },
@@ -171,13 +191,13 @@ export const AGENT_PROFILES: AgentProfile[] = [
     department: "Engineering",
     initials: "PR",
     color: "#f59e0b",
-    implemented: false,
+    implemented: true,
     tools: [
       ...SPECIALIST_TASK_TOOLS,
       ...READONLY_FILE_TOOLS,
-      { id: "bash", name: "Bash", description: "Run test commands and scripts", group: "Files" },
+      { id: "bash", name: "bash", description: "Run test commands and scripts", group: "Files" },
       ...MEMORY_TOOLS,
-      ...MESSAGING_TOOLS,
+      ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
     ],
   },
@@ -188,13 +208,13 @@ export const AGENT_PROFILES: AgentProfile[] = [
     department: "Engineering",
     initials: "VS",
     color: "#ef4444",
-    implemented: false,
+    implemented: true,
     tools: [
       ...SPECIALIST_TASK_TOOLS,
       ...READONLY_FILE_TOOLS,
-      { id: "bash", name: "Bash", description: "Run security tools and scans", group: "Files" },
+      { id: "bash", name: "bash", description: "Run security tools and scans", group: "Files" },
       ...MEMORY_TOOLS,
-      ...MESSAGING_TOOLS,
+      ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
     ],
   },
@@ -205,15 +225,15 @@ export const AGENT_PROFILES: AgentProfile[] = [
     department: "Engineering",
     initials: "AK",
     color: "#8b5cf6",
-    implemented: false,
+    implemented: true,
     tools: [
       ...SPECIALIST_TASK_TOOLS,
       ...CODING_FILE_TOOLS,
-      { id: "grep", name: "Grep", description: "Search files", group: "Files" },
-      { id: "find", name: "Find Files", description: "Find files by pattern", group: "Files" },
-      { id: "ls",   name: "List Directory", description: "List directory contents", group: "Files" },
+      { id: "grep", name: "grep", description: "Search files", group: "Files" },
+      { id: "find", name: "find", description: "Find files by pattern", group: "Files" },
+      { id: "ls",   name: "ls",   description: "List directory contents", group: "Files" },
       ...MEMORY_TOOLS,
-      ...MESSAGING_TOOLS,
+      ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
     ],
   },
@@ -224,17 +244,17 @@ export const AGENT_PROFILES: AgentProfile[] = [
     department: "Product",
     initials: "AP",
     color: "#ec4899",
-    implemented: false,
+    implemented: true,
     tools: [
       ...SPECIALIST_TASK_TOOLS,
-      { id: "read_file",  name: "Read File",  description: "Read files from disk",        group: "Files" },
-      { id: "write_file", name: "Write File", description: "Write documentation files",   group: "Files" },
-      { id: "edit_file",  name: "Edit File",  description: "Edit existing documents",     group: "Files" },
-      { id: "grep",       name: "Grep",       description: "Search file content",         group: "Files" },
-      { id: "find",       name: "Find Files", description: "Find files by pattern",       group: "Files" },
-      { id: "ls",         name: "List Directory", description: "List directory contents", group: "Files" },
+      { id: "read",  name: "read",  description: "Read files from disk",        group: "Files" },
+      { id: "write", name: "write", description: "Write documentation files",   group: "Files" },
+      { id: "edit",  name: "edit",  description: "Edit existing documents",     group: "Files" },
+      { id: "grep",  name: "grep",  description: "Search file content",         group: "Files" },
+      { id: "find",  name: "find",  description: "Find files by pattern",       group: "Files" },
+      { id: "ls",    name: "ls",    description: "List directory contents",     group: "Files" },
       ...MEMORY_TOOLS,
-      ...MESSAGING_TOOLS,
+      ...AGENT_MESSAGING_TOOLS,
       DATE_TOOL,
     ],
   },
@@ -283,6 +303,11 @@ export function setAgentTools(agentId: string, toolIds: string[]): void {
  *   repeated calls to discourage the LLM from retrying.
  */
 export function applyToolConfig(agentId: string, allTools: any[]): any[] {
+  const stored = readToolConfig();
+
+  // No stored config for this agent = full access, no blocking
+  if (!stored[agentId]) return allTools;
+
   const enabled = new Set(getEnabledTools(agentId));
   const profile = AGENT_PROFILES.find((a) => a.agent_id === agentId);
   const locked = new Set(profile?.tools.filter((t) => t.locked).map((t) => t.id) ?? []);

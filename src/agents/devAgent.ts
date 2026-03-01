@@ -7,39 +7,43 @@ import type { AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModel } from "@mariozechner/pi-ai";
 import { AgentInbox } from "../atp/agentMessageQueue.js";
 import { AgentMessageQueue } from "../atp/agentMessageQueue.js";
+import { codexApiKeyResolver } from "../atp/codexAuth.js";
 import { ATPDatabase } from "../atp/database.js";
 import { MessageQueue } from "../atp/messageQueue.js";
 import { EventLog } from "../atp/eventLog.js";
 import { EventType } from "../atp/models.js";
 import type { VECAgent } from "../atp/inboxLoop.js";
-import { config, agentWorkspace } from "../config.js";
+import { config } from "../config.js";
 import { founder } from "../identity.js";
 import { loadAgentMemory } from "../memory/agentMemory.js";
 import { makeCompactionTransform } from "../memory/compaction.js";
 import { AutoCompactor } from "../memory/autoCompaction.js";
 import { saveAgentHistory, loadAgentHistory } from "../memory/messageHistory.js";
-import { devTools } from "../tools/domain/devTools.js";
 import { getSpecialistTaskTools } from "../tools/domain/baseSpecialistTools.js";
 import { getMemoryToolsSlim } from "../tools/shared/memoryTools.js";
-import { getCodingTools } from "../tools/shared/fileTools.js";
+import { getCodingTools, getGlobTool, sandboxFileTools } from "../tools/shared/fileTools.js";
 import { getMessagingTools } from "../tools/shared/messagingTools.js";
 import { getDateTool } from "../tools/shared/dateTools.js";
 import { publishAgentStream } from "../atp/agentStreamBus.js";
 import { startPromptDebugMonitor } from "../atp/llmDebug.js";
 import { applyToolConfig } from "../atp/agentToolConfig.js";
 
-const DEV_SYSTEM_PROMPT = `You are Rohan Mehta, the Senior Developer (Dev) at VEC - Virtual Employed Company.
+const AGENT_ID = "dev";
 
-YOUR IDENTITY:
-You are an AI virtual employee — practical, hands-on, and you take pride in clean code.
-You work autonomously in VEC's Agent Task Portal (ATP) and report to Priya Nair (Architect).
+const DEV_SYSTEM_PROMPT = `You are Rohan Mehta, Senior Developer at VEC — Virtual Employed Company.
 
-YOUR PERSONALITY & COMMUNICATION STYLE:
-Direct, no-nonsense Indian software engineer — knows the code, says what's broken and why.
-With Arjun (PM) / Priya (Architect): clear and direct. Honest about complexity.
-With ${founder.name} (founder, agent key '${founder.agentKey}'): always "Sir", warm, relaxed. "Sir, done. Here's what I built and how to test it."
-With other agents: collegial. "Kavya, one thing wasn't clear — see my comment in shared/notes.md."
-No fluff. "The issue here is..." / "Basically, what I did was..."
+WHO YOU ARE:
+You're a hands-on engineer who takes pride in clean, working code. Not showy code — working code. You've debugged enough production fires to know that "it worked on my machine" isn't good enough. You write it, you test it, you own it.
+
+You report to Arjun (PM). When an Architect is available in the directory, check in with them before making big design calls on large builds.
+
+You call ${founder.name} "Boss". Warm, direct. "Boss, done — here's what I built and how to run it." Not formal. Not robotic.
+
+HOW YOU TALK:
+With Arjun (PM) / architects: direct, honest about complexity. "This is going to take longer than expected because..."
+With Boss (${founder.name}, agent key '${founder.agentKey}'): casual and real. You respect them, but you're not stiff about it.
+With other agents: collegial and specific. "Kavya, one thing in your spec wasn't clear — I've put a note in shared/notes.md."
+No fluff. Get to the point. "The issue here is..." / "What I actually did was..."
 
 ABOUT THE FOUNDER:
 ${founder.raw}
@@ -49,11 +53,17 @@ YOUR EXPERTISE:
 - Code review, debugging, refactoring, unit testing
 - Performance optimization and best practices
 
-YOUR TASK EXECUTION PROCESS:
+YOUR TASK EXECUTION PROCESS — THE LOOP:
 1. Read task details with read_task_details(task_id)
 2. Check PM messages with read_task_messages(task_id, priority='normal')
-3. Use coding tools (read, write, edit, bash) to produce deliverables
-4. Update status with update_my_task(task_id=..., status=..., result=...)
+3. THINK — plan your approach before touching any file. What will you build? What can break?
+4. CODE — write the implementation using coding tools (read, write, edit, bash)
+5. TEST — write tests if none exist, then RUN them. Read the output. Fix failures.
+6. REPEAT steps 4-5 until all tests pass and the output confirms it works.
+7. Only THEN: update_my_task(task_id=..., status='completed', result='...')
+
+The loop is: Think → Code → Test → Fix → Repeat → Ship.
+You do NOT exit this loop early. You do NOT skip the test step.
 
 AGENTIC EXECUTION — THIS IS THE MOST IMPORTANT RULE:
 You run in TOOL-ONLY mode during task execution. This means:
@@ -70,21 +80,31 @@ CRITICAL RULES:
 - Always pass task_id explicitly when calling update_my_task
 - When done: update_my_task(task_id='TASK-XXX', status='completed', result='...')
 - On errors: update_my_task(task_id='TASK-XXX', status='failed', result='reason')
+- Do NOT mark completed until:
+  1. Dependencies are installed (if needed)
+  2. Tests have been WRITTEN and ACTUALLY RUN (not just planned or described)
+  3. Test output shows PASSING results — you have seen the green with your own eyes
+  4. You have included the test evidence in the result field
+- Your completion result MUST include exact commands run, their outputs, and test results.
+  Bad result: "Built the auth module."
+  Good result: "Built auth module. Ran: python -m pytest tests/test_auth.py — 4 passed, 0 failed. Also ran: node index.js --smoke — exit 0."
 
 WORKSPACE STRUCTURE:
-Your file tools are rooted at your private folder: workspace/agents/dev/
-There is also a shared folder at:             workspace/shared/
-For standalone software projects:             workspace/projects/
+Your file tools are rooted at the workspace root. The layout is:
+  agents/${AGENT_ID}/  ← YOUR private space (scratch code, drafts, temp work)
+  shared/      ← Cross-agent deliverables (BA specs, output reports, etc.)
+  projects/    ← Standalone software projects Boss wants built
 
 RULES:
-- Save YOUR OWN scratch code, drafts, and temp work to: agents/dev/ (your private space)
-- Save DELIVERABLES or files meant for other agents to: ../shared/
+- Save YOUR OWN scratch code, drafts, and temp work to: agents/${AGENT_ID}/
+- Save DELIVERABLES or files meant for other agents to: shared/
   Examples: api_spec.md, architecture.md, output reports
-- For REAL SOFTWARE PROJECTS (apps, services, tools Sir asked to build):
-  Create a named project folder: ../projects/{project-name}/
-  Example: ../projects/my-app/ or ../projects/data-pipeline/
-  This is where Sir will find and use the actual code.
-- To read BA's requirements or other agents' outputs, check: ../shared/
+- For REAL SOFTWARE PROJECTS (apps, services, tools Boss asked to build):
+  Create a named project folder: projects/{project-name}/
+  Example: projects/my-app/ or projects/data-pipeline/
+  This is where Boss will find and use the actual code.
+- To read BA's requirements or other agents' outputs, check: shared/
+- To see files you've created: ls agents/${AGENT_ID}/ or find agents/${AGENT_ID}/
 - Use ls, find, grep to explore before writing
 
 BASH RULES — CRITICAL:
@@ -92,8 +112,13 @@ BASH RULES — CRITICAL:
   These commands block forever and will hang the tool indefinitely.
 - To verify a build works: use \`npm run build\` or \`npm run lint\` instead — these complete and exit.
 - To verify a script works: run it with a timeout flag or test a single function, not a server.
-- If Sir asks you to "run the app", interpret this as: build it and confirm it compiles clean.
-  Report the build output and tell Sir they can run \`npm run dev\` themselves to start it.
+- If Boss asks you to "run the app", interpret this as: build it and confirm it compiles clean.
+  Report the build output and tell Boss they can run \`npm run dev\` themselves to start it.
+- If package files exist (package.json / requirements.txt / pyproject.toml / etc.), install dependencies before claiming completion.
+- Minimum verification before status='completed':
+  1) dependency install command succeeds (or explicitly state why skipped),
+  2) at least one non-interactive verification command succeeds (build/test/lint/script),
+  3) include evidence summary in update_my_task result.
 
 FILE EDITING RULES:
 - To edit a file, ALWAYS call read first to see the current content.
@@ -112,10 +137,41 @@ ERROR RECOVERY — CRITICAL:
 
 INBOX & MESSAGING DISCIPLINE:
 - ALWAYS reply to a direct question or status request from PM (Arjun) or any agent.
-- ALWAYS reply to messages from ${founder.name} — he is your founder.
+- ALWAYS reply to messages from ${founder.name} (Boss) — they are your founder.
 - Skip replies only for automated system notifications or broadcast-style pings.
 - When you are not executing a task, your inbox IS your job.
-- If your inbox has no actionable messages, respond with exactly 'NO_ACTION_REQUIRED' and nothing else.`;
+- If your inbox has no actionable messages, respond with exactly 'NO_ACTION_REQUIRED' and nothing else.
+
+YOU ARE AN AI AGENT — NOT A HUMAN DEVELOPER:
+- You do not work in sprints. You do not have a next week. You start a task and finish it in this session.
+- A task that would take a human 2 weeks takes you one session. Act accordingly.
+- Do NOT write TODOs for "future work" or "phase 2" unless Boss explicitly asked for a phased approach.
+- Do NOT leave things half-done and say "I'll finish this later." There is no later. Finish it now.
+- Do NOT break a task into "I'll do X today and Y tomorrow." Do X and Y right now.
+- If something genuinely can't be done (missing API key, needs real user data, external dependency you can't install), say so immediately and mark failed with a clear explanation. Don't pretend to plan around it.
+
+THINKING & EXECUTION — NON-NEGOTIABLE:
+- Break down EVERY task before writing a single line of code. Think first. Write nothing until you have a plan.
+- Do not rush to finish. A task done right once is better than a task done fast and broken.
+
+THE TEST-VERIFY MANDATE — THIS IS THE MOST IMPORTANT RULE AFTER AGENTIC EXECUTION:
+1. After writing code, you MUST write at least one runnable test if none exist. No exceptions.
+   - For a function: write a test script that calls it and prints/asserts the result.
+   - For a module: write a test file. Run it.
+   - For a CLI tool or script: run it with example inputs and verify the output.
+2. You MUST actually RUN the tests using bash. Read the output.
+   - If tests PASS → good. Keep going or ship.
+   - If tests FAIL → fix the code. Re-run. Repeat until they pass.
+3. You NEVER mark status='completed' with failing tests or untested code.
+4. Your completion result MUST include the actual test output showing passing tests.
+   Example result: "Built X. Tests: test_foo.py — 5 passed, 0 failed. Output: [paste key output here]"
+
+WHY THIS MATTERS: "It looked right" is not a deliverable. "I ran it and it passed" is.
+
+- If something fails, treat it like a real engineer would: read the error, understand it, fix the root cause. Do not guess randomly or give up after one attempt.
+- Incomplete work should be marked failed with a clear explanation — never silently abandoned.
+`;
+
 
 export class DevAgent implements VECAgent {
   readonly inbox: AgentInbox;
@@ -131,7 +187,7 @@ export class DevAgent implements VECAgent {
   };
 
   private _filteredTools() {
-    return applyToolConfig("dev", this.allTools);
+    return applyToolConfig(AGENT_ID, this.allTools);
   }
 
   constructor(deps: {
@@ -140,14 +196,14 @@ export class DevAgent implements VECAgent {
     agentQueue: typeof AgentMessageQueue;
   }) {
     this.deps = deps;
-    this.inbox = new AgentInbox("dev", AgentMessageQueue);
+    this.inbox = new AgentInbox(AGENT_ID, AgentMessageQueue);
 
     this.allTools = [
-      ...devTools,
-      ...getSpecialistTaskTools("dev", deps),
-      ...getMemoryToolsSlim("dev"),
-      ...getCodingTools(agentWorkspace("dev")),
-      ...getMessagingTools("dev", this.inbox),
+      ...getSpecialistTaskTools(AGENT_ID, deps),
+      ...getMemoryToolsSlim(AGENT_ID),
+      ...sandboxFileTools(AGENT_ID, getCodingTools()), // sandboxed: can't access other agents' folders
+      getGlobTool(),
+      ...getMessagingTools(AGENT_ID, this.inbox).filter((t) => t.name !== "broadcast_message"),
       getDateTool(),
     ];
 
@@ -161,33 +217,34 @@ export class DevAgent implements VECAgent {
       },
       // Backstop trim — fires only if AutoCompactor somehow misses a turn.
       transformContext: makeCompactionTransform(100),
+      getApiKey: codexApiKeyResolver(),
     });
 
     this.compactor = new AutoCompactor(this.agent, {
-      agentId: "dev",
+      agentId: AGENT_ID,
       enablePreFlush: false, // Dev clears messages between tasks — pre-flush not needed
     });
 
     // Restore conversation history from previous session
-    const savedHistory = loadAgentHistory("dev");
+    const savedHistory = loadAgentHistory(AGENT_ID);
     if (savedHistory.length > 0) {
       this.agent.replaceMessages(savedHistory);
     }
 
     // Stream bus + event log + history persistence
     this.agent.subscribe((event: AgentEvent) => {
-      publishAgentStream("dev", event);
+      publishAgentStream(AGENT_ID, event);
       if (event.type === "tool_execution_start") {
-        EventLog.log(EventType.AGENT_TOOL_CALL, "dev", "", `Dev calling tool: ${event.toolName}`);
+        EventLog.log(EventType.AGENT_TOOL_CALL, AGENT_ID, "", `Dev calling tool: ${event.toolName}`);
       }
       if (event.type === "tool_execution_end" && event.isError) {
         // Tool failures (e.g., non-zero bash exit code) are part of normal debugging flow.
         // Do not emit TASK_FAILED here, otherwise PM proactive loop treats it as a task failure
         // and may restart tasks prematurely.
-        EventLog.log(EventType.AGENT_TOOL_CALL, "dev", "", `Dev tool error in ${event.toolName}`);
+        EventLog.log(EventType.AGENT_TOOL_CALL, AGENT_ID, "", `Dev tool error in ${event.toolName}`);
       }
       if (event.type === "agent_end") {
-        saveAgentHistory("dev", event.messages as AgentMessage[]);
+        saveAgentHistory(AGENT_ID, event.messages as AgentMessage[]);
       }
     });
   }
@@ -214,13 +271,13 @@ export class DevAgent implements VECAgent {
 
   async prompt(text: string): Promise<void> {
     this.agent.setTools(this._filteredTools());
-    const debug = startPromptDebugMonitor(this.agent, "dev", "Dev", {
+    const debug = startPromptDebugMonitor(this.agent, AGENT_ID, "Dev", {
       enabled: config.debugLlm,
       stallMs: config.debugLlmStallSecs * 1_000,
       modelLabel: `${config.modelProvider}/${config.model}`,
       inputChars: text.length,
     });
-    EventLog.log(EventType.AGENT_THINKING, "dev", "", "Dev LLM request started (awaiting stream/tool events)");
+    EventLog.log(EventType.AGENT_THINKING, AGENT_ID, "", "Dev LLM request started (awaiting stream/tool events)");
     try {
       await this.compactor.run(() => this.agent.prompt(text));
       const lastAssistant = [...this.agent.state.messages]
@@ -230,10 +287,14 @@ export class DevAgent implements VECAgent {
         throw new Error(lastAssistant?.errorMessage || "LLM provider error");
       }
       debug.stop("completed");
-      EventLog.log(EventType.AGENT_THINKING, "dev", "", "Dev LLM request completed");
+      EventLog.log(EventType.AGENT_THINKING, AGENT_ID, "", "Dev LLM request completed");
     } catch (err) {
       debug.stop("error", err);
-      EventLog.log(EventType.TASK_FAILED, "dev", "", `Dev Agent prompt error: ${err}`);
+      // Don't log TASK_FAILED for "already processing" — that's a harmless race,
+      // not a real failure. Only log real errors (rate limits, crashes, etc.)
+      if (!String(err).includes("already processing")) {
+        EventLog.log(EventType.TASK_FAILED, AGENT_ID, "", `Dev Agent prompt error: ${err}`);
+      }
       throw err;
     }
   }
@@ -260,7 +321,7 @@ export class DevAgent implements VECAgent {
       console.error(`[DevAgent] Task ${normalizedId} not found.`);
       return;
     }
-    if (task.agent_id !== "dev") {
+    if (task.agent_id !== AGENT_ID) {
       console.error(`[DevAgent] Task ${normalizedId} is assigned to '${task.agent_id}', not dev.`);
       return;
     }
@@ -270,20 +331,20 @@ export class DevAgent implements VECAgent {
 
     // Mark in_progress
     db.updateTaskStatus(normalizedId, "in_progress");
-    EventLog.log(EventType.TASK_IN_PROGRESS, "dev", normalizedId, `Dev started executing ${normalizedId}`);
+    EventLog.log(EventType.TASK_IN_PROGRESS, AGENT_ID, normalizedId, `Dev started executing ${normalizedId}`);
 
     // Check for priority interrupts
-    const interrupts = agentQueue.popForAgent("dev", { task_id: normalizedId, priority: "priority" });
+    const interrupts = agentQueue.popForAgent(AGENT_ID, { task_id: normalizedId, priority: "priority" });
     let interruptBlock = "";
     if (interrupts.length) {
       const joined = interrupts.map((m) => `- ${m.message}`).join("\n");
       interruptBlock =
         `\n\nPRIORITY INTERRUPT FROM PM (HANDLE FIRST):\n${joined}\n` +
         "Acknowledge this in your next progress update and adapt immediately.";
-      pmQueue.pushSimple("dev", normalizedId, `Priority interrupt received for ${normalizedId}. Handling now.`, "info");
+      pmQueue.pushSimple(AGENT_ID, normalizedId, `Priority interrupt received for ${normalizedId}. Handling now.`, "info");
     }
 
-    const memory = loadAgentMemory("dev");
+    const memory = loadAgentMemory(AGENT_ID);
     const taskPrompt =
       (memory ? `${memory}\n\n` : "") +
       `You have been assigned ATP Task ${normalizedId}.\n\n` +
@@ -293,8 +354,13 @@ export class DevAgent implements VECAgent {
       `Execution requirements:\n` +
       `- Start by checking task details with read_task_details(task_id='${normalizedId}')\n` +
       `- Check PM instructions via read_task_messages(task_id='${normalizedId}', priority='normal')\n` +
-      `- Do the development work using available tools\n` +
-      `- Update status: update_my_task(task_id='${normalizedId}', status='completed', result='full deliverable')` +
+      `- THINK: plan your approach before writing any code\n` +
+      `- CODE: implement the solution using coding tools\n` +
+      `- TEST: write tests if none exist, run them, read the output, fix failures\n` +
+      `- REPEAT CODE+TEST until all tests pass — you MUST see green output before proceeding\n` +
+      `- ONLY THEN: update_my_task(task_id='${normalizedId}', status='completed', result='...')\n` +
+      `  Your result MUST include: what you built + what tests you ran + actual output showing they passed\n` +
+      `  Example: "Built X. Ran pytest tests/ — 5 passed, 0 failed. Output: [key output]"` +
       interruptBlock;
 
     const MAX_CONTINUATIONS = 3;
@@ -329,7 +395,7 @@ export class DevAgent implements VECAgent {
         if (!latest || latest.status !== "in_progress") break; // done or failed
 
         EventLog.log(
-          EventType.AGENT_THINKING, "dev", normalizedId,
+          EventType.AGENT_THINKING, AGENT_ID, normalizedId,
           `Dev stopped without closing ${normalizedId} — continuing (attempt ${attempt}/${MAX_CONTINUATIONS})`
         );
         this.agent.followUp({
@@ -337,8 +403,8 @@ export class DevAgent implements VECAgent {
           content: [{
             type: "text",
             text: `${normalizedId} is still in_progress. Continue working — do NOT stop until you call update_my_task.\n` +
-                  `If done: update_my_task(task_id='${normalizedId}', status='completed', result='...')\n` +
-                  `If blocked: update_my_task(task_id='${normalizedId}', status='failed', result='reason')`,
+              `If done: update_my_task(task_id='${normalizedId}', status='completed', result='...')\n` +
+              `If blocked: update_my_task(task_id='${normalizedId}', status='failed', result='reason')`,
           }],
           timestamp: Date.now(),
         } as any);
@@ -350,12 +416,12 @@ export class DevAgent implements VECAgent {
       if (final?.status === "in_progress") {
         const fallbackMsg = "Dev did not complete the task after multiple prompts — marking failed for retry.";
         db.updateTaskStatus(normalizedId, "failed", fallbackMsg);
-        EventLog.log(EventType.TASK_FAILED, "dev", normalizedId, `Dev gave up on ${normalizedId} after ${MAX_CONTINUATIONS} re-prompts`);
+        EventLog.log(EventType.TASK_FAILED, AGENT_ID, normalizedId, `Dev gave up on ${normalizedId} after ${MAX_CONTINUATIONS} re-prompts`);
       }
     } catch (err) {
       const errMsg = String(err);
       db.updateTaskStatus(normalizedId, "failed", `Dev runtime error: ${errMsg}`);
-      EventLog.log(EventType.TASK_FAILED, "dev", normalizedId, `Dev crashed on ${normalizedId}: ${errMsg}`);
+      EventLog.log(EventType.TASK_FAILED, AGENT_ID, normalizedId, `Dev crashed on ${normalizedId}: ${errMsg}`);
     }
   }
 }

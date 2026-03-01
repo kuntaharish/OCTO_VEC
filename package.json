@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/tower.ts",
-    "dev": "tsx --watch src/tower.ts"
+    "dev": "tsx --watch src/tower.ts",
+    "dashboard:install": "cd dashboard && npm install",
+    "dashboard:dev": "cd dashboard && npm run dev",
+    "dashboard:build": "cd dashboard && npm install && npm run build"
   },
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.53.1",

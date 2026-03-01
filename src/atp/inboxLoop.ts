@@ -12,6 +12,7 @@
 import { AgentInbox, AGENT_DISPLAY_NAMES, registerInboxWaker, unregisterInboxWaker } from "./agentMessageQueue.js";
 import { EventLog } from "./eventLog.js";
 import { EventType } from "./models.js";
+import { ATPDatabase } from "./database.js";
 import { config } from "../config.js";
 import { founder } from "../identity.js";
 import { loadAgentMemory } from "../memory/agentMemory.js";
@@ -19,7 +20,7 @@ import { MessageDebouncer } from "./messageDebouncer.js";
 
 export const POLL_INTERVAL_MS = 15_000; // 15 seconds between inbox checks
 export const PM_PROACTIVE_INTERVAL_MS = 30_000; // 30 seconds between PM proactive checks
-export const AGENT_PROMPT_TIMEOUT_MS = 120_000; // 2 min max per LLM call
+export const AGENT_PROMPT_TIMEOUT_MS = 600_000; // 10 min max per LLM call (complex tasks need time)
 
 // ── Timeout wrapper ───────────────────────────────────────────────────────────
 
@@ -166,10 +167,10 @@ export function startInboxLoop(
       if (agent.isRunning) {
         // Let the founder know we received their message but are currently busy.
         // Send this acknowledgement only once per busy period so we don't spam.
-        if (!busyAckSent && agent.inbox.peek({ from_agent: "user" }).length > 0) {
+        if (agentId !== "pm" && !busyAckSent && agent.inbox.peek({ from_agent: "user" }).length > 0) {
           agent.inbox.send(
             "user",
-            "Sir, I'm currently executing a task. I'll read your message and respond as soon as I'm done.",
+            "Boss, I'm currently executing a task. I'll read your message and respond as soon as I'm done.",
             "",
             "normal"
           );
@@ -236,15 +237,18 @@ export function startInboxLoop(
         `${inboxText}\n\n` +
         "WHAT TO DO NOW (choose the first that applies):\n" +
         `1. GREETING / CASUAL CHAT from ${founder.name}: call message_agent(to_agent='${founder.agentKey}', message='...') immediately. Done.\n` +
-        `2. QUESTION or STATUS REQUEST from any agent (pm, ba, dev, etc.): call message_agent(to_agent='<sender_key>', message='...') with a direct reply. Done.\n` +
-        `3. BUILD / CREATE request with NO existing task: call self_assign_task(description='...') then STOP.\n` +
-        `4. WORK on existing TASK-XXX: call read_task_details('TASK-XXX'), do the work, call update_my_task.\n` +
-        `5. INFORMATIONAL only (genuinely no reply needed): respond with exactly 'NO_ACTION_REQUIRED' and nothing else.\n\n` +
+        `2. ACTION REQUEST from PM/Architect/any agent (build/fix/verify/re-run/check/do X): execute first using tools; send message_agent only after execution with evidence. Never send ack-only replies.\n` +
+        `3. QUESTION or STATUS REQUEST from any agent (pm, ba, dev, etc.): call message_agent(to_agent='<sender_key>', message='...') with a direct reply. Done.\n` +
+        `4. BUILD / CREATE request with NO existing task: call self_assign_task(description='...') then STOP.\n` +
+        `5. WORK on existing TASK-XXX: call read_task_details('TASK-XXX'), do the work, call update_my_task.\n` +
+        `6. If a PM/Architect message is only policy/process guidance (no direct question), apply it silently and continue working. NO_ACTION_REQUIRED.\n` +
+        `7. INFORMATIONAL only (genuinely no reply needed): respond with exactly 'NO_ACTION_REQUIRED' and nothing else.\n\n` +
         "REPLY RULES:\n" +
         `- To reach ${founder.name} you MUST call message_agent(to_agent='${founder.agentKey}', ...). Plain text responses are invisible.\n` +
-        `- Always address ${founder.name} as \"Sir\". Sign off: \"- ${firstName}\".\n` +
+        `- Always address ${founder.name} as \"Boss\". Sign off: \"- ${firstName}\".\n` +
         "- Keep replies to 1-3 sentences. Warm, direct.\n" +
-        "- Use agent keys when messaging (e.g. 'pm', 'ba', 'dev'), NOT display names.";
+        "- Use agent keys when messaging (e.g. 'pm', 'ba', 'dev'), NOT display names.\n" +
+        "- Do NOT send acknowledgement-only messages like 'got it', 'on it', or 'will do' unless explicitly asked to acknowledge.";
 
       if (agentId === "pm") {
         const hasFounderMessage = messages.some(
@@ -253,27 +257,27 @@ export function startInboxLoop(
 
         if (hasFounderMessage) {
           // ── Conversation mode: STANDALONE prompt (does NOT use base prompt) ──
-          // Two sub-modes: (A) Sir wants a reply, (B) Sir wants you to take action.
+          // Two sub-modes: (A) Boss wants a reply, (B) Boss wants you to take action.
           // Standalone so there are no conflicting WHAT TO DO NOW instructions.
           prompt =
             `IDENTITY: You are ${displayName}. Stay fully in character.\n\n` +
             (memory ? `${memory}\n\n` : "") +
             `DIRECT MESSAGE FROM ${founder.name.toUpperCase()}:\n\n` +
             `${inboxText}\n\n` +
-            `Read Sir's message and choose ONE path:\n\n` +
-            `PATH A — Sir wants a REPLY (question, status check, greeting, info):\n` +
+            `Read Boss's message and choose ONE path:\n\n` +
+            `PATH A — Boss wants a REPLY (question, status check, greeting, info):\n` +
             `  → You MAY call list_all_tasks or read_messages ONCE if needed.\n` +
             `  → Call message_agent(to_agent='${founder.agentKey}', ...) ONCE with your reply.\n` +
             `  → Then STOP. No further tool calls.\n\n` +
-            `PATH B — Sir wants you to TAKE AN ACTION (ping agents, create tasks, ask ba/dev, etc.):\n` +
+            `PATH B — Boss wants you to TAKE AN ACTION (ping agents, create tasks, ask ba/dev, etc.):\n` +
             `  → Do the action(s) first (e.g. message_agent to 'ba', message_agent to 'dev').\n` +
             `  → Then call message_agent(to_agent='${founder.agentKey}', ...) ONCE to confirm.\n` +
             `  → Then STOP.\n\n` +
             `HARD RULES:\n` +
-            `  - Max 1 message to Sir per trigger. Never two.\n` +
+            `  - Max 1 message to Boss per trigger. Never two.\n` +
             `  - Do NOT loop: no repeated check_task_status or read_messages.\n` +
-            `  - Do NOT create tasks unless Sir explicitly asked for work to be done.\n` +
-            `  - Always address Sir as "Sir". Sign off: "- ${firstName}".`;
+            `  - Do NOT create tasks unless Boss explicitly asked for work to be done.\n` +
+            `  - Always address Boss as "Boss". Sign off: "- ${firstName}".`;
         } else {
           // ── Task-management mode: standalone prompt (replaces base WHAT TO DO NOW) ─
           // Agent messages from BA/DEV arrived. PM must relay or ignore — no looping.
@@ -283,13 +287,16 @@ export function startInboxLoop(
             (memory ? `${memory}\n\n` : "") +
             `You have ${messages.length} message(s) from agents in your inbox:\n\n` +
             `${inboxText}\n\n` +
-            `RULE: You just received message(s) from your agents. Forward a brief summary to Sir.\n\n` +
-            `→ Call message_agent(to_agent='${founder.agentKey}') ONCE with 1-2 line summary.\n` +
-            `→ e.g. "Sir, Rohan is idle and ready for next task. No blockers. — Arjun"\n` +
-            `→ e.g. "Sir, Kavya completed the analysis and sent results to Dev. — Arjun"\n` +
-            `→ Then STOP. No more tool calls.\n\n` +
-            `ONLY skip if the agent literally only said "OK", "Got it", or "ACK" with zero substance.\n` +
-            `HARD RULES: Max 1 message to Sir. No loops. Do NOT create tasks unless Sir asked.`;
+            `RULE: You just received message(s) from your agents. Pick the ONE path that fits.\n\n` +
+            `PATH A — Agent asks YOU a question or needs a direct answer:\n` +
+            `  -> Reply directly: message_agent(to_agent='<sender_key>', message='...'). Then STOP.\n` +
+            `  -> Do NOT relay agent questions to Boss — they're asking YOU.\n\n` +
+            `PATH B — Material update Boss needs to know (task completed/failed, blocker, concrete deliverable):\n` +
+            `  -> Call message_agent(to_agent='${founder.agentKey}') ONCE with a 1-2 line summary.\n` +
+            `  -> Then STOP.\n\n` +
+            `PATH C — Non-material chatter (ACK/working/on it/internal coordination):\n` +
+            `  -> Respond with exactly 'NO_ACTION_REQUIRED' and STOP.\n\n` +
+            `HARD RULES: Max 1 outgoing message. No loops. Do NOT create tasks unless Boss asked.`;
         }
       }
 
@@ -298,7 +305,7 @@ export function startInboxLoop(
       }
       if (agentId === "pm" && hasFounderPriority) {
         prompt +=
-          `\n\nIMPORTANT: Sir sent a PRIORITY message. Reply to him with message_agent ONCE, then STOP completely.`;
+          `\n\nIMPORTANT: Boss sent a PRIORITY message. Reply with message_agent ONCE, then STOP completely.`;
       }
 
       // Subscribe to detect whether the agent calls message_agent.
@@ -364,27 +371,23 @@ export function startInboxLoop(
 
         // "Agent is already processing a prompt" — happens when the instant waker
         // fires while the agent is mid-LLM call (e.g. task execution, PM proactive).
-        // Use followUp() to queue the message inside pi-agent-core so it is
-        // delivered immediately after the current run finishes — no cooldown needed.
+        // Just set a short cooldown — messages stay in peek() queue and will be
+        // retried on the next poll. Do NOT call followUp() here: it stacks duplicate
+        // prompts that all fire at once when the task finishes, causing rate limit storms.
         if (errStr.includes("already processing")) {
-          if (agent.followUp) {
-            agent.followUp(prompt);
-            EventLog.log(
-              EventType.AGENT_THINKING, agentId, "",
-              `${agentId.toUpperCase()} busy — inbox queued as followUp (will process after current LLM run)`
-            );
-          } else {
-            // No followUp support — messages stay via peek(), next poll will retry.
-            EventLog.log(
-              EventType.AGENT_THINKING, agentId, "",
-              `${agentId.toUpperCase()} busy (no followUp) — will retry on next poll tick`
-            );
-          }
-          return; // No cooldown, no error ack to user
+          cooldownUntil = Date.now() + POLL_INTERVAL_MS;
+          EventLog.log(
+            EventType.AGENT_THINKING, agentId, "",
+            `${agentId.toUpperCase()} busy — inbox will retry in ${POLL_INTERVAL_MS / 1000}s`
+          );
+          return;
         }
 
         const isRL = isRateLimitError(err);
-        let backoffMs = 30_000;
+        const isTimeout = String(err).includes("timeout");
+        // Timeouts: short cooldown (task may still be running, inbox should check again soon).
+        // Rate limits: use extracted wait time. Other errors: 30s default.
+        let backoffMs = isTimeout ? 10_000 : 30_000;
         if (isRL) {
           backoffMs = extractRetryAfterMs(err);
         }
@@ -392,18 +395,20 @@ export function startInboxLoop(
         // failure. Without a cooldown we'd retry every 15 s — which could spam
         // the user with error acks if the problem is persistent.
         cooldownUntil = Date.now() + backoffMs;
+        // Use TASK_FAILED only for real errors (rate limits, crashes).
+        // Plain timeouts are not failures — the task may still be running fine.
         EventLog.log(
-          EventType.TASK_FAILED,
+          isTimeout ? EventType.AGENT_THINKING : EventType.TASK_FAILED,
           agentId,
           "",
-          `${agentId.toUpperCase()} inbox error: ${err} | cooling down ${Math.round(backoffMs / 1000)}s`
+          `${agentId.toUpperCase()} inbox ${isTimeout ? "timeout" : "error"}: ${err} | cooling down ${Math.round(backoffMs / 1000)}s`
         );
         // Acknowledge the human sender once so they know something went wrong.
         try {
           if (messages.some((m) => m.from_agent.trim().toLowerCase() === "user")) {
             agent.inbox.send(
               "user",
-              `Sir, I hit an error processing your message. I'll retry in ~${Math.round(backoffMs / 1000)}s.`,
+              `Boss, I hit an error processing your message. I'll retry in ~${Math.round(backoffMs / 1000)}s.`,
               "",
               "normal"
             );
@@ -468,6 +473,10 @@ export function startPmLiveLoop(
   let lastSeenTs = "";
   let running = false;
 
+  // Tracks how many times each task has been handed to PM for retry.
+  // Persists across proactive cycles so PM can't retry the same task forever.
+  const restartAttempts = new Map<string, number>();
+
   // Slight startup delay so agents are ready first.
   const proactiveHandle = setInterval(async () => {
     if (running) return;
@@ -504,24 +513,71 @@ export function startPmLiveLoop(
         )
         .join("\n");
 
+      // ── Build per-task action directives for failed tasks ──────────────────
+      // The PM's history is cleared before this prompt, so it has no memory of
+      // previous retries. We track restart attempts in code and tell PM exactly
+      // what to do — no guessing.
+      const failedTaskIds = [
+        ...new Set(
+          statusUpdates
+            .filter((e) => e.event_type === EventType.TASK_FAILED)
+            .map((e) => e.task_id?.trim().toUpperCase())
+            .filter(Boolean) as string[]
+        ),
+      ];
+
+      const completedTaskIds = statusUpdates
+        .filter((e) => e.event_type === EventType.TASK_COMPLETED)
+        .map((e) => e.task_id?.trim().toUpperCase())
+        .filter(Boolean) as string[];
+
+      // Clean up counter for tasks that completed successfully
+      for (const taskId of completedTaskIds) {
+        restartAttempts.delete(taskId);
+      }
+
+      let taskContextBlock = "";
+      if (failedTaskIds.length > 0) {
+        const lines = failedTaskIds.map((taskId) => {
+          const task = ATPDatabase.getTask(taskId);
+          const seen = restartAttempts.get(taskId) ?? 0;
+          const result = (task?.result ?? "no result").slice(0, 200);
+          const directive =
+            seen === 0
+              ? "ACTION: call restart_task (first failure — retry once silently)"
+              : `ACTION: message Boss — this has failed ${seen + 1} times, do NOT retry again`;
+          return `  ${taskId} [${task?.agent_id ?? "?"}]: ${directive}\n  Failure reason: "${result}"`;
+        });
+        taskContextBlock = `\nFailed task directives (follow exactly):\n${lines.join("\n")}\n`;
+
+        // Increment counter so next cycle knows this task was already handled
+        for (const taskId of failedTaskIds) {
+          restartAttempts.set(taskId, (restartAttempts.get(taskId) ?? 0) + 1);
+        }
+      }
+
       const prompt =
-        `SYSTEM TRIGGER: Task status updates detected. Act as ${founder.name}'s autonomous PM.\n\n` +
-        `Recent updates:\n${updatesBlock}\n\n` +
-        "YOUR RULES — act autonomously, minimise interruptions to Sir:\n\n" +
+        `SYSTEM TRIGGER: Task status updates from your team.\n\n` +
+        `Updates:\n${updatesBlock}\n` +
+        taskContextBlock + `\n` +
+        "RULES — act autonomously, one action only:\n\n" +
         "ON TASK COMPLETED:\n" +
-        `  → Always call message_agent(to_agent='${founder.agentKey}') with a brief one-line completion notice.\n` +
-        "  → Tell Sir what was done and where the output is (check task result or read_messages for details).\n" +
-        "  → Keep it to 1-2 sentences. No fluff.\n\n" +
+        "  → Call list_all_tasks to check if other tasks are still pending or in_progress.\n" +
+        "  →   If YES (more tasks running/waiting) → stay quiet. The job isn't done yet.\n" +
+        `  →   If NO (this was the last task) → message_agent(to_agent='${founder.agentKey}') ONCE.\n` +
+        "       One line: what was built, where to find it. No fluff. Just facts.\n\n" +
         "ON TASK FAILED:\n" +
-        "  → First call restart_task to auto-retry once — do NOT disturb Sir for the first failure.\n" +
-        `  → If it fails again after restart: call message_agent(to_agent='${founder.agentKey}') explaining the blocker.\n\n` +
-        "ON TASK IN_PROGRESS (no change):\n" +
-        "  → Do nothing. Agents are working.\n\n" +
+        "  → Read the directive above for that task ID. Follow it exactly.\n" +
+        "  → restart_task = silent retry. No message to Boss.\n" +
+        `  → If directive says 'message Boss': message_agent(to_agent='${founder.agentKey}') with the failure reason and what's blocked.\n\n` +
+        "ON TASK IN_PROGRESS:\n" +
+        "  → Do nothing. They're working.\n\n" +
         "HARD RULES:\n" +
-        "  - Do NOT create new tasks unless Sir explicitly asked in a previous message.\n" +
-        "  - Do NOT send greetings, check-ins, or 'all good' updates.\n" +
-        `  - Always address Sir as 'Sir'. Sign off as '- Arjun'.\n` +
-        "  - One message per proactive trigger — don't send multiple messages.";
+        "  - Do NOT create new tasks.\n" +
+        "  - Do NOT send greetings, check-ins, or unprompted updates.\n" +
+        `  - Address Boss as 'Boss'. Sign off as '— Arjun'.\n` +
+        "  - One outgoing action per trigger (message OR restart — not both). Reads like list_all_tasks are fine.\n" +
+        "  - Stop immediately after your one action.";
 
       EventLog.log(
         EventType.AGENT_THINKING,

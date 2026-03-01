@@ -28,15 +28,16 @@ function openDb(): Database.Database {
 function initDb(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
-      task_id      TEXT PRIMARY KEY,
-      description  TEXT NOT NULL,
-      agent_id     TEXT NOT NULL,
-      priority     TEXT NOT NULL DEFAULT 'medium',
-      status       TEXT NOT NULL DEFAULT 'pending',
-      folder_access TEXT DEFAULT '',
-      created_at   TEXT NOT NULL,
-      updated_at   TEXT NOT NULL,
-      result       TEXT DEFAULT ''
+      task_id        TEXT PRIMARY KEY,
+      description    TEXT NOT NULL,
+      agent_id       TEXT NOT NULL,
+      priority       TEXT NOT NULL DEFAULT 'medium',
+      status         TEXT NOT NULL DEFAULT 'pending',
+      folder_access  TEXT DEFAULT '',
+      scheduled_date TEXT DEFAULT '',
+      created_at     TEXT NOT NULL,
+      updated_at     TEXT NOT NULL,
+      result         TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS employees (
       employee_id     TEXT PRIMARY KEY,
@@ -61,6 +62,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     priority: (row.priority as string) as Priority,
     status: (row.status as string) as TaskStatus,
     folder_access: (row.folder_access as string) || "",
+    scheduled_date: (row.scheduled_date as string) || "",
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     result: (row.result as string) || "",
@@ -145,7 +147,17 @@ class ATPDatabaseClass {
   constructor() {
     this.db = openDb();
     initDb(this.db);
+    this.migrateDb();
     this.seedEmployees();
+  }
+
+  private migrateDb(): void {
+    // Add scheduled_date column to existing databases that predate this field.
+    try {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN scheduled_date TEXT DEFAULT ''");
+    } catch {
+      // Column already exists — safe to ignore
+    }
   }
 
   // ── Task ID generation ──────────────────────────────────────────────────────
@@ -165,15 +177,33 @@ class ATPDatabaseClass {
     description: string,
     agent_id: string,
     priority: string = "medium",
-    folder_access: string = ""
+    folder_access: string = "",
+    scheduled_date: string = ""
   ): Task {
     const task_id = this.getNextTaskId();
     const now = new Date().toISOString();
     this.db.prepare(`
-      INSERT INTO tasks (task_id, description, agent_id, priority, status, folder_access, created_at, updated_at, result)
-      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, '')
-    `).run(task_id, description, agent_id.trim().toLowerCase(), priority, folder_access, now, now);
+      INSERT INTO tasks (task_id, description, agent_id, priority, status, folder_access, scheduled_date, created_at, updated_at, result)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, '')
+    `).run(task_id, description, agent_id.trim().toLowerCase(), priority, folder_access, scheduled_date, now, now);
     return this.getTask(task_id)!;
+  }
+
+  updateTaskScheduledDate(task_id: string, scheduled_date: string): Task | undefined {
+    const now = new Date().toISOString();
+    this.db
+      .prepare("UPDATE tasks SET scheduled_date = ?, updated_at = ? WHERE task_id = ?")
+      .run(scheduled_date, now, task_id.trim().toUpperCase());
+    return this.getTask(task_id);
+  }
+
+  /** Return all pending tasks whose scheduled_date is today or earlier (due for release). */
+  getDueTasks(): Task[] {
+    const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+    const rows = this.db
+      .prepare(`SELECT * FROM tasks WHERE status = 'pending' AND scheduled_date != '' AND scheduled_date <= ?`)
+      .all(today) as Record<string, unknown>[];
+    return rows.map(rowToTask);
   }
 
   getTask(task_id: string): Task | undefined {
@@ -229,6 +259,11 @@ class ATPDatabaseClass {
   clearAllTasks(): number {
     const result = this.db.prepare("DELETE FROM tasks").run();
     return result.changes;
+  }
+
+  /** Reset all employee statuses to 'available' (used by company reset). */
+  resetEmployeeStatuses(): void {
+    this.db.prepare("UPDATE employees SET status = 'available'").run();
   }
 
   taskBoard(): string {
@@ -367,7 +402,7 @@ class ATPDatabaseClass {
   private seedEmployees(): void {
     // Agents without a live process — they appear in the directory as offline so PM
     // knows not to contact them. Add an agent_id here to remove it from PM's roster.
-    const OFFLINE_AGENTS = new Set(["qa", "security", "devops", "techwriter", "architect", "researcher"]);
+    const OFFLINE_AGENTS = new Set<string>([]);
 
     for (const emp of SEED_EMPLOYEES) {
       this.registerEmployee(emp);

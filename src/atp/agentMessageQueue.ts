@@ -169,6 +169,21 @@ export const AgentMessageQueue = {
     write([]);
   },
 
+  /**
+   * On server restart: preserve recent user→agent messages so they survive
+   * a crash or deliberate restart. Agent→agent messages (task coordination)
+   * are cleared because they reference stale in-flight context.
+   * @param maxAgeMs  Keep user messages newer than this (default: 2 hours)
+   */
+  clearTransient(maxAgeMs = 2 * 60 * 60_000): void {
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+    const all = read();
+    const keep = all.filter(
+      (m) => m.from_agent === "user" && (m.timestamp ?? "") >= cutoff
+    );
+    write(keep);
+  },
+
   clearFlowLog(): void {
     if (fs.existsSync(FLOW_LOG_PATH)) {
       fs.writeFileSync(FLOW_LOG_PATH, "[]", "utf-8");

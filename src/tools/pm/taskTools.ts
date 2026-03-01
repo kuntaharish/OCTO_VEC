@@ -53,6 +53,20 @@ function isValidTaskId(taskId: string): boolean {
   return TASK_ID_RE.test(taskId);
 }
 
+/** Resolve "today", "tomorrow", or "YYYY-MM-DD" to a "YYYY-MM-DD" string. */
+function resolveScheduledDate(input: string): string {
+  const s = input.trim().toLowerCase();
+  const today = new Date();
+  if (s === "today") return today.toISOString().slice(0, 10);
+  if (s === "tomorrow") {
+    today.setDate(today.getDate() + 1);
+    return today.toISOString().slice(0, 10);
+  }
+  // Validate YYYY-MM-DD format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input.trim())) return input.trim();
+  return ""; // invalid — treat as immediate
+}
+
 function ok(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };
 }
@@ -111,6 +125,14 @@ function startTaskInternal(taskId: string, deps: PMTaskToolDeps): string {
   }
   if (task.status !== "pending" && task.status !== "failed") {
     return `Task ${normalizedId} is already ${task.status}.`;
+  }
+
+  // Block tasks scheduled for a future date
+  if (task.scheduled_date) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (task.scheduled_date > today) {
+      return `ACK: ${normalizedId} is scheduled for ${task.scheduled_date} — not starting yet. It will be auto-released on that date.`;
+    }
   }
 
   const agent = deps.agents.get(task.agent_id);
@@ -191,6 +213,23 @@ function sendMessageToAssignee(
   return `ACK: [${tag}] sent to ${task.agent_id} for ${normalizedId}.${runtimeNote}${note}`;
 }
 
+// ── Scheduled task auto-release ───────────────────────────────────────────────
+
+/**
+ * Dispatch all pending tasks whose scheduled_date is today or earlier.
+ * Called at startup and hourly from tower.ts so tasks auto-release on their date.
+ */
+export function releaseDueTasks(deps: PMTaskToolDeps): void {
+  const dueTasks = deps.db.getDueTasks();
+  for (const task of dueTasks) {
+    EventLog.log(
+      EventType.PM_DELEGATING, "system", task.task_id,
+      `Scheduler: auto-releasing ${task.task_id} (scheduled=${task.scheduled_date})`
+    );
+    startTaskInternal(task.task_id, deps);
+  }
+}
+
 // ── Tool factory ──────────────────────────────────────────────────────────────
 
 export function getPMTaskTools(deps: PMTaskToolDeps): AgentTool[] {
@@ -213,6 +252,11 @@ export function getPMTaskTools(deps: PMTaskToolDeps): AgentTool[] {
       folder_access: Type.Optional(
         Type.String({ description: "Comma-separated file/folder paths the agent can access" })
       ),
+      scheduled_date: Type.Optional(
+        Type.String({
+          description: "When to run this task. Use 'today', 'tomorrow', or 'YYYY-MM-DD'. Omit for immediate dispatch.",
+        })
+      ),
       auto_start: Type.Optional(
         Type.Boolean({ description: "If true (default), immediately dispatch the task to the agent" })
       ),
@@ -223,16 +267,27 @@ export function getPMTaskTools(deps: PMTaskToolDeps): AgentTool[] {
         return ok(`ERROR: Unknown agent_id '${params.agent_id}'. Available: ${[...deps.agents.keys()].join(", ")}`);
       }
 
+      const scheduledDate = params.scheduled_date ? resolveScheduledDate(params.scheduled_date) : "";
+      const today = new Date().toISOString().slice(0, 10);
+      const isFuture = scheduledDate && scheduledDate > today;
+
       const task = deps.db.createTask(
         params.description,
         agentId,
         params.priority ?? "medium",
-        params.folder_access ?? ""
+        params.folder_access ?? "",
+        scheduledDate
       );
 
-      EventLog.log(EventType.TASK_CREATED, "pm", task.task_id, `Created ${task.task_id} and assigned to ${agentId}`, params.description);
+      const scheduleNote = scheduledDate ? ` scheduled=${scheduledDate}` : "";
+      EventLog.log(EventType.TASK_CREATED, "pm", task.task_id, `Created ${task.task_id} and assigned to ${agentId}${scheduleNote}`, params.description);
 
-      const createdAck = `ACK: Assigned ${task.task_id} to ${task.agent_id} (priority=${task.priority}, status=${task.status}).`;
+      const createdAck = scheduledDate
+        ? `ACK: Assigned ${task.task_id} to ${task.agent_id} (priority=${task.priority}, scheduled=${scheduledDate}). Will auto-start on that date.`
+        : `ACK: Assigned ${task.task_id} to ${task.agent_id} (priority=${task.priority}, status=${task.status}).`;
+
+      // If scheduled for a future date, never auto-start — it will be released by the scheduler
+      if (isFuture) return ok(createdAck);
 
       const autoStart = params.auto_start !== false; // default true
       if (!autoStart) return ok(createdAck);
@@ -531,11 +586,48 @@ export function getPMTaskTools(deps: PMTaskToolDeps): AgentTool[] {
     },
   };
 
+  const reschedule_task: AgentTool = {
+    name: "reschedule_task",
+    label: "Reschedule Task",
+    description:
+      "Change the scheduled date of a pending task. Use 'today', 'tomorrow', 'YYYY-MM-DD', or '' to make it immediate.",
+    parameters: Type.Object({
+      task_id: Type.String({ description: "The task ID to reschedule (e.g. 'TASK-001')" }),
+      scheduled_date: Type.String({
+        description: "New date: 'today', 'tomorrow', 'YYYY-MM-DD', or '' to release immediately",
+      }),
+    }),
+    execute: async (_, params: any) => {
+      const normalizedId = normalizeTaskId(params.task_id);
+      if (!isValidTaskId(normalizedId)) {
+        return ok(`ERROR: Invalid task ID '${params.task_id}'. Use format TASK-001.`);
+      }
+      const task = deps.db.getTask(normalizedId);
+      if (!task) return ok(`ERROR: Task ${normalizedId} not found.`);
+      if (task.status !== "pending") {
+        return ok(`ERROR: Can only reschedule pending tasks. ${normalizedId} is ${task.status}.`);
+      }
+
+      const newDate = params.scheduled_date ? resolveScheduledDate(params.scheduled_date) : "";
+      deps.db.updateTaskScheduledDate(normalizedId, newDate);
+      EventLog.log(EventType.TASK_CREATED, "pm", normalizedId, `PM rescheduled ${normalizedId} to '${newDate || "immediate"}'`);
+
+      const today = new Date().toISOString().slice(0, 10);
+      if (!newDate || newDate <= today) {
+        // Release immediately
+        const dispatchAck = startTaskInternal(normalizedId, deps);
+        return ok(`ACK: ${normalizedId} rescheduled to immediate — dispatching now.\n${dispatchAck}`);
+      }
+      return ok(`ACK: ${normalizedId} rescheduled to ${newDate}. Will auto-start on that date.`);
+    },
+  };
+
   return [
     create_and_assign_task,
     start_task,
     start_tasks,
     restart_task,
+    reschedule_task,
     send_task_message,
     send_priority_message,
     check_task_status,

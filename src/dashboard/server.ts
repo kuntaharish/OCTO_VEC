@@ -7,7 +7,7 @@
  *   GET /api/tasks         â†’ all ATP tasks (JSON)
  *   GET /api/employees     â†’ all employees (JSON)
  *   GET /api/events        â†’ last 30 events (JSON)
- *   GET /api/queue         â†’ PM message queue (JSON)
+ *   GET /api/queue         â†’ PM message queue (rJSON)
  *   GET /api/agent-messages â†’ inter-agent message queue (JSON)
  *   GET /api/errors        â†’ recent errors with type classification (JSON)
  *   GET /api/chat-log      â†’ userâ†”agent chat history (JSON)
@@ -15,17 +15,26 @@
  */
 
 import express from "express";
+import { existsSync, readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { config } from "../config.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+// React build output — dashboard/dist/ relative to repo root
+const REACT_DIST = join(__dirname, "../../dashboard/dist");
 import { ATPDatabase } from "../atp/database.js";
 import { EventLog } from "../atp/eventLog.js";
 import { MessageQueue } from "../atp/messageQueue.js";
 import { AgentMessageQueue, AGENT_DISPLAY_NAMES } from "../atp/agentMessageQueue.js";
 import { AgentInterrupt } from "../atp/agentInterrupt.js";
 import { UserChatLog } from "../atp/chatLog.js";
-import { agentStreamBus } from "../atp/agentStreamBus.js";
+import { agentStreamBus, getReplayBuffer } from "../atp/agentStreamBus.js";
 import type { StreamToken } from "../atp/agentStreamBus.js";
 import { AGENT_PROFILES, getEnabledTools, setAgentTools } from "../atp/agentToolConfig.js";
 import { ActiveChannelState } from "../channels/activeChannel.js";
+import type { VECAgent } from "../atp/inboxLoop.js";
 
 // â”€â”€ Error classification (server-side) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -2354,16 +2363,30 @@ function getDashboardHtml(): string {
 
 // â”€â”€ Server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-export function startDashboardServer(port = config.dashboardPort): void {
+export function startDashboardServer(agents: Map<string, VECAgent>, port = config.dashboardPort): void {
   const app = express();
   app.use(express.json());
 
   app.get("/api/tasks", (_req, res) => {
-    res.json(ATPDatabase.getAllTasks());
+    // Map "pending" → "todo" so React status types align
+    const tasks = ATPDatabase.getAllTasks().map((t) => ({
+      ...t,
+      status: t.status === "pending" ? "todo" : t.status,
+    }));
+    res.json(tasks);
   });
 
   app.get("/api/employees", (_req, res) => {
-    res.json(ATPDatabase.listEmployees());
+    // Map DB field names → React-friendly names (agent_id→agent_key, designation→role)
+    const employees = ATPDatabase.listEmployees().map((e) => ({
+      employee_id: e.employee_id,
+      name: e.name,
+      role: e.designation,
+      agent_key: e.agent_id,
+      status: e.status,
+      department: e.department,
+    }));
+    res.json(employees);
   });
 
   app.get("/api/events", (_req, res) => {
@@ -2376,6 +2399,18 @@ export function startDashboardServer(port = config.dashboardPort): void {
 
   app.get("/api/agent-messages", (_req, res) => {
     res.json(AgentMessageQueue.peekAll());
+  });
+
+  app.get("/api/message-flow", (_req, res) => {
+    try {
+      const flowPath = join(config.dataDir, "message_flow.json");
+      if (!existsSync(flowPath)) { res.json([]); return; }
+      const raw = readFileSync(flowPath, "utf-8").trim();
+      const data = raw ? JSON.parse(raw) : [];
+      res.json(data.slice(-200));
+    } catch {
+      res.json([]);
+    }
   });
 
   app.get("/api/errors", (_req, res) => {
@@ -2414,8 +2449,35 @@ export function startDashboardServer(port = config.dashboardPort): void {
       res.status(400).json({ error: "agent_id is required" });
       return;
     }
-    AgentInterrupt.request(agent_id.trim().toLowerCase(), reason ?? "Interrupted via dashboard");
-    res.json({ ok: true, agent_id, reason: reason ?? "Interrupted via dashboard" });
+    const id = agent_id.trim().toLowerCase();
+    const r = (reason as string | undefined) ?? "Interrupted via dashboard";
+    // Native abort — stops LLM generation mid-stream
+    agents.get(id)?.abort();
+    // Flag fallback — caught at next tool boundary
+    AgentInterrupt.request(id, r);
+    res.json({ ok: true, agent_id: id, reason: r });
+  });
+
+  app.post("/api/steer", (req, res) => {
+    const { agent_id, message } = req.body ?? {};
+    if (!agent_id || typeof agent_id !== "string" || !message || typeof message !== "string") {
+      res.status(400).json({ error: "agent_id and message are required strings" });
+      return;
+    }
+    const id = agent_id.trim().toLowerCase();
+    const agent = agents.get(id);
+    if (!agent) {
+      res.status(404).json({ error: `Unknown agent: ${id}` });
+      return;
+    }
+    if (agent.steer) {
+      // Inject message at next tool boundary (non-destructive)
+      agent.steer(message.trim());
+    } else {
+      // Fallback: push to inbox so it's processed in the next poll
+      AgentMessageQueue.push("user", id, "", message.trim(), "priority");
+    }
+    res.json({ ok: true, agent_id: id });
   });
 
   app.delete("/api/interrupt/:agentId", (req, res) => {
@@ -2426,10 +2488,13 @@ export function startDashboardServer(port = config.dashboardPort): void {
   // ── Company: agent profiles + tool config ────────────────────────────────
   app.get("/api/company", (_req, res) => {
     const data = AGENT_PROFILES.map((profile) => ({
-      ...profile,
-      enabledTools: getEnabledTools(profile.agent_id),
+      agent_id: profile.agent_id,
+      name: profile.name,
+      role: profile.role,
+      all_tools: profile.tools.map((t) => t.id),
+      enabled_tools: getEnabledTools(profile.agent_id),
     }));
-    res.json(data);
+    res.json({ agents: data });
   });
 
   app.post("/api/agent-config", (req, res) => {
@@ -2453,13 +2518,27 @@ export function startDashboardServer(port = config.dashboardPort): void {
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
+    // Prevent Windows TCP stack from resetting idle SSE connections
+    const socket = (req.socket as any);
+    if (socket?.setKeepAlive) socket.setKeepAlive(true, 10_000);
+    if (socket?.setNoDelay) socket.setNoDelay(true);
     res.flushHeaders();
 
-    // Heartbeat every 15 s to keep the connection alive through proxies
-    const heartbeat = setInterval(() => res.write(": ping\n\n"), 15_000);
+    // Heartbeat every 10 s — keeps connection alive through proxies and Windows TCP
+    const heartbeat = setInterval(() => { try { res.write(": ping\n\n"); } catch { /* ignore write-after-close */ } }, 10_000);
+
+    // Replay recent events so reconnecting clients catch up on what they missed.
+    // Use setImmediate so headers are flushed before we start writing data.
+    setImmediate(() => {
+      try {
+        for (const tok of getReplayBuffer()) {
+          res.write(`data: ${JSON.stringify(tok)}\n\n`);
+        }
+      } catch { /* client disconnected before replay finished */ }
+    });
 
     const onToken = (tok: StreamToken) => {
-      res.write(`data: ${JSON.stringify(tok)}\n\n`);
+      try { res.write(`data: ${JSON.stringify(tok)}\n\n`); } catch { /* ignore write-after-close */ }
     };
 
     agentStreamBus.on("token", onToken);
@@ -2469,10 +2548,19 @@ export function startDashboardServer(port = config.dashboardPort): void {
     });
   });
 
-  app.get("/", (_req, res) => {
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(getDashboardHtml());
-  });
+  // Serve React build if available, otherwise fall back to inline HTML
+  if (existsSync(REACT_DIST)) {
+    app.use(express.static(REACT_DIST));
+    // SPA fallback — all non-API routes serve index.html
+    app.get(/^(?!\/api).*$/, (_req, res) => {
+      res.sendFile(join(REACT_DIST, "index.html"));
+    });
+  } else {
+    app.get("/", (_req, res) => {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(getDashboardHtml());
+    });
+  }
 
   const server = app.listen(port, () => {
     // Intentionally silent — main.ts prints the URL in the banner

@@ -35,6 +35,7 @@ export interface Task {
   priority: Priority;
   status: TaskStatus;
   folder_access: string;
+  scheduled_date: string; // "YYYY-MM-DD" or "" for immediate
   created_at: string; // ISO string
   updated_at: string; // ISO string
   result: string;

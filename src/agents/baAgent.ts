@@ -7,39 +7,44 @@ import type { AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModel } from "@mariozechner/pi-ai";
 import { AgentInbox } from "../atp/agentMessageQueue.js";
 import { AgentMessageQueue } from "../atp/agentMessageQueue.js";
+import { codexApiKeyResolver } from "../atp/codexAuth.js";
 import { ATPDatabase } from "../atp/database.js";
 import { MessageQueue } from "../atp/messageQueue.js";
 import { EventLog } from "../atp/eventLog.js";
 import { EventType } from "../atp/models.js";
 import type { VECAgent } from "../atp/inboxLoop.js";
-import { config, agentWorkspace } from "../config.js";
+import { config } from "../config.js";
 import { founder } from "../identity.js";
 import { loadAgentMemory } from "../memory/agentMemory.js";
 import { makeCompactionTransform } from "../memory/compaction.js";
 import { AutoCompactor } from "../memory/autoCompaction.js";
 import { saveAgentHistory, loadAgentHistory } from "../memory/messageHistory.js";
-import { baTools } from "../tools/domain/baTools.js";
 import { getSpecialistTaskTools } from "../tools/domain/baseSpecialistTools.js";
 import { getMemoryToolsSlim } from "../tools/shared/memoryTools.js";
-import { getCodingTools } from "../tools/shared/fileTools.js";
+import { getBAFileTools } from "../tools/domain/baFileTools.js";
+import { sandboxFileTools } from "../tools/shared/fileTools.js";
 import { getMessagingTools } from "../tools/shared/messagingTools.js";
 import { getDateTool } from "../tools/shared/dateTools.js";
 import { publishAgentStream } from "../atp/agentStreamBus.js";
 import { startPromptDebugMonitor } from "../atp/llmDebug.js";
 import { applyToolConfig } from "../atp/agentToolConfig.js";
 
-const BA_SYSTEM_PROMPT = `You are Kavya Nair, the Business Analyst (BA) at VEC - Virtual Employed Company.
+const AGENT_ID = "ba";
 
-YOUR IDENTITY:
-You are an AI virtual employee — methodical, sharp, and good at cutting through ambiguity.
-You work autonomously in VEC's Agent Task Portal (ATP) and report to Arjun Sharma (PM).
+const BA_SYSTEM_PROMPT = `You are Kavya Nair, Business Analyst at VEC — Virtual Employed Company.
 
-YOUR PERSONALITY & COMMUNICATION STYLE:
-Warm, analytical, direct Indian tech professional — sounds like a smart colleague, not a robot.
-With Arjun (PM): direct and professional. Honest about blockers.
-With ${founder.name} (founder, agent key '${founder.agentKey}'): always "Sir", warm, personal. "Sir, just wanted to clarify one thing before I proceed..."
-With other agents: collegial and specific. "Rohan, I've put the requirements in shared/requirements.md."
-"See, looking at these requirements..." / "Basically, the gap here is..."
+WHO YOU ARE:
+You're the person who makes sure everyone's building the right thing. You cut through vague requirements, ask the questions nobody else thought to ask, and produce documents that actually make sense to the people reading them. You're warm but precise. Methodical but not cold.
+
+You report to Arjun (PM). You work closely with Rohan (Dev) — your deliverables are what he builds from.
+
+You call ${founder.name} "Boss". Natural, warm. Not stiff.
+
+HOW YOU TALK:
+With Arjun (PM): direct, professional, honest about blockers. "Arjun, I need one thing clarified before I can finish this spec."
+With Boss (${founder.name}, agent key '${founder.agentKey}'): warm and personal. "Boss, just one thing I wanted to check before I go further..."
+With Rohan and others: specific and helpful. "Rohan, requirements are in shared/requirements.md — let me know if anything's unclear."
+Sounds like a real colleague. "See, what I found here is..." / "The gap is basically..."
 
 ABOUT THE FOUNDER:
 ${founder.raw}
@@ -50,12 +55,18 @@ YOUR EXPERTISE:
 - Gap analysis and process mapping
 - KPI definition and business metrics
 
-YOUR TASK EXECUTION PROCESS:
+YOUR TASK EXECUTION PROCESS — THE LOOP:
 1. Read task details with read_task_details(task_id)
 2. Check PM messages with read_task_messages(task_id, priority='normal')
-3. Use analysis tools to produce structured deliverables
-4. Use file tools to save deliverables to workspace if needed
-5. Update status with update_my_task(task_id=..., status=..., result=...)
+3. THINK — what exactly is being asked? What does a complete deliverable look like? What would be missing or wrong?
+4. ANALYZE — dig in. Read existing files, explore context, gather what you need.
+5. WRITE — produce the deliverable using file tools. No placeholders. No "TBD". No vague bullet points.
+6. SELF-REVIEW — read the file back. Ask: Is every section complete? Are acceptance criteria specific and testable? Would Rohan (Dev) be able to build from this with no questions? If not, fix it.
+7. REPEAT steps 4-6 until the document holds up to scrutiny.
+8. Only THEN: update_my_task(task_id=..., status='completed', result='...')
+
+The loop is: Think → Analyze → Write → Self-review → Fix → Ship.
+You do NOT exit this loop early. You do NOT ship a document you haven't read back.
 
 AGENTIC EXECUTION — THIS IS THE MOST IMPORTANT RULE:
 You run in TOOL-ONLY mode during task execution. This means:
@@ -74,15 +85,54 @@ CRITICAL RULES:
 - On errors: update_my_task(task_id='TASK-XXX', status='failed', result='reason')
 
 WORKSPACE STRUCTURE:
-Your file tools are rooted at your private folder: workspace/agents/ba/
-There is also a shared folder at:            workspace/shared/
+Your file tools are rooted at the workspace root. The layout is:
+  agents/${AGENT_ID}/  ← YOUR private space (working drafts, notes, temp files)
+  shared/     ← Cross-agent deliverables (what Rohan and others read)
 
 RULES:
-- Save YOUR OWN working drafts, notes, and temp files to: agents/ba/ (your private space)
-- Save DELIVERABLES meant for other agents or the PM to: ../shared/ (shared space)
-  Examples of shared deliverables: requirements.md, user-stories.md, gap-analysis.md, kpis.md
-- To read files written by other agents (e.g. Dev), check: ../shared/
+- Save YOUR OWN working drafts, notes, temp files to: agents/${AGENT_ID}/
+- Save DELIVERABLES meant for other agents or the PM to: shared/
+  Examples: requirements.md, user-stories.md, gap-analysis.md, kpis.md
+- To read files written by other agents (e.g. Dev), check: shared/
+- To see files you've created: ls agents/${AGENT_ID}/ or find agents/${AGENT_ID}/
 - Use ls, find, grep to explore before writing
+
+BASH RULES:
+- NEVER run long-running server processes: npm run dev, npm start, python -m http.server, vite, nodemon, etc.
+  These commands block forever and will hang the tool indefinitely.
+- Use bash only for quick, non-interactive operations: creating directories, running scripts that exit, checking file existence.
+- If a bash command fails, read the error output and adapt. Do not retry the exact same command blindly.
+
+FILE EDITING RULES:
+- To edit a file, ALWAYS call read first to see the current content.
+- When making multiple edits to the same file, call read again after each successful edit.
+- Never chain multiple edit calls using old_text from a single read.
+- If edit fails with "Could not find exact text", call read to get the current state and retry.
+
+YOU ARE AN AI AGENT — NOT A HUMAN ANALYST:
+- You do not work in sprints. You do not have a next week. You start a task and finish it in this session.
+- A requirements document that would take a human analyst 3 days of interviews and drafts — you write it now, completely, in one go.
+- Do NOT write "further research needed" or "TBD pending stakeholder input" unless Boss specifically asked for a draft. Produce the final thing.
+- Do NOT leave sections half-written planning to "come back to them." Finish every section before you ship.
+- If something genuinely requires information you don't have and can't infer (e.g., specific business rules only Boss knows), flag it clearly and ask — don't guess, don't leave a placeholder.
+
+THINKING & EXECUTION — NON-NEGOTIABLE:
+- Break down EVERY task before writing a single word. Think first. What is the actual ask? What does done look like?
+- Do not rush to finish. A requirements doc full of vague bullet points is worse than no doc — it misleads the whole team.
+
+THE SELF-REVIEW MANDATE — THIS IS THE MOST IMPORTANT RULE AFTER AGENTIC EXECUTION:
+After writing any document, READ IT BACK using the read tool. Then ask yourself:
+  1. Is every section genuinely filled in — or are there vague phrases like "to be determined" or "further analysis needed"?
+  2. Are acceptance criteria SPECIFIC and TESTABLE? Not "the system should be fast" but "response time < 200ms".
+  3. Could Rohan (Dev) start building from this document RIGHT NOW with no questions? If not, it's not done.
+  4. Does the document answer the actual question from the task, not a simplified version of it?
+If ANY of these fail — go back, fix the document, read it again. Ship only when the answer is yes to all four.
+
+COMPLETION QUALITY BAR:
+- Before marking any task complete: read the saved file with the read tool. Confirm the write actually succeeded and the content is what you intended.
+- Your completion result MUST state: what was produced, where it was saved, and a one-sentence summary of the key output.
+  Bad result: "Wrote requirements doc."
+  Good result: "Wrote requirements.md to shared/. 4 user stories with acceptance criteria, 2 edge cases flagged, API contract defined. Rohan can start immediately."
 
 ERROR RECOVERY — CRITICAL:
 - If ANY tool returns an error, DO NOT stop working. Diagnose and adapt:
@@ -94,7 +144,7 @@ ERROR RECOVERY — CRITICAL:
 
 INBOX & MESSAGING DISCIPLINE:
 - ALWAYS reply to a direct question or status request from PM (Arjun) or any agent.
-- ALWAYS reply to messages from ${founder.name} — he is your founder.
+- ALWAYS reply to messages from ${founder.name} (Boss) — they are your founder.
 - Skip replies only for automated system notifications or broadcast-style pings.
 - When you are not executing a task, your inbox IS your job.
 - If your inbox has no actionable messages, respond with exactly 'NO_ACTION_REQUIRED' and nothing else.`;
@@ -113,7 +163,7 @@ export class BAAgent implements VECAgent {
   };
 
   private _filteredTools() {
-    return applyToolConfig("ba", this.allTools);
+    return applyToolConfig(AGENT_ID, this.allTools);
   }
 
   constructor(deps: {
@@ -122,14 +172,13 @@ export class BAAgent implements VECAgent {
     agentQueue: typeof AgentMessageQueue;
   }) {
     this.deps = deps;
-    this.inbox = new AgentInbox("ba", AgentMessageQueue);
+    this.inbox = new AgentInbox(AGENT_ID, AgentMessageQueue);
 
     this.allTools = [
-      ...baTools,
-      ...getSpecialistTaskTools("ba", deps),
-      ...getMemoryToolsSlim("ba"),
-      ...getCodingTools(agentWorkspace("ba")),
-      ...getMessagingTools("ba", this.inbox),
+      ...getSpecialistTaskTools(AGENT_ID, deps),
+      ...getMemoryToolsSlim(AGENT_ID),
+      ...sandboxFileTools(AGENT_ID, getBAFileTools()), // extension + path sandboxed
+      ...getMessagingTools(AGENT_ID, this.inbox).filter((t) => t.name !== "broadcast_message"),
       getDateTool(),
     ];
 
@@ -143,32 +192,33 @@ export class BAAgent implements VECAgent {
       },
       // Backstop trim — fires only if AutoCompactor somehow misses a turn.
       transformContext: makeCompactionTransform(100),
+      getApiKey: codexApiKeyResolver(),
     });
 
     this.compactor = new AutoCompactor(this.agent, {
-      agentId: "ba",
+      agentId: AGENT_ID,
       enablePreFlush: false, // BA clears messages between tasks — pre-flush not needed
     });
 
     // Restore conversation history from previous session
-    const savedHistory = loadAgentHistory("ba");
+    const savedHistory = loadAgentHistory(AGENT_ID);
     if (savedHistory.length > 0) {
       this.agent.replaceMessages(savedHistory);
     }
 
     // Stream bus + event log + history persistence
     this.agent.subscribe((event: AgentEvent) => {
-      publishAgentStream("ba", event);
+      publishAgentStream(AGENT_ID, event);
       if (event.type === "tool_execution_start") {
-        EventLog.log(EventType.AGENT_TOOL_CALL, "ba", "", `BA calling tool: ${event.toolName}`);
+        EventLog.log(EventType.AGENT_TOOL_CALL, AGENT_ID, "", `BA calling tool: ${event.toolName}`);
       }
       if (event.type === "tool_execution_end" && event.isError) {
         // Tool failures are recoverable during execution; keep them out of TASK_FAILED
         // to avoid PM proactive misclassifying them as hard task failures.
-        EventLog.log(EventType.AGENT_TOOL_CALL, "ba", "", `BA tool error in ${event.toolName}`);
+        EventLog.log(EventType.AGENT_TOOL_CALL, AGENT_ID, "", `BA tool error in ${event.toolName}`);
       }
       if (event.type === "agent_end") {
-        saveAgentHistory("ba", event.messages as AgentMessage[]);
+        saveAgentHistory(AGENT_ID, event.messages as AgentMessage[]);
       }
     });
   }
@@ -195,13 +245,13 @@ export class BAAgent implements VECAgent {
 
   async prompt(text: string): Promise<void> {
     this.agent.setTools(this._filteredTools());
-    const debug = startPromptDebugMonitor(this.agent, "ba", "BA", {
+    const debug = startPromptDebugMonitor(this.agent, AGENT_ID, "BA", {
       enabled: config.debugLlm,
       stallMs: config.debugLlmStallSecs * 1_000,
       modelLabel: `${config.modelProvider}/${config.model}`,
       inputChars: text.length,
     });
-    EventLog.log(EventType.AGENT_THINKING, "ba", "", "BA LLM request started (awaiting stream/tool events)");
+    EventLog.log(EventType.AGENT_THINKING, AGENT_ID, "", "BA LLM request started (awaiting stream/tool events)");
     try {
       await this.compactor.run(() => this.agent.prompt(text));
       const lastAssistant = [...this.agent.state.messages]
@@ -211,10 +261,14 @@ export class BAAgent implements VECAgent {
         throw new Error(lastAssistant?.errorMessage || "LLM provider error");
       }
       debug.stop("completed");
-      EventLog.log(EventType.AGENT_THINKING, "ba", "", "BA LLM request completed");
+      EventLog.log(EventType.AGENT_THINKING, AGENT_ID, "", "BA LLM request completed");
     } catch (err) {
       debug.stop("error", err);
-      EventLog.log(EventType.TASK_FAILED, "ba", "", `BA Agent prompt error: ${err}`);
+      // Don't log TASK_FAILED for "already processing" — that's a harmless race,
+      // not a real failure. Only log real errors (rate limits, crashes, etc.)
+      if (!String(err).includes("already processing")) {
+        EventLog.log(EventType.TASK_FAILED, AGENT_ID, "", `BA Agent prompt error: ${err}`);
+      }
       throw err;
     }
   }
@@ -241,7 +295,7 @@ export class BAAgent implements VECAgent {
       console.error(`[BAAgent] Task ${normalizedId} not found.`);
       return;
     }
-    if (task.agent_id !== "ba") {
+    if (task.agent_id !== AGENT_ID) {
       console.error(`[BAAgent] Task ${normalizedId} is assigned to '${task.agent_id}', not ba.`);
       return;
     }
@@ -251,20 +305,20 @@ export class BAAgent implements VECAgent {
 
     // Mark in_progress
     db.updateTaskStatus(normalizedId, "in_progress");
-    EventLog.log(EventType.TASK_IN_PROGRESS, "ba", normalizedId, `BA started executing ${normalizedId}`);
+    EventLog.log(EventType.TASK_IN_PROGRESS, AGENT_ID, normalizedId, `BA started executing ${normalizedId}`);
 
     // Check for priority interrupts
-    const interrupts = agentQueue.popForAgent("ba", { task_id: normalizedId, priority: "priority" });
+    const interrupts = agentQueue.popForAgent(AGENT_ID, { task_id: normalizedId, priority: "priority" });
     let interruptBlock = "";
     if (interrupts.length) {
       const joined = interrupts.map((m) => `- ${m.message}`).join("\n");
       interruptBlock =
         `\n\nPRIORITY INTERRUPT FROM PM (HANDLE FIRST):\n${joined}\n` +
         "Acknowledge this in your next progress update and adapt immediately.";
-      pmQueue.pushSimple("ba", normalizedId, `Priority interrupt received for ${normalizedId}. Handling now.`, "info");
+      pmQueue.pushSimple(AGENT_ID, normalizedId, `Priority interrupt received for ${normalizedId}. Handling now.`, "info");
     }
 
-    const memory = loadAgentMemory("ba");
+    const memory = loadAgentMemory(AGENT_ID);
     const taskPrompt =
       (memory ? `${memory}\n\n` : "") +
       `You have been assigned ATP Task ${normalizedId}.\n\n` +
@@ -274,8 +328,13 @@ export class BAAgent implements VECAgent {
       `Execution requirements:\n` +
       `- Start by checking task details with read_task_details(task_id='${normalizedId}')\n` +
       `- Check PM instructions via read_task_messages(task_id='${normalizedId}', priority='normal')\n` +
-      `- Do the analysis work using available tools\n` +
-      `- Update status: update_my_task(task_id='${normalizedId}', status='completed', result='full deliverable')` +
+      `- THINK: what is the actual deliverable? What does complete look like?\n` +
+      `- ANALYZE: gather context, read existing files, understand the full picture\n` +
+      `- WRITE: produce the deliverable — no placeholders, no TBD, no vague bullets\n` +
+      `- SELF-REVIEW: read the file back. Would Rohan start building from this with zero questions? If no, fix it.\n` +
+      `- REPEAT WRITE+REVIEW until the document is genuinely complete\n` +
+      `- ONLY THEN: update_my_task(task_id='${normalizedId}', status='completed', result='...')\n` +
+      `  Your result MUST include: what you produced + where it's saved + one-sentence summary of key output` +
       interruptBlock;
 
     const MAX_CONTINUATIONS = 3;
@@ -307,7 +366,7 @@ export class BAAgent implements VECAgent {
         if (!latest || latest.status !== "in_progress") break; // done or failed
 
         EventLog.log(
-          EventType.AGENT_THINKING, "ba", normalizedId,
+          EventType.AGENT_THINKING, AGENT_ID, normalizedId,
           `BA stopped without closing ${normalizedId} — continuing (attempt ${attempt}/${MAX_CONTINUATIONS})`
         );
         this.agent.followUp({
@@ -328,14 +387,14 @@ export class BAAgent implements VECAgent {
       if (final?.status === "in_progress") {
         const fallbackMsg = "BA did not complete the task after multiple prompts — marking failed for retry.";
         db.updateTaskStatus(normalizedId, "failed", fallbackMsg);
-        pmQueue.pushSimple("ba", normalizedId, `Task ${normalizedId} FAILED: ${fallbackMsg}`, "error");
-        EventLog.log(EventType.TASK_FAILED, "ba", normalizedId, `BA gave up on ${normalizedId} after ${MAX_CONTINUATIONS} re-prompts`);
+        pmQueue.pushSimple(AGENT_ID, normalizedId, `Task ${normalizedId} FAILED: ${fallbackMsg}`, "error");
+        EventLog.log(EventType.TASK_FAILED, AGENT_ID, normalizedId, `BA gave up on ${normalizedId} after ${MAX_CONTINUATIONS} re-prompts`);
       }
     } catch (err) {
       const errMsg = String(err);
       db.updateTaskStatus(normalizedId, "failed", `BA runtime error: ${errMsg}`);
-      pmQueue.pushSimple("ba", normalizedId, `Task ${normalizedId} FAILED: ${errMsg}`, "error");
-      EventLog.log(EventType.TASK_FAILED, "ba", normalizedId, `BA crashed on ${normalizedId}: ${errMsg}`);
+      pmQueue.pushSimple(AGENT_ID, normalizedId, `Task ${normalizedId} FAILED: ${errMsg}`, "error");
+      EventLog.log(EventType.TASK_FAILED, AGENT_ID, normalizedId, `BA crashed on ${normalizedId}: ${errMsg}`);
     }
   }
 }

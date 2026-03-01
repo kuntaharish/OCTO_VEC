@@ -2,6 +2,7 @@ import "dotenv/config";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
+import { SPECIALIST_AGENT_IDS } from "./agentIds.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = join(__dirname, "..");
@@ -94,5 +95,5 @@ export const WORKSPACE_DIRS = [
   sharedWorkspace,
   projectsWorkspace,
   // specialist agent folders
-  ...["ba", "dev", "qa", "security", "devops", "techwriter", "architect", "researcher"].map(agentWorkspace),
+  ...SPECIALIST_AGENT_IDS.map(agentWorkspace),
 ];

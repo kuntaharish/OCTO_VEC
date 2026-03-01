@@ -8,6 +8,7 @@ import readline from "readline";
 import fs from "fs";
 
 import { config, sharedWorkspace, agentWorkspace, WORKSPACE_DIRS } from "./config.js";
+import { ALL_AGENT_IDS } from "./agentIds.js";
 import { founder } from "./identity.js";
 import { loadAgentMemory, isFirstInteraction, markFirstInteractionDone } from "./memory/agentMemory.js";
 import { ATPDatabase } from "./atp/database.js";
@@ -21,8 +22,15 @@ import type { AgentEvent } from "@mariozechner/pi-agent-core";
 
 import { BAAgent } from "./agents/baAgent.js";
 import { DevAgent } from "./agents/devAgent.js";
+import { QAAgent } from "./agents/qaAgent.js";
+import { SecurityAgent } from "./agents/securityAgent.js";
+import { DevOpsAgent } from "./agents/devopsAgent.js";
+import { TechWriterAgent } from "./agents/techwriterAgent.js";
+import { ArchitectAgent } from "./agents/architectAgent.js";
+import { ResearcherAgent } from "./agents/researcherAgent.js";
 import { PMAgent } from "./agents/pmAgent.js";
 import { startDashboardServer } from "./dashboard/server.js";
+import { releaseDueTasks } from "./tools/pm/taskTools.js";
 import { AgentInterrupt } from "./atp/agentInterrupt.js";
 import { createTelegramChannel } from "./channels/telegram.js";
 import { ActiveChannelState } from "./channels/activeChannel.js";
@@ -69,10 +77,16 @@ function printBanner(): void {
     console.log("  /interrupt — Stop a running agent mid-task");
     console.log("  /forget    — Clear PM conversation history");
     console.log("  /live      — Toggle live queue monitor");
+    console.log("  /reset     — Company reset (tasks, memories, histories, queues)");
   }
   if (config.cliEnabled) console.log("  /quit      — Exit");
   console.log("");
 }
+
+// ── Suppress chat log during system prompts (sunset, proactive, etc.) ─────
+//    Set to true before any internally-initiated PM prompt so the response
+//    is NOT logged to UserChatLog as a user-facing chat message.
+let suppressChatLog = false;
 
 // ── PM event handler for streaming output ─────────────────────────────────
 
@@ -94,8 +108,9 @@ function attachPmStreaming(pmAgent: PMAgent): void {
 
       case "message_update": {
         const ae = event.assistantMessageEvent;
+        // Always forward to stream bus (handles text, thinking, etc.)
+        publishAgentStream("pm", event);
         if (ae.type === "text_delta" && ae.delta) {
-          publishAgentStream("pm", event);
           capturedText += ae.delta;
           if (!headerPrinted) {
             process.stdout.write("\nArjun (PM): ");
@@ -128,10 +143,17 @@ function attachPmStreaming(pmAgent: PMAgent): void {
         publishAgentStream("pm", event);
         // Fallback: if PM generated text but never called message_agent,
         // the model output plain text instead of a tool call (Kimi K2 quirk).
-        // Capture it directly so it appears in Teams chat.
-        // Skip if this was a Telegram-originated prompt — Telegram handles its own reply.
+        // Capture it directly so it appears in chat.
+        // Skip: Telegram-originated prompts (Telegram handles its own reply).
+        // Skip: system-initiated prompts (sunset, proactive) — suppressChatLog flag.
         const text = capturedText.trim();
-        if (text && !messageAgentCalled && !text.startsWith("NO_ACTION_REQUIRED") && ActiveChannelState.get() !== "telegram") {
+        if (
+          text &&
+          !messageAgentCalled &&
+          !suppressChatLog &&
+          !text.startsWith("NO_ACTION_REQUIRED") &&
+          ActiveChannelState.get() !== "telegram"
+        ) {
           UserChatLog.log({ from: "pm", to: "user", message: text, channel: "agent" });
         }
         capturedText = "";
@@ -187,9 +209,31 @@ async function main(): Promise<void> {
   // 1. Ensure all data/memory/workspace directories exist
   ensureDirs();
 
-  // 2. Clear transient state from previous run
-  AgentMessageQueue.clear();
-  AgentMessageQueue.clearFlowLog();
+  // 1b. Startup reset flag — triggered by: npm run dev /reset  OR  npm run dev -- --reset
+  //     Wipes tasks, queues, histories, memories before any agents are created.
+  const doStartupReset = process.argv.slice(2).some((a) => a === "--reset" || a === "/reset");
+  if (doStartupReset) {
+    console.log("\n  [STARTUP RESET] Wiping all tasks, memories, and queues...");
+    ATPDatabase.clearAllTasks();
+    ATPDatabase.resetEmployeeStatuses();
+    MessageQueue.clear();
+    UserChatLog.clear();
+    for (const id of ALL_AGENT_IDS) clearAgentHistory(id);
+    try {
+      fs.rmSync(config.memoryDir, { recursive: true, force: true });
+      fs.mkdirSync(config.memoryDir, { recursive: true });
+    } catch { /* non-fatal */ }
+    console.log("  Done — VEC will start fresh.\n");
+  }
+
+  // 2. Clear transient state from previous run.
+  //    clearTransient() preserves recent user→agent messages (<2h) so they
+  //    survive a server restart and PM still processes them. Agent→agent
+  //    coordination messages are dropped (stale task context).
+  AgentMessageQueue.clearTransient();
+  // clearFlowLog() is NOT called on normal startup — flow history persists
+  // across restarts so Network view shows historical message flows.
+  // It is only cleared on full /reset.
   EventLog.clear();
 
   // 3. Create specialist agents
@@ -201,15 +245,33 @@ async function main(): Promise<void> {
 
   const baAgent = new BAAgent(deps);
   const devAgent = new DevAgent(deps);
+  const qaAgent = new QAAgent(deps);
+  const securityAgent = new SecurityAgent(deps);
+  const devopsAgent = new DevOpsAgent(deps);
+  const techwriterAgent = new TechWriterAgent(deps);
+  const architectAgent = new ArchitectAgent(deps);
+  const researcherAgent = new ResearcherAgent(deps);
 
   // 4. Build agent registry (all specialist agents PM can dispatch to)
   const agentRegistry = new Map<string, VECAgent>([
     ["ba", baAgent],
     ["dev", devAgent],
+    ["qa", qaAgent],
+    ["security", securityAgent],
+    ["devops", devopsAgent],
+    ["techwriter", techwriterAgent],
+    ["architect", architectAgent],
+    ["researcher", researcherAgent],
   ]);
 
   // 5. Create PM agent with full deps + agent registry
   const pmAgent = new PMAgent({ ...deps, agents: agentRegistry });
+
+  // 5b. Full agents map — includes PM so dashboard can interrupt/steer all agents
+  const allAgents = new Map<string, VECAgent>([
+    ["pm", pmAgent],
+    ...agentRegistry,
+  ]);
 
   // 6. Attach streaming output to PM agent
   attachPmStreaming(pmAgent);
@@ -219,7 +281,8 @@ async function main(): Promise<void> {
   //     This must happen before inbox loops start so there's no concurrent activity.
   const sunsetCheck = shouldRunSunset("pm");
   if (sunsetCheck.should && sunsetCheck.sessionDate) {
-    await pmAgent.runSunset(sunsetCheck.sessionDate);
+    suppressChatLog = true;
+    try { await pmAgent.runSunset(sunsetCheck.sessionDate); } finally { suppressChatLog = false; }
   }
 
   // 7. Start background inbox loops.
@@ -244,8 +307,11 @@ async function main(): Promise<void> {
   const pmHandles = startPmLiveLoop(pmAgent, config.pmProactiveIntervalSecs * 1_000);
   const allHandles: NodeJS.Timeout[] = [...specialistHandles, ...pmHandles];
 
-  // 7b. Watchdog — detects tasks stuck in_progress and auto-restarts them via executeTask().
-  //     Runs every 2 minutes. Restarts any task that hasn't had a status update in >5 minutes.
+  // 7b. Watchdog — detects tasks stuck in_progress and marks them failed.
+  //     Runs every 2 minutes. Any task with no status update in >5 minutes is considered hung.
+  //     The watchdog does NOT restart tasks itself — it marks them failed and lets the PM
+  //     proactive loop decide what to do (PM already has: retry once → then tell Boss).
+  //     This prevents infinite crash loops where a broken task gets restarted forever.
   const STALE_TASK_MS = 5 * 60_000;
   const watchdogHandle = setInterval(() => {
     const staleTasks = ATPDatabase.getAllTasks("in_progress").filter((t) => {
@@ -254,23 +320,32 @@ async function main(): Promise<void> {
     });
     for (const task of staleTasks) {
       const agent = agentRegistry.get(task.agent_id);
-      if (!agent) continue;
-      agent.abort(); // stop any hung LLM call
-      ATPDatabase.updateTaskStatus(task.task_id, "pending", "Watchdog: auto-restart (stuck in_progress)");
+      if (agent) agent.abort(); // stop any hung LLM call
+      ATPDatabase.updateTaskStatus(
+        task.task_id, "failed",
+        `Watchdog: task timed out after ${STALE_TASK_MS / 60_000}min with no progress. PM will decide next action.`
+      );
       EventLog.log(
         EventType.TASK_FAILED, "system", task.task_id,
-        `WATCHDOG: ${task.task_id} stuck in_progress for >${STALE_TASK_MS / 60_000}min — auto-restarting`
+        `WATCHDOG: ${task.task_id} timed out — marked failed. PM proactive loop will handle retry/escalation.`
       );
-      // Re-dispatch via rich executeTask() path if available
-      if (typeof agent.executeTask === "function") {
-        agent.executeTask(task.task_id).catch((e: unknown) => {
-          ATPDatabase.updateTaskStatus(task.task_id, "failed", `Watchdog retry failed: ${e}`);
-          EventLog.log(EventType.TASK_FAILED, "system", task.task_id, `WATCHDOG retry failed: ${e}`);
-        });
-      }
     }
   }, 2 * 60_000);
   allHandles.push(watchdogHandle);
+
+  // 7c. Scheduled task auto-release scheduler.
+  //     Runs once at startup and every hour thereafter.
+  //     Dispatches any pending task whose scheduled_date <= today so tasks
+  //     created with a future date automatically start when their date arrives.
+  const schedulerDeps = {
+    db: ATPDatabase,
+    pmQueue: MessageQueue,
+    agentQueue: AgentMessageQueue,
+    agents: agentRegistry,
+  };
+  releaseDueTasks(schedulerDeps); // run immediately on startup
+  const schedulerHandle = setInterval(() => releaseDueTasks(schedulerDeps), 60 * 60_000);
+  allHandles.push(schedulerHandle);
 
   // 8. Start live queue monitor
   const monitor = startLiveMonitor();
@@ -286,7 +361,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 
   // 9. Start dashboard HTTP server
-  startDashboardServer();
+  startDashboardServer(allAgents);
 
   // 10. Start Telegram channel (optional — requires TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
   const telegram = createTelegramChannel(pmAgent);
@@ -535,6 +610,63 @@ async function main(): Promise<void> {
         pmAgent.clearMessages();
         clearAgentHistory("pm");
         console.log("[PM conversation history cleared.]");
+        askLine();
+        return;
+      }
+
+      if (input === "/reset") {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          console.log("\n  [COMPANY RESET] This will permanently clear:");
+          console.log("    • All ATP tasks (task counter resets to TASK-001)");
+          console.log("    • All agent message queues, event log, chat log");
+          console.log("    • All agent conversation histories");
+          console.log("    • All agent memories (STM, LTM, SLTM)");
+          console.log("    • Employee statuses reset to available");
+          console.log("  Employee records are preserved. Workspace files are NOT deleted.\n");
+          rl.question("  Type RESET to confirm (or Enter to cancel): ", (ans) => {
+            resolve(ans.trim() === "RESET");
+          });
+        });
+
+        if (!confirmed) {
+          console.log("  [Cancelled.]\n");
+          askLine();
+          return;
+        }
+
+        // 1. Abort all running agents
+        for (const [, agent] of allAgents) agent.abort();
+
+        // 2. Clear ATP tasks + reset employee statuses
+        const cleared = ATPDatabase.clearAllTasks();
+        ATPDatabase.resetEmployeeStatuses();
+
+        // 3. Clear all message queues
+        MessageQueue.clear();
+        AgentMessageQueue.clear();
+        AgentMessageQueue.clearFlowLog();
+
+        // 4. Clear event log + chat log
+        EventLog.clear();
+        UserChatLog.clear();
+
+        // 5. Clear agent histories (disk + in-memory)
+        for (const id of ALL_AGENT_IDS) clearAgentHistory(id);
+        for (const [, agent] of allAgents) agent.clearHistory();
+
+        // 6. Wipe all agent memory files (STM, LTM, SLTM)
+        try {
+          fs.rmSync(config.memoryDir, { recursive: true, force: true });
+          fs.mkdirSync(config.memoryDir, { recursive: true });
+        } catch { /* non-fatal */ }
+
+        console.log(`\n  [Company Reset Complete]`);
+        console.log(`  • ${cleared} task(s) deleted — next task will be TASK-001`);
+        console.log(`  • All agent memories wiped`);
+        console.log(`  • All conversation histories cleared`);
+        console.log(`  • All message queues flushed`);
+        console.log(`  • All employees marked available`);
+        console.log(`  VEC is starting fresh.\n`);
         askLine();
         return;
       }

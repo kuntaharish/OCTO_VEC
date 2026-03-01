@@ -42,6 +42,27 @@ class AgentStreamBusImpl extends EventEmitter {}
 export const agentStreamBus = new AgentStreamBusImpl();
 agentStreamBus.setMaxListeners(100); // allow many concurrent SSE clients
 
+// ── Replay buffer ─────────────────────────────────────────────────────────────
+// Keeps the last 400 tokens in memory so new SSE clients can catch up
+// on what agents were doing when they connect (or reconnect after a drop).
+// Per-agent: only the CURRENT turn is buffered (cleared on agent_start).
+// When a turn ends (agent_end received), the buffer is retained so new clients
+// can see what each agent last did.
+
+const REPLAY_LIMIT = 400;
+const _replayBuffer: StreamToken[] = [];
+
+/** Add a token to the replay buffer. */
+function bufferToken(tok: StreamToken): void {
+  _replayBuffer.push(tok);
+  if (_replayBuffer.length > REPLAY_LIMIT) _replayBuffer.shift();
+}
+
+/** Get the current replay buffer (a snapshot for replaying to new clients). */
+export function getReplayBuffer(): StreamToken[] {
+  return _replayBuffer.slice();
+}
+
 // ── Publisher ─────────────────────────────────────────────────────────────────
 
 /**
@@ -49,7 +70,10 @@ agentStreamBus.setMaxListeners(100); // allow many concurrent SSE clients
  * Call this inside any agent's subscribe() handler.
  */
 export function publishAgentStream(agentId: string, event: AgentEvent): void {
-  const emit = (tok: StreamToken) => agentStreamBus.emit("token", tok);
+  const emit = (tok: StreamToken) => {
+    bufferToken(tok);
+    agentStreamBus.emit("token", tok);
+  };
 
   switch (event.type) {
     case "agent_start":
