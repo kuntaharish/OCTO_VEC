@@ -11,6 +11,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Monitor,
+  Settings,
 } from "lucide-react";
 import ThemeSwitcher from "./ThemeSwitcher";
 
@@ -22,7 +23,8 @@ export type View =
   | "queue"
   | "directory"
   | "chat"
-  | "live";
+  | "live"
+  | "settings";
 
 interface NavItem { id: View; label: string; icon: React.ReactNode }
 
@@ -36,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "queue",     label: "Queue",     icon: <List size={ICON} /> },
   { id: "directory", label: "Directory", icon: <Users size={ICON} /> },
   { id: "chat",      label: "Chat",      icon: <MessageSquare size={ICON} /> },
+  { id: "settings",  label: "Settings",  icon: <Settings size={ICON} /> },
 ];
 
 // Expanded: 240px. Collapsed: 56px.

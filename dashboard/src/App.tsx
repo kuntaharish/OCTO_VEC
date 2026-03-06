@@ -10,11 +10,12 @@ import DirectoryView from "./views/DirectoryView";
 import ChatView from "./views/ChatView";
 import ActivityView from "./views/ActivityView";
 import LiveView from "./views/LiveView";
+import SettingsView from "./views/SettingsView";
 
 export default function App() {
   const [activeView, setActiveViewRaw] = useState<View>(() => {
     const saved = localStorage.getItem("active-view");
-    return saved && ["overview","activity","kanban","events","queue","directory","chat","live"].includes(saved)
+    return saved && ["overview","activity","kanban","events","queue","directory","chat","live","settings"].includes(saved)
       ? (saved as View)
       : "kanban";
   });
@@ -45,6 +46,7 @@ export default function App() {
           {activeView === "directory" && <DirectoryView />}
           {activeView === "chat" && <ChatView />}
           {activeView === "live" && <LiveView />}
+          {activeView === "settings" && <SettingsView />}
         </main>
       </div>
     </EmployeesProvider>

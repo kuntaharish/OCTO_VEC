@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ArrowUp, Search, X } from "lucide-react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { usePolling, postApi } from "../hooks/useApi";
 import { useAgentStream } from "../hooks/useSSE";
 import { useEmployees } from "../context/EmployeesContext";
@@ -313,7 +315,7 @@ export default function ChatView() {
                         display: "flex", flexDirection: "column",
                         alignItems: isUser ? "flex-end" : "flex-start",
                       }}>
-                        <div style={{
+                        <div className={isUser ? undefined : "md-content"} style={{
                           padding: "8px 14px",
                           borderRadius: isUser
                             ? (sameSender ? "14px 14px 4px 14px" : "14px 14px 4px 14px")
@@ -323,7 +325,7 @@ export default function ChatView() {
                           fontSize: 13, lineHeight: 1.55,
                           whiteSpace: "pre-wrap", wordBreak: "break-word",
                         }}>
-                          {msgContent}
+                          {isUser ? msgContent : <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{entry.message}</Markdown>}
                         </div>
                         {/* Timestamp — show on last of group or always */}
                         {(!displayEntries[i + 1] || displayEntries[i + 1]?.from !== entry.from) && (

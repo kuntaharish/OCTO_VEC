@@ -10,12 +10,12 @@
  *   GET /api/queue         â†’ PM message queue (rJSON)
  *   GET /api/agent-messages â†’ inter-agent message queue (JSON)
  *   GET /api/errors        â†’ recent errors with type classification (JSON)
- *   GET /api/chat-log      â†’ userâ†”agent chat history (JSON)
+ *   GET /api/chat-log      â†’ userâ†"agent chat history (JSON)
  *   POST /api/send-message â†’ send a message to any agent (JSON: {to, message})
  */
 
 import express from "express";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { config } from "../config.js";
@@ -33,10 +33,11 @@ import { UserChatLog } from "../atp/chatLog.js";
 import { agentStreamBus, getReplayBuffer } from "../atp/agentStreamBus.js";
 import type { StreamToken } from "../atp/agentStreamBus.js";
 import { AGENT_PROFILES, getEnabledTools, setAgentTools } from "../atp/agentToolConfig.js";
+import { getMCPTools } from "../mcp/mcpBridge.js";
 import { ActiveChannelState } from "../channels/activeChannel.js";
 import type { VECAgent } from "../atp/inboxLoop.js";
 
-// â”€â”€ Error classification (server-side) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Error classification (server-side) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 type ErrorKind = "rate_limit" | "timeout" | "network" | "quota" | "crashed" | "generic";
 
@@ -88,7 +89,7 @@ function getErrors(): ErrorEntry[] {
   return entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 20);
 }
 
-// â”€â”€ Inline HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Inline HTML â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function getDashboardHtml(): string {
   return `<!DOCTYPE html>
@@ -109,7 +110,7 @@ function getDashboardHtml(): string {
       display: flex;
     }
 
-    /* â”€â”€ Left sidebar nav â”€â”€ */
+    /* â"€â"€ Left sidebar nav â"€â"€ */
     .sidebar {
       width: 60px;
       background: #161b22;
@@ -178,7 +179,7 @@ function getDashboardHtml(): string {
       border: 1px solid #161b22;
     }
 
-    /* â”€â”€ Main area â”€â”€ */
+    /* â"€â"€ Main area â"€â"€ */
     .main {
       flex: 1;
       overflow: hidden;
@@ -186,11 +187,11 @@ function getDashboardHtml(): string {
       flex-direction: column;
     }
 
-    /* â”€â”€ Views â”€â”€ */
+    /* â"€â"€ Views â"€â"€ */
     .view { display: none; flex: 1; overflow: hidden; flex-direction: column; }
     .view.active { display: flex; }
 
-    /* â”€â”€ Dashboard view â”€â”€ */
+    /* â"€â"€ Dashboard view â"€â"€ */
     #view-dashboard { overflow-y: auto; padding: 16px; gap: 16px; position: relative; }
 
     header {
@@ -463,7 +464,7 @@ function getDashboardHtml(): string {
     .ts        { color: #484f58; font-size: 0.68rem; white-space: nowrap; }
     .agent-key { font-family: monospace; font-size: 0.72rem; color: #8b949e; }
 
-    /* â”€â”€ Toast notifications â”€â”€ */
+    /* â"€â"€ Toast notifications â"€â"€ */
     #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column-reverse; gap: 8px; max-width: 360px; }
     .toast {
       background: #1a0d0d;
@@ -492,7 +493,7 @@ function getDashboardHtml(): string {
     .toast-dismiss { position: absolute; top: 8px; right: 10px; background: none; border: none; color: #484f58; cursor: pointer; font-size: 0.82rem; line-height: 1; padding: 0; }
     .toast-dismiss:hover { color: #c9d1d9; }
 
-    /* â”€â”€ Teams view â”€â”€ */
+    /* â"€â"€ Teams view â"€â"€ */
     #view-teams { flex-direction: row; overflow: hidden; }
 
     .teams-list-panel {
@@ -620,6 +621,32 @@ function getDashboardHtml(): string {
     .teams-msg-bubble { padding: 10px 14px; border-radius: 16px; font-size: 0.82rem; line-height: 1.5; word-break: break-word; }
     .teams-msg.sent .teams-msg-bubble { background: #1158c7; color: #e6edf3; border-bottom-right-radius: 4px; }
     .teams-msg.recv .teams-msg-bubble { background: #1c2128; color: #c9d1d9; border: 1px solid #30363d; border-bottom-left-radius: 4px; }
+    .teams-msg.recv .teams-msg-bubble.markdown p { margin: 0 0 8px; }
+    .teams-msg.recv .teams-msg-bubble.markdown p:last-child { margin-bottom: 0; }
+    .teams-msg.recv .teams-msg-bubble.markdown ul,
+    .teams-msg.recv .teams-msg-bubble.markdown ol { margin: 0 0 8px 18px; padding: 0; }
+    .teams-msg.recv .teams-msg-bubble.markdown li { margin: 0 0 3px; }
+    .teams-msg.recv .teams-msg-bubble.markdown pre {
+      margin: 8px 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      overflow-x: auto;
+    }
+    .teams-msg.recv .teams-msg-bubble.markdown code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.76rem;
+    }
+    .teams-msg.recv .teams-msg-bubble.markdown a {
+      color: #79c0ff;
+      text-decoration: underline;
+      text-decoration-thickness: 2px;
+      text-underline-offset: 2px;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .teams-msg.recv .teams-msg-bubble.markdown a:hover { color: #a5d6ff; }
     .teams-msg-time { font-size: 0.6rem; color: #484f58; }
 
     .chat-typing-row { display: none; padding: 0 24px 6px; }
@@ -784,7 +811,7 @@ function getDashboardHtml(): string {
     .stream-interrupt-btn { margin-right: 8px; }
     .hr-interrupt-btn { margin-top: 6px; }
 
-    /* â”€â”€ Network view â”€â”€ */
+    /* â"€â"€ Network view â"€â"€ */
     #view-network { flex-direction: row; overflow: hidden; background: #0d1117; position: relative; }
 
     .network-canvas-wrap {
@@ -868,7 +895,7 @@ function getDashboardHtml(): string {
     }
     .signal-dot.active { opacity: 1; }
 
-    /* â”€â”€ Stream panel (overlay, slides in from right) â”€â”€ */
+    /* â"€â"€ Stream panel (overlay, slides in from right) â"€â"€ */
     .stream-panel {
       position: absolute;
       right: 0;
@@ -941,7 +968,7 @@ function getDashboardHtml(): string {
 </head>
 <body>
 
-<!-- â”€â”€ Left sidebar nav â”€â”€ -->
+<!-- â"€â"€ Left sidebar nav â"€â"€ -->
 <nav class="sidebar">
   <div class="sidebar-brand">V</div>
   <button class="nav-btn active" id="nav-dashboard" onclick="showView('dashboard')" title="Dashboard">
@@ -969,7 +996,7 @@ function getDashboardHtml(): string {
   </button>
 </nav>
 
-<!-- â”€â”€ Main content â”€â”€ -->
+<!-- â"€â"€ Main content â"€â"€ -->
 <div class="main">
 
   <!-- Dashboard view -->
@@ -1100,7 +1127,7 @@ function getDashboardHtml(): string {
   </div>
 </div>
 
-  <!-- â”€â”€ Network view â”€â”€ -->
+  <!-- â"€â"€ Network view â"€â"€ -->
   <!-- Company / HR Portal view -->
   <div id="view-company" class="view">
 
@@ -1198,21 +1225,21 @@ function getDashboardHtml(): string {
           </filter>
         </defs>
 
-        <!-- â”€â”€ Edges â”€â”€ -->
-        <!-- user â†” pm -->
+        <!-- â"€â"€ Edges â"€â"€ -->
+        <!-- user â†" pm -->
         <path id="edge-user-pm" class="net-edge" d="M 410,87 C 410,120 410,138 410,158"/>
-        <!-- pm â†” ba -->
+        <!-- pm â†" ba -->
         <path id="edge-pm-ba" class="net-edge" d="M 382,224 C 360,280 295,318 258,338"/>
-        <!-- pm â†” dev -->
+        <!-- pm â†" dev -->
         <path id="edge-pm-dev" class="net-edge" d="M 438,224 C 460,280 525,318 562,338"/>
-        <!-- ba â†” dev -->
+        <!-- ba â†" dev -->
         <path id="edge-ba-dev" class="net-edge" d="M 278,376 C 340,392 480,392 542,376"/>
-        <!-- user â†” ba -->
+        <!-- user â†" ba -->
         <path id="edge-user-ba" class="net-edge" d="M 390,90 C 280,150 240,280 238,324"/>
-        <!-- user â†” dev -->
+        <!-- user â†" dev -->
         <path id="edge-user-dev" class="net-edge" d="M 430,90 C 540,150 580,280 582,324"/>
 
-        <!-- â”€â”€ Signal dots (one per directional edge) â”€â”€ -->
+        <!-- â"€â"€ Signal dots (one per directional edge) â"€â"€ -->
         <circle id="sig-user-pm" class="signal-dot" r="5" fill="#79c0ff" filter="url(#glow)">
           <animateMotion dur="1.1s" repeatCount="indefinite" rotate="auto"><mpath href="#edge-user-pm"/></animateMotion>
         </circle>
@@ -1231,21 +1258,21 @@ function getDashboardHtml(): string {
         <circle id="sig-dev-pm" class="signal-dot" r="5" fill="#3fb950" filter="url(#glow)">
           <animateMotion dur="1.3s" repeatCount="indefinite" rotate="auto" keyPoints="1;0" keyTimes="0;1" calcMode="linear"><mpath href="#edge-pm-dev"/></animateMotion>
         </circle>
-        <!-- user â†” ba -->
+        <!-- user â†" ba -->
         <circle id="sig-user-ba" class="signal-dot" r="5" fill="#a855f7" filter="url(#glow)">
           <animateMotion dur="1.5s" repeatCount="indefinite" rotate="auto"><mpath href="#edge-user-ba"/></animateMotion>
         </circle>
         <circle id="sig-ba-user" class="signal-dot" r="5" fill="#a855f7" filter="url(#glow)">
           <animateMotion dur="1.5s" repeatCount="indefinite" rotate="auto" keyPoints="1;0" keyTimes="0;1" calcMode="linear"><mpath href="#edge-user-ba"/></animateMotion>
         </circle>
-        <!-- user â†” dev -->
+        <!-- user â†" dev -->
         <circle id="sig-user-dev" class="signal-dot" r="5" fill="#3fb950" filter="url(#glow)">
           <animateMotion dur="1.5s" repeatCount="indefinite" rotate="auto"><mpath href="#edge-user-dev"/></animateMotion>
         </circle>
         <circle id="sig-dev-user" class="signal-dot" r="5" fill="#3fb950" filter="url(#glow)">
           <animateMotion dur="1.5s" repeatCount="indefinite" rotate="auto" keyPoints="1;0" keyTimes="0;1" calcMode="linear"><mpath href="#edge-user-dev"/></animateMotion>
         </circle>
-        <!-- ba â†” dev -->
+        <!-- ba â†" dev -->
         <circle id="sig-ba-dev" class="signal-dot" r="5" fill="#f0883e" filter="url(#glow)">
           <animateMotion dur="1.4s" repeatCount="indefinite" rotate="auto"><mpath href="#edge-ba-dev"/></animateMotion>
         </circle>
@@ -1253,7 +1280,7 @@ function getDashboardHtml(): string {
           <animateMotion dur="1.4s" repeatCount="indefinite" rotate="auto" keyPoints="1;0" keyTimes="0;1" calcMode="linear"><mpath href="#edge-ba-dev"/></animateMotion>
         </circle>
 
-        <!-- â”€â”€ Agent nodes â”€â”€ -->
+        <!-- â"€â"€ Agent nodes â"€â"€ -->
 
         <!-- Akhil / user — top center -->
         <g id="node-user" class="agent-node" onclick="selectStreamAgent('user')">
@@ -1323,9 +1350,82 @@ function getDashboardHtml(): string {
 <div id="toast-container"></div>
 
 <script>
-  // â”€â”€ Utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Utilities â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   function esc(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function isSafeHref(url) {
+    return /^(https?:\/\/|mailto:)/i.test(url || '');
+  }
+  function escapeAttr(s) {
+    return String(s ?? '').replace(/"/g, '&quot;');
+  }
+  function renderMarkdown(input) {
+    const raw = String(input ?? '').replace(/\r\n/g, '\n');
+    const placeholders = [];
+    const hold = (html) => {
+      const key = '__MDHOLD_' + placeholders.length + '__';
+      placeholders.push(html);
+      return key;
+    };
+    const unhold = (s) => s.replace(/__MDHOLD_(\d+)__/g, (_, i) => placeholders[Number(i)] || '');
+
+    let text = esc(raw);
+
+    text = text.replace(/\`\`\`([\s\S]*?)\`\`\`/g, (_, code) => {
+      return hold('<pre><code>' + code + '</code></pre>');
+    });
+    text = text.replace(/\`([^\`\n]+)\`/g, (_, code) => hold('<code>' + code + '</code>'));
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g, (_, label, url) => {
+      if (!isSafeHref(url)) return label;
+      return hold('<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>');
+    });
+    text = text.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)(?=$|[\s),.!?])/g, (_, lead, url) => {
+      if (!isSafeHref(url)) return lead + url;
+      return lead + hold('<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer">' + url + '</a>');
+    });
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+
+    const lines = text.split('\n');
+    const out = [];
+    let inUl = false;
+    let inOl = false;
+    const closeLists = () => {
+      if (inUl) { out.push('</ul>'); inUl = false; }
+      if (inOl) { out.push('</ol>'); inOl = false; }
+    };
+
+    for (const line of lines) {
+      const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+      const numbered = line.match(/^\s*\d+\.\s+(.*)$/);
+      if (bullet) {
+        if (inOl) { out.push('</ol>'); inOl = false; }
+        if (!inUl) { out.push('<ul>'); inUl = true; }
+        out.push('<li>' + bullet[1] + '</li>');
+        continue;
+      }
+      if (numbered) {
+        if (inUl) { out.push('</ul>'); inUl = false; }
+        if (!inOl) { out.push('<ol>'); inOl = true; }
+        out.push('<li>' + numbered[1] + '</li>');
+        continue;
+      }
+      closeLists();
+      if (!line.trim()) {
+        out.push('');
+      } else {
+        out.push('<p>' + line + '</p>');
+      }
+    }
+    closeLists();
+
+    return unhold(out.join(''));
+  }
+  function renderChatMessage(entry) {
+    const isUser = entry.from === 'user';
+    if (isUser) return esc(entry.message).replace(/\n/g, '<br/>');
+    return renderMarkdown(entry.message);
   }
   function badge(cls, text) {
     return '<span class="badge ' + cls + '">' + esc(text) + '</span>';
@@ -1341,7 +1441,7 @@ function getDashboardHtml(): string {
     catch { return ts; }
   }
 
-  // â”€â”€ View switching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ View switching â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   function showView(view) {
     document.getElementById('view-dashboard').classList.toggle('active', view === 'dashboard');
     document.getElementById('view-teams').classList.toggle('active', view === 'teams');
@@ -1541,7 +1641,7 @@ function getDashboardHtml(): string {
             const raw = typeof v === 'string' ? v : JSON.stringify(v);
             const s = raw.length > 80 ? raw.substring(0, 80) + '\u2026' : raw;
             return '  ' + k + ': ' + s;
-          }).join('\\n');
+          }).join('\n');
           if (argLines) pushStreamLog(agentId, 'tool_args', 'tok-tool-args', argLines);
         }
         if (tName.toLowerCase() === 'message_agent') {
@@ -1612,7 +1712,7 @@ function getDashboardHtml(): string {
     // EventSource auto-reconnects.
   };
 
-  // â”€â”€ Alerts panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Alerts panel â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   let errorsInitialized = false;
   let errorsUnreadCount = 0;
   let latestErrorsData = [];
@@ -1668,7 +1768,7 @@ function getDashboardHtml(): string {
     else btn.classList.remove('badge-new');
   }
 
-  // â”€â”€ Error toasts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Error toasts â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const seenErrorTs = new Set();
 
   function errorKindGlyph(kind) {
@@ -1699,7 +1799,7 @@ function getDashboardHtml(): string {
     setTimeout(() => { if (toast.isConnected) toast.remove(); }, 8000);
   }
 
-  // â”€â”€ Render: Errors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Render: Errors â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   function renderErrors(data) {
     const body = document.getElementById('alerts-panel-body');
     const isPanelOpen = document.getElementById('alerts-panel').classList.contains('open');
@@ -1758,7 +1858,7 @@ function getDashboardHtml(): string {
     \`).join('');
   }
 
-  // â”€â”€ Render: Agents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Render: Agents â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   function renderAgents(data) {
     const tbody = document.getElementById('agents-body');
     document.getElementById('agents-count').textContent = data.length + ' agent(s)';
@@ -1786,7 +1886,7 @@ function getDashboardHtml(): string {
     }).join('');
   }
 
-  // â”€â”€ Render: PM Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Render: PM Queue â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   function renderQueue(data) {
     const tbody = document.getElementById('queue-body');
     document.getElementById('queue-count').textContent = data.length + ' msg(s)';
@@ -1801,7 +1901,7 @@ function getDashboardHtml(): string {
     \`).join('');
   }
 
-  // â”€â”€ Render: Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Render: Events â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   function renderEvents(data) {
     const tbody = document.getElementById('events-body');
     document.getElementById('events-count').textContent = data.length + ' event(s)';
@@ -1821,7 +1921,7 @@ function getDashboardHtml(): string {
     }).join('');
   }
 
-  // â”€â”€ Teams â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Teams â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const AGENTS = [
     { key: 'pm',  name: 'Arjun Sharma', role: 'Project Manager',  initials: 'AS', color: '#1158c7' },
     { key: 'ba',  name: 'Kavya Nair',   role: 'Business Analyst', initials: 'KN', color: '#7928ca' },
@@ -1996,7 +2096,7 @@ function getDashboardHtml(): string {
         <div class="teams-msg \${isUser ? 'sent' : 'recv'}">
           \${!isUser ? \`<div class="teams-msg-avatar" style="background:\${agent.color}">\${agent.initials}</div>\` : ''}
           <div class="teams-msg-content">
-            <div class="teams-msg-bubble">\${esc(entry.message)}</div>
+            <div class="teams-msg-bubble \${!isUser ? 'markdown' : ''}">\${renderChatMessage(entry)}</div>
             <div class="teams-msg-time">\${fmt(entry.timestamp)}</div>
           </div>
         </div>
@@ -2038,7 +2138,7 @@ function getDashboardHtml(): string {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
   });
 
-  // â”€â”€ Refresh loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Refresh loop â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   async function refresh() {
     try {
       const [tasks, employees, events, queue, errors, chatLog, interrupts] = await Promise.all([
@@ -2069,7 +2169,7 @@ function getDashboardHtml(): string {
     }
   }
 
-  // â”€â”€ Initialise: seed seen sets so first load never spams notifications â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Initialise: seed seen sets so first load never spams notifications â"€â"€â"€â"€â"€â"€
   Promise.all([
     fetch('/api/errors').then(r => r.json()).catch(() => []),
     fetch('/api/chat-log').then(r => r.json()).catch(() => []),
@@ -2361,7 +2461,7 @@ function getDashboardHtml(): string {
 </html>`;
 }
 
-// â”€â”€ Server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Server â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 export function startDashboardServer(agents: Map<string, VECAgent>, port = config.dashboardPort): void {
   const app = express();
@@ -2512,7 +2612,50 @@ export function startDashboardServer(agents: Map<string, VECAgent>, port = confi
     res.json({ ok: true, agent_id: id, tools: safeTools });
   });
 
-  // â”€â”€ SSE: real-time agent streaming â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // -- MCP config -----------------------------------------------------------------
+  const mcpCfgPath = join(config.dataDir, "mcp-servers.json");
+
+  app.get("/api/mcp-config", (_req, res) => {
+    try {
+      if (!existsSync(mcpCfgPath)) { res.json({ mcpServers: {} }); return; }
+      res.json(JSON.parse(readFileSync(mcpCfgPath, "utf-8")));
+    } catch { res.json({ mcpServers: {} }); }
+  });
+
+  app.post("/api/mcp-config", (req, res) => {
+    try {
+      const body = req.body;
+      if (!body || typeof body !== "object" || !body.mcpServers) {
+        res.status(400).json({ error: "bad format" });
+        return;
+      }
+      writeFileSync(mcpCfgPath, JSON.stringify(body, null, 2), "utf-8");
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message ?? "save failed") });
+    }
+  });
+
+  app.get("/api/mcp-status", (_req, res) => {
+    try {
+      const tools = getMCPTools();
+      const sMap = new Map<string, string[]>();
+      for (const t of tools) {
+        const p = t.name.split("_");
+        if (p.length >= 3 && p[0] === "mcp") {
+          const s = p[1];
+          if (!sMap.has(s)) sMap.set(s, []);
+          sMap.get(s)!.push(p.slice(2).join("_"));
+        }
+      }
+      const servers = Array.from(sMap.entries()).map(([name, tls]) => ({
+        name, tools: tls, connected: true,
+      }));
+      res.json({ servers });
+    } catch { res.json({ servers: [] }); }
+  });
+
+  // â"€â"€ SSE: real-time agent streaming â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   app.get("/api/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -2558,6 +2701,7 @@ export function startDashboardServer(agents: Map<string, VECAgent>, port = confi
   } else {
     app.get("/", (_req, res) => {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
       res.send(getDashboardHtml());
     });
   }

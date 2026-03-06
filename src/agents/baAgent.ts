@@ -22,6 +22,7 @@ import { saveAgentHistory, loadAgentHistory } from "../memory/messageHistory.js"
 import { getSpecialistTaskTools } from "../tools/domain/baseSpecialistTools.js";
 import { getMemoryToolsSlim } from "../tools/shared/memoryTools.js";
 import { getWebTools } from "../tools/shared/webTools.js";
+import { getMCPTools } from "../mcp/mcpBridge.js";
 import { getBAFileTools } from "../tools/domain/baFileTools.js";
 import { sandboxFileTools } from "../tools/shared/fileTools.js";
 import { getMessagingTools } from "../tools/shared/messagingTools.js";
@@ -182,6 +183,7 @@ export class BAAgent implements VECAgent {
       ...getMessagingTools(AGENT_ID, this.inbox).filter((t) => t.name !== "broadcast_message"),
       getDateTool(),
       ...getWebTools(),
+      ...getMCPTools(),
     ];
 
     this.agent = new Agent({

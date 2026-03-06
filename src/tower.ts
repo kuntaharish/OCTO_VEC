@@ -38,6 +38,7 @@ import { UserChatLog } from "./atp/chatLog.js";
 import { clearAgentHistory } from "./memory/messageHistory.js";
 import { shouldRunSunset } from "./memory/sessionLifecycle.js";
 import { publishAgentStream } from "./atp/agentStreamBus.js";
+import { initMCP, shutdownMCP } from "./mcp/mcpBridge.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -226,6 +227,9 @@ async function main(): Promise<void> {
     console.log("  Done — VEC will start fresh.\n");
   }
 
+  // 1c. Initialize MCP bridge — connect to configured MCP servers and discover tools.
+  await initMCP();
+
   // 2. Clear transient state from previous run.
   //    clearTransient() preserves recent user→agent messages (<2h) so they
   //    survive a server restart and PM still processes them. Agent→agent
@@ -354,6 +358,7 @@ async function main(): Promise<void> {
   function shutdown(): void {
     console.log("\nShutting down VEC... goodbye.");
     for (const h of allHandles) clearInterval(h);
+    shutdownMCP().catch(() => {});
     process.exit(0);
   }
 
