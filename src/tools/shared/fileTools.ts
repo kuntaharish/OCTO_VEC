@@ -18,6 +18,7 @@ import path from "path";
 import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { config } from "../../config.js";
+import { getEmployeeId } from "../../agentIds.js";
 
 /** Full coding tools: read, bash, edit, write — for Dev/DevOps agents. */
 export function getCodingTools(cwd?: string): AgentTool[] {
@@ -49,7 +50,7 @@ function isPathAllowed(agentId: string, filePath: string): boolean {
   if (resolved.startsWith(workspace + path.sep) || resolved === workspace) {
     // Block access to other agents' private workspace folders
     if (resolved.startsWith(AGENTS_DIR + path.sep)) {
-      const ownDir = path.resolve(AGENTS_DIR, agentId);
+      const ownDir = path.resolve(AGENTS_DIR, getEmployeeId(agentId));
       if (!resolved.startsWith(ownDir + path.sep) && resolved !== ownDir) {
         return false;
       }

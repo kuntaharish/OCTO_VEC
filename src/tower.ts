@@ -62,7 +62,7 @@ function printBanner(): void {
   );
   console.log(`  Workspace: ${config.workspace}`);
   console.log(`    Shared : workspace/shared/         (cross-agent deliverables)`);
-  console.log(`    Agents : workspace/agents/{id}/    (per-agent private folders)`);
+  console.log(`    Agents : workspace/agents/{EMP-ID}/ (per-agent private folders)`);
   console.log(`  Proactive: ${config.pmProactiveEnabled ? `ON (every ${config.pmProactiveIntervalSecs}s)` : "OFF"}`);
   console.log(`  Dashboard: http://localhost:${config.dashboardPort}`);
   const tgChatId = process.env.TELEGRAM_CHAT_ID;

@@ -252,19 +252,31 @@ class TelegramChannel implements VECChannel {
 
   async start(): Promise<void> {
     // drop_pending_updates: skip messages received while the bot was offline
-    // Catch errors from bot.start() so a 409 conflict (another instance running)
-    // doesn't crash the whole process — just disable Telegram and keep going.
-    this.bot.start({ drop_pending_updates: true }).catch((err: unknown) => {
-      const code = (err as { error_code?: number })?.error_code;
-      if (code === 409) {
-        console.warn(
-          "  [Telegram] 409 Conflict — another bot instance is already polling. " +
-          "Kill the old process and restart. Telegram channel disabled for this session."
-        );
-      } else {
-        console.error("  [Telegram] Bot crashed:", (err as Error)?.message ?? err);
-      }
-    });
+    // Retry up to 3 times on 409 Conflict — Telegram's server may hold the
+    // previous long-poll for up to ~30s after the old process is killed.
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 5000;
+
+    const attempt = (n: number): void => {
+      this.bot.start({ drop_pending_updates: true }).catch((err: unknown) => {
+        const code = (err as { error_code?: number })?.error_code;
+        if (code === 409 && n < MAX_RETRIES) {
+          console.warn(
+            `  [Telegram] 409 Conflict — retrying in ${RETRY_DELAY_MS / 1000}s (attempt ${n + 1}/${MAX_RETRIES})...`
+          );
+          setTimeout(() => attempt(n + 1), RETRY_DELAY_MS);
+        } else if (code === 409) {
+          console.warn(
+            "  [Telegram] 409 Conflict — another bot instance is already polling. " +
+            "Kill the old process and restart. Telegram channel disabled for this session."
+          );
+        } else {
+          console.error("  [Telegram] Bot crashed:", (err as Error)?.message ?? err);
+        }
+      });
+    };
+
+    attempt(0);
     console.log(`  [Telegram] Bot started — authorized chat: ${this.authorizedChatId}`);
   }
 

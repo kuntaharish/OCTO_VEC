@@ -2,7 +2,7 @@ import "dotenv/config";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
-import { SPECIALIST_AGENT_IDS } from "./agentIds.js";
+import { SPECIALIST_AGENT_IDS, getEmployeeId } from "./agentIds.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = join(__dirname, "..");
@@ -92,7 +92,7 @@ export const projectsWorkspace = join(config.workspace, "projects");
 
 /** Per-agent private workspace — agent's own drafts, scratch files, temp outputs. */
 export function agentWorkspace(agentId: string): string {
-  return join(config.workspace, "agents", agentId);
+  return join(config.workspace, "agents", getEmployeeId(agentId));
 }
 
 /** All workspace directories that must exist at startup. */
