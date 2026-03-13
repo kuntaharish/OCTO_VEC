@@ -1,9 +1,13 @@
 /**
- * Git versioning tools for the Dev agent.
+ * Git versioning tools — tiered by permission level.
  *
- * Provides explicit git operations (init, status, diff, add, commit, log)
- * scoped to workspace/projects/ directories, plus a helper for auto-commit
- * on task completion.
+ * Three tiers:
+ *   read  → git_status, git_diff, git_log
+ *   write → read + git_add, git_commit
+ *   admin → write + git_init
+ *
+ * Per-agent identity: commits use the agent's name from roster
+ * with email as {agent_id}@octovec.dev (git doesn't verify emails).
  */
 
 import { execFileSync } from "child_process";
@@ -12,6 +16,7 @@ import { join, resolve, normalize } from "path";
 import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { projectsWorkspace } from "../../config.js";
+import { getRosterEntry } from "../../ar/roster.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +51,14 @@ function isGitRepo(dir: string): boolean {
   return existsSync(join(dir, ".git"));
 }
 
+/** Resolve git author identity from roster. */
+function getGitIdentity(agentId?: string): { name: string; email: string } {
+  if (!agentId) return { name: "OCTO-VEC", email: "agent@octovec.dev" };
+  const entry = getRosterEntry(agentId);
+  if (!entry) return { name: "OCTO-VEC", email: "agent@octovec.dev" };
+  return { name: entry.name, email: `${agentId}@octovec.dev` };
+}
+
 const DEFAULT_GITIGNORE = `node_modules/
 dist/
 build/
@@ -58,43 +71,10 @@ coverage/
 .cache/
 `;
 
-// ── Git Tools ─────────────────────────────────────────────────────────────────
+// ── Tiered Git Tools ─────────────────────────────────────────────────────────
 
-export function getGitTools(): AgentTool[] {
-  const git_init: AgentTool = {
-    name: "git_init",
-    label: "Git Init",
-    description:
-      "Initialize a new git repository in a project folder under workspace/projects/. " +
-      "Creates a .gitignore and makes an initial commit.",
-    parameters: Type.Object({
-      project: Type.String({ description: "Project folder name under workspace/projects/ (e.g. 'my-app')" }),
-    }),
-    execute: async (_, params: any) => {
-      const dir = resolveProjectDir(params.project);
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
-      }
-      if (isGitRepo(dir)) {
-        return ok(`Project '${params.project}' already has a git repository.`);
-      }
-      git(dir, ["init"]);
-      // Create .gitignore if it doesn't exist
-      const gitignorePath = join(dir, ".gitignore");
-      if (!existsSync(gitignorePath)) {
-        writeFileSync(gitignorePath, DEFAULT_GITIGNORE, "utf-8");
-      }
-      git(dir, ["add", "-A"]);
-      git(dir, [
-        "-c", "user.name=Rohan Mehta",
-        "-c", "user.email=rohan@vec.company",
-        "commit", "-m", "Initial commit",
-        "--allow-empty",
-      ]);
-      return ok(`Initialized git repository in projects/${params.project}/ with initial commit.`);
-    },
-  };
-
+/** Read-only git tools: status, diff, log. */
+export function getGitReadTools(agentId: string): AgentTool[] {
   const git_status: AgentTool = {
     name: "git_status",
     label: "Git Status",
@@ -127,6 +107,30 @@ export function getGitTools(): AgentTool[] {
     },
   };
 
+  const git_log: AgentTool = {
+    name: "git_log",
+    label: "Git Log",
+    description: "Show commit history for a project.",
+    parameters: Type.Object({
+      project: Type.String({ description: "Project folder name under workspace/projects/" }),
+      limit: Type.Optional(Type.Number({ description: "Max number of commits to show. Default: 20." })),
+    }),
+    execute: async (_, params: any) => {
+      const dir = resolveProjectDir(params.project);
+      if (!isGitRepo(dir)) return ok(`ERROR: '${params.project}' is not a git repository.`);
+      const n = params.limit ?? 20;
+      const output = git(dir, ["log", "--oneline", `-n`, String(n)]);
+      return ok(output || "(no commits yet)");
+    },
+  };
+
+  return [git_status, git_diff, git_log];
+}
+
+/** Write-level git tools: add, commit (uses agent identity). */
+export function getGitWriteTools(agentId: string): AgentTool[] {
+  const { name, email } = getGitIdentity(agentId);
+
   const git_add: AgentTool = {
     name: "git_add",
     label: "Git Add",
@@ -149,8 +153,8 @@ export function getGitTools(): AgentTool[] {
     name: "git_commit",
     label: "Git Commit",
     description:
-      "Commit staged changes with a message. If nothing is staged, auto-stages all changes first. " +
-      "Author is set to Rohan Mehta.",
+      `Commit staged changes with a message. If nothing is staged, auto-stages all changes first. ` +
+      `Author: ${name}.`,
     parameters: Type.Object({
       project: Type.String({ description: "Project folder name under workspace/projects/" }),
       message: Type.String({ description: "Commit message describing the changes" }),
@@ -168,32 +172,64 @@ export function getGitTools(): AgentTool[] {
       }
 
       const output = git(dir, [
-        "-c", "user.name=Rohan Mehta",
-        "-c", "user.email=rohan@vec.company",
+        "-c", `user.name=${name}`,
+        "-c", `user.email=${email}`,
         "commit", "-m", params.message,
       ]);
       return ok(output);
     },
   };
 
-  const git_log: AgentTool = {
-    name: "git_log",
-    label: "Git Log",
-    description: "Show commit history for a project.",
+  return [git_add, git_commit];
+}
+
+/** Admin-level git tools: init (uses agent identity). */
+export function getGitAdminTools(agentId: string): AgentTool[] {
+  const { name, email } = getGitIdentity(agentId);
+
+  const git_init: AgentTool = {
+    name: "git_init",
+    label: "Git Init",
+    description:
+      "Initialize a new git repository in a project folder under workspace/projects/. " +
+      "Creates a .gitignore and makes an initial commit.",
     parameters: Type.Object({
-      project: Type.String({ description: "Project folder name under workspace/projects/" }),
-      limit: Type.Optional(Type.Number({ description: "Max number of commits to show. Default: 20." })),
+      project: Type.String({ description: "Project folder name under workspace/projects/ (e.g. 'my-app')" }),
     }),
     execute: async (_, params: any) => {
       const dir = resolveProjectDir(params.project);
-      if (!isGitRepo(dir)) return ok(`ERROR: '${params.project}' is not a git repository.`);
-      const n = params.limit ?? 20;
-      const output = git(dir, ["log", "--oneline", `-n`, String(n)]);
-      return ok(output || "(no commits yet)");
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      if (isGitRepo(dir)) {
+        return ok(`Project '${params.project}' already has a git repository.`);
+      }
+      git(dir, ["init"]);
+      const gitignorePath = join(dir, ".gitignore");
+      if (!existsSync(gitignorePath)) {
+        writeFileSync(gitignorePath, DEFAULT_GITIGNORE, "utf-8");
+      }
+      git(dir, ["add", "-A"]);
+      git(dir, [
+        "-c", `user.name=${name}`,
+        "-c", `user.email=${email}`,
+        "commit", "-m", "Initial commit",
+        "--allow-empty",
+      ]);
+      return ok(`Initialized git repository in projects/${params.project}/ with initial commit.`);
     },
   };
 
-  return [git_init, git_status, git_diff, git_add, git_commit, git_log];
+  return [git_init];
+}
+
+/** All git tools (backwards compat — returns all tiers). */
+export function getGitTools(agentId: string): AgentTool[] {
+  return [
+    ...getGitAdminTools(agentId),
+    ...getGitReadTools(agentId),
+    ...getGitWriteTools(agentId),
+  ];
 }
 
 // ── Auto-commit helper (used by devAgent task lifecycle) ──────────────────────
@@ -202,9 +238,10 @@ export function getGitTools(): AgentTool[] {
  * Auto-initialize a git repo in a project folder if it doesn't have one yet.
  * Called before task execution when folder_access points to a projects/ path.
  */
-export function autoInitRepo(projectDir: string): void {
+export function autoInitRepo(projectDir: string, agentId?: string): void {
   if (!existsSync(projectDir) || isGitRepo(projectDir)) return;
 
+  const { name, email } = getGitIdentity(agentId);
   git(projectDir, ["init"]);
   const gitignorePath = join(projectDir, ".gitignore");
   if (!existsSync(gitignorePath)) {
@@ -213,8 +250,8 @@ export function autoInitRepo(projectDir: string): void {
   git(projectDir, ["add", "-A"]);
   try {
     git(projectDir, [
-      "-c", "user.name=Rohan Mehta",
-      "-c", "user.email=rohan@vec.company",
+      "-c", `user.name=${name}`,
+      "-c", `user.email=${email}`,
       "commit", "-m", "Initial commit [auto-init]",
       "--allow-empty",
     ]);
@@ -227,17 +264,18 @@ export function autoInitRepo(projectDir: string): void {
  * Auto-commit any uncommitted changes after a completed task.
  * Returns true if a commit was made, false if working tree was clean.
  */
-export function autoCommitIfDirty(projectDir: string, taskId: string, taskDescription: string): boolean {
+export function autoCommitIfDirty(projectDir: string, taskId: string, taskDescription: string, agentId?: string): boolean {
   if (!existsSync(projectDir) || !isGitRepo(projectDir)) return false;
 
   const porcelain = git(projectDir, ["status", "--porcelain"]);
   if (!porcelain) return false; // clean
 
+  const { name, email } = getGitIdentity(agentId);
   git(projectDir, ["add", "-A"]);
   const msg = `${taskId}: ${taskDescription.slice(0, 100)} [auto-commit]`;
   git(projectDir, [
-    "-c", "user.name=Rohan Mehta",
-    "-c", "user.email=rohan@vec.company",
+    "-c", `user.name=${name}`,
+    "-c", `user.email=${email}`,
     "commit", "-m", msg,
   ]);
   return true;

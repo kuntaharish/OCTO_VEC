@@ -1,0 +1,1138 @@
+{
+  "meta": {
+    "version": "2",
+    "company": "VEC"
+  },
+  "role_templates": {
+    "pm": {
+      "role": "Project Manager",
+      "designation": "Project Manager",
+      "department": "Management",
+      "category": "pm",
+      "hierarchy_level": 1,
+      "reports_to": "",
+      "tool_profile": "pm",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "pm.md",
+      "default_skills": [
+        "planning",
+        "delegation",
+        "risk-management",
+        "communication"
+      ],
+      "mandatory": true
+    },
+    "architect": {
+      "role": "Solutions Architect",
+      "designation": "Solutions Architect",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 2,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "architect.md",
+      "default_skills": [
+        "system-design",
+        "database-schema",
+        "api-design",
+        "tech-stack"
+      ]
+    },
+    "ba": {
+      "role": "Business Analyst",
+      "designation": "Business Analyst",
+      "department": "Analysis",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "ba",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "ba.md",
+      "default_skills": [
+        "requirements",
+        "user-stories",
+        "gap-analysis",
+        "kpis",
+        "process-mapping"
+      ]
+    },
+    "researcher": {
+      "role": "Research Specialist",
+      "designation": "Research Specialist",
+      "department": "Analysis",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "researcher.md",
+      "default_skills": [
+        "technology-research",
+        "best-practices",
+        "security-research",
+        "comparative-analysis"
+      ]
+    },
+    "developer": {
+      "role": "Senior Developer",
+      "designation": "Senior Developer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "write"
+      },
+      "domain_tools": [],
+      "prompt_file": "dev.md",
+      "default_skills": [
+        "python",
+        "javascript",
+        "typescript",
+        "code-review",
+        "unit-testing",
+        "debugging",
+        "refactoring"
+      ]
+    },
+    "qa": {
+      "role": "QA Engineer",
+      "designation": "QA Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [
+        "qa"
+      ],
+      "prompt_file": "qa.md",
+      "default_skills": [
+        "test-planning",
+        "test-cases",
+        "bug-reporting",
+        "coverage-analysis"
+      ]
+    },
+    "security": {
+      "role": "Security Engineer",
+      "designation": "Security Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [
+        "security"
+      ],
+      "prompt_file": "security.md",
+      "default_skills": [
+        "vulnerability-scanning",
+        "dependency-audit",
+        "code-security",
+        "owasp"
+      ]
+    },
+    "devops": {
+      "role": "DevOps Engineer",
+      "designation": "DevOps Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding_extended",
+      "capabilities": {
+        "glob": true,
+        "git_level": "admin"
+      },
+      "domain_tools": [],
+      "prompt_file": "devops.md",
+      "default_skills": [
+        "ci-cd",
+        "docker",
+        "kubernetes",
+        "deployment",
+        "monitoring",
+        "infrastructure"
+      ]
+    },
+    "techwriter": {
+      "role": "Technical Writer",
+      "designation": "Technical Writer",
+      "department": "Documentation",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "coding_extended",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "techwriter.md",
+      "default_skills": [
+        "api-docs",
+        "readme",
+        "user-guides",
+        "deployment-guides",
+        "changelogs"
+      ]
+    },
+    "frontend": {
+      "role": "Frontend Developer",
+      "designation": "Frontend Developer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "write"
+      },
+      "domain_tools": [],
+      "prompt_file": "frontend.md",
+      "default_skills": [
+        "react",
+        "vue",
+        "css",
+        "accessibility",
+        "responsive-design",
+        "component-architecture"
+      ]
+    },
+    "backend": {
+      "role": "Backend Developer",
+      "designation": "Backend Developer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "write"
+      },
+      "domain_tools": [],
+      "prompt_file": "backend.md",
+      "default_skills": [
+        "nodejs",
+        "python",
+        "rest-api",
+        "graphql",
+        "microservices",
+        "database-design",
+        "caching"
+      ]
+    },
+    "mobile": {
+      "role": "Mobile Developer",
+      "designation": "Mobile Developer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "write"
+      },
+      "domain_tools": [],
+      "prompt_file": "mobile.md",
+      "default_skills": [
+        "react-native",
+        "flutter",
+        "ios",
+        "android",
+        "mobile-ui",
+        "offline-first"
+      ]
+    },
+    "dataengineer": {
+      "role": "Data Engineer",
+      "designation": "Data Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "read"
+      },
+      "domain_tools": [],
+      "prompt_file": "dataengineer.md",
+      "default_skills": [
+        "sql",
+        "etl-pipelines",
+        "data-warehousing",
+        "spark",
+        "kafka",
+        "data-modeling"
+      ]
+    },
+    "dba": {
+      "role": "Database Administrator",
+      "designation": "Database Administrator",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "read"
+      },
+      "domain_tools": [],
+      "prompt_file": "dba.md",
+      "default_skills": [
+        "schema-design",
+        "query-optimization",
+        "migrations",
+        "indexing",
+        "postgresql",
+        "mongodb"
+      ]
+    },
+    "mlengineer": {
+      "role": "ML/AI Engineer",
+      "designation": "ML/AI Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "read"
+      },
+      "domain_tools": [],
+      "prompt_file": "mlengineer.md",
+      "default_skills": [
+        "machine-learning",
+        "deep-learning",
+        "nlp",
+        "pytorch",
+        "model-training",
+        "mlops"
+      ]
+    },
+    "sre": {
+      "role": "Site Reliability Engineer",
+      "designation": "Site Reliability Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding_extended",
+      "capabilities": {
+        "glob": true,
+        "git_level": "admin"
+      },
+      "domain_tools": [],
+      "prompt_file": "sre.md",
+      "default_skills": [
+        "monitoring",
+        "alerting",
+        "incident-response",
+        "slo-sla",
+        "runbooks",
+        "chaos-engineering"
+      ]
+    },
+    "productowner": {
+      "role": "Product Owner",
+      "designation": "Product Owner",
+      "department": "Product",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "ba",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "productowner.md",
+      "default_skills": [
+        "product-strategy",
+        "user-stories",
+        "backlog-management",
+        "roadmapping",
+        "prioritization"
+      ]
+    },
+    "designer": {
+      "role": "UI/UX Designer",
+      "designation": "UI/UX Designer",
+      "department": "Design",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "designer.md",
+      "default_skills": [
+        "wireframing",
+        "prototyping",
+        "user-research",
+        "design-systems",
+        "accessibility"
+      ]
+    },
+    "scrummaster": {
+      "role": "Scrum Master",
+      "designation": "Scrum Master",
+      "department": "Management",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "scrummaster.md",
+      "default_skills": [
+        "agile",
+        "scrum",
+        "sprint-planning",
+        "retrospectives",
+        "impediment-removal",
+        "kanban"
+      ]
+    },
+    "dataanalyst": {
+      "role": "Data Analyst",
+      "designation": "Data Analyst",
+      "department": "Analysis",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "dataanalyst.md",
+      "default_skills": [
+        "sql",
+        "data-visualization",
+        "dashboards",
+        "reporting",
+        "kpi-analysis",
+        "business-intelligence"
+      ]
+    },
+    "releasemanager": {
+      "role": "Release Manager",
+      "designation": "Release Manager",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding_extended",
+      "capabilities": {
+        "glob": true,
+        "git_level": "read"
+      },
+      "domain_tools": [],
+      "prompt_file": "releasemanager.md",
+      "default_skills": [
+        "release-coordination",
+        "versioning",
+        "changelog-management",
+        "deployment-planning",
+        "git-workflows"
+      ]
+    },
+    "compliance": {
+      "role": "Compliance Officer",
+      "designation": "Compliance Officer",
+      "department": "Governance",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "compliance.md",
+      "default_skills": [
+        "gdpr",
+        "soc2",
+        "hipaa",
+        "policy-writing",
+        "audit-trails",
+        "data-privacy",
+        "risk-assessment"
+      ]
+    },
+    "support": {
+      "role": "Support Engineer",
+      "designation": "Support Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "tool_profile": "coding_extended",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": [],
+      "prompt_file": "support.md",
+      "default_skills": [
+        "troubleshooting",
+        "debugging",
+        "log-analysis",
+        "root-cause-analysis",
+        "escalation"
+      ]
+    }
+  },
+  "agents": [
+    {
+      "agent_id": "pm",
+      "employee_id": "EMP-001",
+      "name": "Arjun Sharma",
+      "template": "pm",
+      "role": "Project Manager",
+      "designation": "Project Manager",
+      "department": "Management",
+      "category": "pm",
+      "hierarchy_level": 1,
+      "reports_to": "",
+      "skills": [
+        "planning",
+        "delegation",
+        "risk-management",
+        "communication"
+      ],
+      "tool_profile": "pm",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "pm.md",
+      "color": "#1158c7",
+      "initials": "AS",
+      "enabled": true
+    },
+    {
+      "agent_id": "architect",
+      "employee_id": "EMP-002",
+      "name": "Priya Nair",
+      "template": "architect",
+      "role": "Solutions Architect",
+      "designation": "Solutions Architect",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 2,
+      "reports_to": "EMP-001",
+      "skills": [
+        "system-design",
+        "database-schema",
+        "api-design",
+        "tech-stack"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "architect.md",
+      "color": "#e36209",
+      "initials": "PN",
+      "enabled": true
+    },
+    {
+      "agent_id": "ba",
+      "employee_id": "EMP-003",
+      "name": "Kavya Nair",
+      "template": "ba",
+      "role": "Business Analyst",
+      "designation": "Business Analyst",
+      "department": "Analysis",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "requirements",
+        "user-stories",
+        "gap-analysis",
+        "kpis",
+        "process-mapping"
+      ],
+      "tool_profile": "ba",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "ba.md",
+      "color": "#7928ca",
+      "initials": "KN",
+      "enabled": true
+    },
+    {
+      "agent_id": "researcher",
+      "employee_id": "EMP-004",
+      "name": "Shreya Joshi",
+      "template": "researcher",
+      "role": "Research Specialist",
+      "designation": "Research Specialist",
+      "department": "Analysis",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "technology-research",
+        "best-practices",
+        "security-research",
+        "comparative-analysis"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "researcher.md",
+      "color": "#0891b2",
+      "initials": "SJ",
+      "enabled": true
+    },
+    {
+      "agent_id": "dev",
+      "employee_id": "EMP-005",
+      "name": "Rohan Mehta",
+      "template": "developer",
+      "role": "Senior Developer",
+      "designation": "Senior Developer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "python",
+        "javascript",
+        "typescript",
+        "code-review",
+        "unit-testing",
+        "debugging",
+        "refactoring"
+      ],
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "write"
+      },
+      "domain_tools": [],
+      "prompt_file": "dev.md",
+      "color": "#3fb950",
+      "initials": "RM",
+      "enabled": true
+    },
+    {
+      "agent_id": "qa",
+      "employee_id": "EMP-006",
+      "name": "Preethi Raj",
+      "template": "qa",
+      "role": "QA Engineer",
+      "designation": "QA Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "test-planning",
+        "test-cases",
+        "bug-reporting",
+        "coverage-analysis"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [
+        "qa"
+      ],
+      "prompt_file": "qa.md",
+      "color": "#f59e0b",
+      "initials": "PR",
+      "enabled": true
+    },
+    {
+      "agent_id": "security",
+      "employee_id": "EMP-007",
+      "name": "Vikram Singh",
+      "template": "security",
+      "role": "Security Engineer",
+      "designation": "Security Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "vulnerability-scanning",
+        "dependency-audit",
+        "code-security",
+        "owasp"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [
+        "security"
+      ],
+      "prompt_file": "security.md",
+      "color": "#ef4444",
+      "initials": "VS",
+      "enabled": true
+    },
+    {
+      "agent_id": "devops",
+      "employee_id": "EMP-008",
+      "name": "Aditya Kumar",
+      "template": "devops",
+      "role": "DevOps Engineer",
+      "designation": "DevOps Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "ci-cd",
+        "docker",
+        "kubernetes",
+        "deployment",
+        "monitoring",
+        "infrastructure"
+      ],
+      "tool_profile": "coding_extended",
+      "capabilities": {
+        "glob": true,
+        "git_level": "admin"
+      },
+      "domain_tools": [],
+      "prompt_file": "devops.md",
+      "color": "#8b5cf6",
+      "initials": "AK",
+      "enabled": true
+    },
+    {
+      "agent_id": "techwriter",
+      "employee_id": "EMP-009",
+      "name": "Anjali Patel",
+      "template": "techwriter",
+      "role": "Technical Writer",
+      "designation": "Technical Writer",
+      "department": "Documentation",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "api-docs",
+        "readme",
+        "user-guides",
+        "deployment-guides",
+        "changelogs"
+      ],
+      "tool_profile": "coding_extended",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "techwriter.md",
+      "color": "#ec4899",
+      "initials": "AP",
+      "enabled": true
+    },
+    {
+      "agent_id": "frontend",
+      "employee_id": "EMP-010",
+      "name": "Meera Krishnan",
+      "template": "frontend",
+      "role": "Frontend Developer",
+      "designation": "Frontend Developer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "react",
+        "vue",
+        "css",
+        "accessibility",
+        "responsive-design",
+        "component-architecture"
+      ],
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "write"
+      },
+      "domain_tools": [],
+      "prompt_file": "frontend.md",
+      "color": "#06b6d4",
+      "initials": "MK",
+      "enabled": false
+    },
+    {
+      "agent_id": "backend",
+      "employee_id": "EMP-011",
+      "name": "Arjun Reddy",
+      "template": "backend",
+      "role": "Backend Developer",
+      "designation": "Backend Developer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "nodejs",
+        "python",
+        "rest-api",
+        "graphql",
+        "microservices",
+        "database-design",
+        "caching"
+      ],
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "write"
+      },
+      "domain_tools": [],
+      "prompt_file": "backend.md",
+      "color": "#f97316",
+      "initials": "AR",
+      "enabled": false
+    },
+    {
+      "agent_id": "mobile",
+      "employee_id": "EMP-012",
+      "name": "Neha Gupta",
+      "template": "mobile",
+      "role": "Mobile Developer",
+      "designation": "Mobile Developer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "react-native",
+        "flutter",
+        "ios",
+        "android",
+        "mobile-ui",
+        "offline-first"
+      ],
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "write"
+      },
+      "domain_tools": [],
+      "prompt_file": "mobile.md",
+      "color": "#d946ef",
+      "initials": "NG",
+      "enabled": false
+    },
+    {
+      "agent_id": "dataengineer",
+      "employee_id": "EMP-013",
+      "name": "Siddharth Iyer",
+      "template": "dataengineer",
+      "role": "Data Engineer",
+      "designation": "Data Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "sql",
+        "etl-pipelines",
+        "data-warehousing",
+        "spark",
+        "kafka",
+        "data-modeling"
+      ],
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "read"
+      },
+      "domain_tools": [],
+      "prompt_file": "dataengineer.md",
+      "color": "#14b8a6",
+      "initials": "SI",
+      "enabled": false
+    },
+    {
+      "agent_id": "dba",
+      "employee_id": "EMP-014",
+      "name": "Ramesh Venkat",
+      "template": "dba",
+      "role": "Database Administrator",
+      "designation": "Database Administrator",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "schema-design",
+        "query-optimization",
+        "migrations",
+        "indexing",
+        "postgresql",
+        "mongodb"
+      ],
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "read"
+      },
+      "domain_tools": [],
+      "prompt_file": "dba.md",
+      "color": "#6366f1",
+      "initials": "RV",
+      "enabled": false
+    },
+    {
+      "agent_id": "mlengineer",
+      "employee_id": "EMP-015",
+      "name": "Divya Menon",
+      "template": "mlengineer",
+      "role": "ML/AI Engineer",
+      "designation": "ML/AI Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "machine-learning",
+        "deep-learning",
+        "nlp",
+        "pytorch",
+        "model-training",
+        "mlops"
+      ],
+      "tool_profile": "coding",
+      "capabilities": {
+        "glob": true,
+        "git_level": "read"
+      },
+      "domain_tools": [],
+      "prompt_file": "mlengineer.md",
+      "color": "#10b981",
+      "initials": "DM",
+      "enabled": false
+    },
+    {
+      "agent_id": "sre",
+      "employee_id": "EMP-016",
+      "name": "Karthik Bhat",
+      "template": "sre",
+      "role": "Site Reliability Engineer",
+      "designation": "Site Reliability Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "monitoring",
+        "alerting",
+        "incident-response",
+        "slo-sla",
+        "runbooks",
+        "chaos-engineering"
+      ],
+      "tool_profile": "coding_extended",
+      "capabilities": {
+        "glob": true,
+        "git_level": "admin"
+      },
+      "domain_tools": [],
+      "prompt_file": "sre.md",
+      "color": "#e36209",
+      "initials": "KB",
+      "enabled": false
+    },
+    {
+      "agent_id": "productowner",
+      "employee_id": "EMP-017",
+      "name": "Ananya Desai",
+      "template": "productowner",
+      "role": "Product Owner",
+      "designation": "Product Owner",
+      "department": "Product",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "product-strategy",
+        "user-stories",
+        "backlog-management",
+        "roadmapping",
+        "prioritization"
+      ],
+      "tool_profile": "ba",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "productowner.md",
+      "color": "#1158c7",
+      "initials": "AD",
+      "enabled": false
+    },
+    {
+      "agent_id": "designer",
+      "employee_id": "EMP-018",
+      "name": "Riya Chopra",
+      "template": "designer",
+      "role": "UI/UX Designer",
+      "designation": "UI/UX Designer",
+      "department": "Design",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "wireframing",
+        "prototyping",
+        "user-research",
+        "design-systems",
+        "accessibility"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "designer.md",
+      "color": "#ec4899",
+      "initials": "RC",
+      "enabled": false
+    },
+    {
+      "agent_id": "scrummaster",
+      "employee_id": "EMP-019",
+      "name": "Manish Tiwari",
+      "template": "scrummaster",
+      "role": "Scrum Master",
+      "designation": "Scrum Master",
+      "department": "Management",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "agile",
+        "scrum",
+        "sprint-planning",
+        "retrospectives",
+        "impediment-removal",
+        "kanban"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "scrummaster.md",
+      "color": "#7928ca",
+      "initials": "MT",
+      "enabled": false
+    },
+    {
+      "agent_id": "dataanalyst",
+      "employee_id": "EMP-020",
+      "name": "Pooja Sharma",
+      "template": "dataanalyst",
+      "role": "Data Analyst",
+      "designation": "Data Analyst",
+      "department": "Analysis",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "sql",
+        "data-visualization",
+        "dashboards",
+        "reporting",
+        "kpi-analysis",
+        "business-intelligence"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "dataanalyst.md",
+      "color": "#0891b2",
+      "initials": "PS",
+      "enabled": false
+    },
+    {
+      "agent_id": "releasemanager",
+      "employee_id": "EMP-021",
+      "name": "Vivek Saxena",
+      "template": "releasemanager",
+      "role": "Release Manager",
+      "designation": "Release Manager",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "release-coordination",
+        "versioning",
+        "changelog-management",
+        "deployment-planning",
+        "git-workflows"
+      ],
+      "tool_profile": "coding_extended",
+      "capabilities": {
+        "glob": true,
+        "git_level": "read"
+      },
+      "domain_tools": [],
+      "prompt_file": "releasemanager.md",
+      "color": "#3fb950",
+      "initials": "VS",
+      "enabled": false
+    },
+    {
+      "agent_id": "compliance",
+      "employee_id": "EMP-022",
+      "name": "Nandini Rao",
+      "template": "compliance",
+      "role": "Compliance Officer",
+      "designation": "Compliance Officer",
+      "department": "Governance",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "gdpr",
+        "soc2",
+        "hipaa",
+        "policy-writing",
+        "audit-trails",
+        "data-privacy",
+        "risk-assessment"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {},
+      "domain_tools": [],
+      "prompt_file": "compliance.md",
+      "color": "#ef4444",
+      "initials": "NR",
+      "enabled": false
+    },
+    {
+      "agent_id": "support",
+      "employee_id": "EMP-023",
+      "name": "Tarun Malhotra",
+      "template": "support",
+      "role": "Support Engineer",
+      "designation": "Support Engineer",
+      "department": "Engineering",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-002",
+      "skills": [
+        "troubleshooting",
+        "debugging",
+        "log-analysis",
+        "root-cause-analysis",
+        "escalation"
+      ],
+      "tool_profile": "coding_extended",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": [],
+      "prompt_file": "support.md",
+      "color": "#f59e0b",
+      "initials": "TM",
+      "enabled": false
+    }
+  ]
+}

@@ -83,6 +83,7 @@ export enum EventType {
   PM_DELEGATING = "pm_delegating",
   MESSAGE_SENT = "message_sent",
   USER_INPUT = "user_input",
+  SCAN_COMPLETED = "scan_completed",
 }
 
 export interface Event {

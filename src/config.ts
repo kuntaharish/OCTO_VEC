@@ -85,6 +85,12 @@ export const config = {
 
   // ── Web Search (SearXNG) ──────────────────────────────────────────────────
   searxngUrl: process.env.SEARXNG_URL ?? "http://localhost:8888",
+
+  // ── Post-task security scans ───────────────────────────────────────────────
+  /** Run automated security scans after coding task completion. Set VEC_POST_TASK_SCANS=0 to disable. */
+  postTaskScansEnabled: !["0", "false", "no"].includes(
+    (process.env.VEC_POST_TASK_SCANS ?? "1").trim().toLowerCase()
+  ),
 };
 
 /** Shared workspace — all agents can read/write cross-agent deliverables here. */

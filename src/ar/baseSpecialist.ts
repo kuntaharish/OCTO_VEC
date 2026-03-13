@@ -31,6 +31,7 @@ import {
   autoCommitIfDirty,
   getProjectDirFromFolderAccess,
 } from "../tools/domain/gitTools.js";
+import { runPostTaskScans } from "../atp/postTaskHooks.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -250,7 +251,7 @@ export class BaseSpecialistAgent implements VECAgent {
       : null;
     if (projectDir) {
       try {
-        autoInitRepo(projectDir);
+        autoInitRepo(projectDir, this.agentId);
       } catch (e) {
         EventLog.log(
           EventType.AGENT_THINKING, this.agentId, normalizedId,
@@ -340,7 +341,7 @@ export class BaseSpecialistAgent implements VECAgent {
       const final = db.getTask(normalizedId);
       if (final?.status === "completed" && projectDir) {
         try {
-          const committed = autoCommitIfDirty(projectDir, normalizedId, task.description);
+          const committed = autoCommitIfDirty(projectDir, normalizedId, task.description, this.agentId);
           if (committed) {
             EventLog.log(
               EventType.AGENT_THINKING, this.agentId, normalizedId,
@@ -353,6 +354,16 @@ export class BaseSpecialistAgent implements VECAgent {
             `Git auto-commit failed: ${e}`
           );
         }
+      }
+
+      // Post-task security scans (async, non-blocking)
+      if (final?.status === "completed" && projectDir) {
+        runPostTaskScans(normalizedId, this.agentId, projectDir).catch((err) => {
+          EventLog.log(
+            EventType.AGENT_THINKING, this.agentId, normalizedId,
+            `Post-task scan hooks failed: ${err}`
+          );
+        });
       }
 
       // Hard fallback: if still in_progress after all re-prompts, mark failed

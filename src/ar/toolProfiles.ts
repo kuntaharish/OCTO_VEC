@@ -19,7 +19,7 @@ import {
   sandboxFileTools,
 } from "../tools/shared/fileTools.js";
 import { getBAFileTools } from "../tools/domain/baFileTools.js";
-import { getGitTools } from "../tools/domain/gitTools.js";
+import { getGitReadTools, getGitWriteTools, getGitAdminTools } from "../tools/domain/gitTools.js";
 import { qaTools } from "../tools/domain/qaTools.js";
 import { securityFlowTools } from "../tools/domain/securityFlowTools.js";
 import type { AgentInbox } from "../atp/agentMessageQueue.js";
@@ -65,8 +65,17 @@ export function buildToolset(
   if (entry.capabilities.glob) {
     tools.push(getGlobTool());
   }
-  if (entry.capabilities.git) {
-    tools.push(...getGitTools());
+  // Git tools — tiered by git_level (fallback: git:true = "write")
+  const gitLevel = entry.capabilities.git_level
+    ?? (entry.capabilities.git ? "write" : undefined);
+  if (gitLevel) {
+    tools.push(...getGitReadTools(agentId));
+    if (gitLevel === "write" || gitLevel === "admin") {
+      tools.push(...getGitWriteTools(agentId));
+    }
+    if (gitLevel === "admin") {
+      tools.push(...getGitAdminTools(agentId));
+    }
   }
 
   // 5. Domain-specific tool bundles

@@ -18,7 +18,7 @@ export interface RoleTemplate {
   hierarchy_level: number;
   reports_to: string;
   tool_profile: "coding" | "coding_extended" | "scoped_write" | "ba" | "pm";
-  capabilities: { git?: boolean; glob?: boolean; bash?: boolean };
+  capabilities: { git?: boolean; git_level?: "read" | "write" | "admin"; glob?: boolean; bash?: boolean };
   domain_tools: string[];
   prompt_file: string;
   default_skills: string[];
@@ -41,6 +41,7 @@ export interface RosterEntry {
   tool_profile: "coding" | "coding_extended" | "scoped_write" | "ba" | "pm";
   capabilities: {
     git?: boolean;
+    git_level?: "read" | "write" | "admin";
     glob?: boolean;
     bash?: boolean;
   };
