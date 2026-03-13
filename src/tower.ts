@@ -26,6 +26,7 @@ import { startDashboardServer } from "./dashboard/server.js";
 import { releaseDueTasks } from "./tools/pm/taskTools.js";
 import { AgentInterrupt } from "./atp/agentInterrupt.js";
 import { createTelegramChannel } from "./channels/telegram.js";
+import { createSlackChannel } from "./channels/slack.js";
 import { ActiveChannelState } from "./channels/activeChannel.js";
 import { UserChatLog } from "./atp/chatLog.js";
 import { clearAgentHistory } from "./memory/messageHistory.js";
@@ -60,6 +61,8 @@ function printBanner(): void {
   // Dashboard URL with key is printed by server.ts on listen
   const tgChatId = process.env.TELEGRAM_CHAT_ID;
   console.log(`  Telegram : ${tgChatId ? `active (chat ${tgChatId})` : "disabled (set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID to enable)"}`);
+  const slackCh = process.env.SLACK_CHANNEL_ID;
+  console.log(`  Slack    : ${slackCh ? `active (channel ${slackCh})` : "disabled (set SLACK_BOT_TOKEN + SLACK_APP_TOKEN + SLACK_CHANNEL_ID to enable)"}`);
   console.log(`  CLI      : ${config.cliEnabled ? "ON" : "OFF (headless — set VEC_CLI_ENABLED=1 to enable)"}`);
   if (config.cliEnabled) {
     console.log("  /board   — Task board (SQLite)");
@@ -145,7 +148,8 @@ function attachPmStreaming(pmAgent: PMAgent): void {
           !messageAgentCalled &&
           !suppressChatLog &&
           !text.startsWith("NO_ACTION_REQUIRED") &&
-          ActiveChannelState.get() !== "telegram"
+          ActiveChannelState.get() !== "telegram" &&
+          ActiveChannelState.get() !== "slack"
         ) {
           UserChatLog.log({ from: "pm", to: "user", message: text, channel: "agent" });
         }
@@ -327,6 +331,10 @@ async function main(): Promise<void> {
   const telegram = createTelegramChannel(pmAgent);
   if (telegram) await telegram.start();
 
+  // 10b. Start Slack channel (optional — requires SLACK_BOT_TOKEN + SLACK_APP_TOKEN + SLACK_CHANNEL_ID)
+  const slack = createSlackChannel(pmAgent);
+  if (slack) await slack.start();
+
   // 11. User inbox forwarder — delivers messages sent to 'user' by PM (or other agents)
   //     to the CLI console and, if active, to the Telegram channel.
   const userInboxHandle = setInterval(async () => {
@@ -340,13 +348,16 @@ async function main(): Promise<void> {
       const ch = ActiveChannelState.get();
       console.log(`\n  [→ You] ${line}\n`);
       // Route reply to origin channel only:
-      // - telegram session → forward to Telegram (any agent, not just pm)
-      // - dashboard session → log to UserChatLog (not Telegram)
-      // - cli session → log to UserChatLog (Telegram not notified for CLI messages)
+      // - telegram session → forward to Telegram
+      // - slack session    → forward to Slack
+      // - dashboard/cli    → log to UserChatLog
       if (telegram && ch === "telegram") {
         await telegram.sendToUser(line).catch(() => { });
       }
-      if (ch !== "telegram") {
+      if (slack && ch === "slack") {
+        await slack.sendToUser(line).catch(() => { });
+      }
+      if (ch !== "telegram" && ch !== "slack") {
         UserChatLog.log({ from: msg.from_agent, to: "user", message: msg.message, channel: "agent" });
       }
     }
@@ -358,7 +369,7 @@ async function main(): Promise<void> {
 
   // 13. Interactive readline loop (skipped in headless mode)
   if (!config.cliEnabled) {
-    console.log("  Running in headless mode. Use dashboard or Telegram to interact.\n");
+    console.log("  Running in headless mode. Use dashboard, Telegram, or Slack to interact.\n");
     return;
   }
 
