@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ArrowUp, Search, X, Plus, Users, Trash2, Edit3, Check } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { usePolling, postApi } from "../hooks/useApi";
+import { usePolling, postApi, deleteApi } from "../hooks/useApi";
 import { useAgentStream } from "../hooks/useSSE";
 import { useEmployees } from "../context/EmployeesContext";
 import type { ChatEntry, Employee } from "../types";
@@ -19,15 +19,6 @@ interface AgentGroup {
 }
 
 const GROUP_COLORS = ["#6366f1", "#f43f5e", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#ef4444"];
-const STORAGE_KEY = "vec-agent-groups";
-
-function loadGroups(): AgentGroup[] {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
-  catch { return []; }
-}
-function saveGroups(groups: AgentGroup[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
-}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,7 +45,7 @@ export default function ChatView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [agentSearch, setAgentSearch] = useState("");
   const [sidebarTab, setSidebarTab] = useState<"agents" | "groups">("agents");
-  const [groups, setGroups] = useState<AgentGroup[]>(loadGroups);
+  const { data: groups, refresh: refreshGroups } = usePolling<AgentGroup[]>("/api/agent-groups", 5000);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -78,12 +69,10 @@ export default function ChatView() {
     );
   }, [agents, agentSearch]);
 
-  // Persist groups
-  useEffect(() => { saveGroups(groups); }, [groups]);
-
   // ── Selection helpers ──────────────────────────────────────────────────────
 
-  const activeGroup = selectedGroupId ? groups.find((g) => g.id === selectedGroupId) ?? null : null;
+  const groupList = groups ?? [];
+  const activeGroup = selectedGroupId ? groupList.find((g) => g.id === selectedGroupId) ?? null : null;
   const isGroupMode = activeGroup !== null;
 
   function selectAgent(key: string) {
@@ -106,9 +95,8 @@ export default function ChatView() {
 
   const entries = (allEntries ?? []).filter((e) => {
     if (isGroupMode) {
-      const members = activeGroup!.members;
-      const match = (e.from === "user" && members.includes(e.to)) || (members.includes(e.from) && e.to === "user");
-      if (!match) return false;
+      // Filter by group_id — shows all messages tagged with this group's thread
+      if (e.group_id !== activeGroup!.id) return false;
     } else {
       if (!(e.from === "user" && e.to === selectedAgent) && !(e.from === selectedAgent && e.to === "user")) return false;
     }
@@ -143,7 +131,7 @@ export default function ChatView() {
     setSending(true); setInput("");
     try {
       if (isGroupMode) {
-        await Promise.all(activeGroup!.members.map((key) => postApi("/api/send-message", { to: key, message: msg })));
+        await postApi("/api/send-group-message", { group_id: activeGroup!.id, message: msg });
       } else {
         await postApi("/api/send-message", { to: selectedAgent, message: msg });
       }
@@ -158,15 +146,20 @@ export default function ChatView() {
 
   // ── Group CRUD ─────────────────────────────────────────────────────────────
 
-  function createGroup(name: string, members: string[], color: string) {
-    const g: AgentGroup = { id: crypto.randomUUID(), name, members, color };
-    setGroups((prev) => [...prev, g]);
-    setShowCreateGroup(false);
-    selectGroup(g.id);
+  async function createGroup(name: string, members: string[], color: string) {
+    try {
+      const res = await postApi("/api/agent-groups", { name, members, color });
+      setShowCreateGroup(false);
+      await refreshGroups();
+      if (res?.group?.id) selectGroup(res.group.id);
+    } catch { /* ignore */ }
   }
-  function deleteGroup(id: string) {
-    setGroups((prev) => prev.filter((g) => g.id !== id));
-    if (selectedGroupId === id) { setSelectedGroupId(null); setSelectedAgent("pm"); }
+  async function handleDeleteGroup(id: string) {
+    try {
+      await deleteApi(`/api/agent-groups/${id}`);
+      await refreshGroups();
+      if (selectedGroupId === id) { setSelectedGroupId(null); setSelectedAgent("pm"); }
+    } catch { /* ignore */ }
   }
 
   // ── Helper: get employee for agent key ─────────────────────────────────────
@@ -343,13 +336,13 @@ export default function ChatView() {
               New Group
             </button>
 
-            {groups.length === 0 && (
+            {groupList.length === 0 && (
               <div style={{ padding: "24px 12px", textAlign: "center", fontSize: 12, color: "var(--text-muted)" }}>
                 No groups yet. Create one to broadcast messages to multiple agents.
               </div>
             )}
 
-            {groups.map((g) => {
+            {groupList.map((g) => {
               const sel = selectedGroupId === g.id;
               return (
                 <button
@@ -382,7 +375,7 @@ export default function ChatView() {
                     </div>
                   </div>
                   <button
-                    onClick={(e) => { e.stopPropagation(); deleteGroup(g.id); }}
+                    onClick={(e) => { e.stopPropagation(); void handleDeleteGroup(g.id); }}
                     style={{
                       background: "none", border: "none", cursor: "pointer",
                       color: "var(--text-muted)", padding: 4, display: "flex",

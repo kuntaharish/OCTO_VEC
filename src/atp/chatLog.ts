@@ -22,6 +22,8 @@ export interface ChatEntry {
   message: string;
   /** Where the message originated */
   channel: "cli" | "telegram" | "dashboard" | "agent";
+  /** If part of a group conversation */
+  group_id?: string;
 }
 
 const LOG_PATH = path.join(config.dataDir, "chat-log.json");

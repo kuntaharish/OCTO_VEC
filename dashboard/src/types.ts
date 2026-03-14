@@ -79,6 +79,7 @@ export interface ChatEntry {
   to: string;    // "user" or agent key
   message: string;
   channel: "cli" | "telegram" | "dashboard" | "agent";
+  group_id?: string;  // If part of a group conversation
 }
 
 export interface ChatAgent {

@@ -36,6 +36,7 @@ import { UserChatLog } from "../atp/chatLog.js";
 import { agentStreamBus, getReplayBuffer } from "../atp/agentStreamBus.js";
 import type { StreamToken } from "../atp/agentStreamBus.js";
 import { AGENT_PROFILES, getEnabledTools, setAgentTools } from "../atp/agentToolConfig.js";
+import { getAllGroups, getGroup, addGroup, deleteGroup, markActiveGroupConversation, clearActiveGroup } from "../atp/agentGroups.js";
 import { getRosterEntry, getRoleTemplates } from "../ar/roster.js";
 import { AgentRuntime } from "../atp/agentRuntime.js";
 import { getMCPTools } from "../mcp/mcpBridge.js";
@@ -2579,7 +2580,65 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     ActiveChannelState.set("dashboard");
     AgentMessageQueue.push("user", agentKey, "", message.trim(), "normal");
     UserChatLog.log({ from: "user", to: agentKey, message: message.trim(), channel: "dashboard" });
+    // Clear any active group conversation when user sends individual DM
+    clearActiveGroup(agentKey);
     res.json({ ok: true, to: agentKey });
+  });
+
+  // ── Agent Groups ────────────────────────────────────────────────────────
+
+  app.get("/api/agent-groups", (_req, res) => {
+    res.json(getAllGroups());
+  });
+
+  app.post("/api/agent-groups", (req, res) => {
+    const { name, members, color } = req.body ?? {};
+    if (!name || typeof name !== "string" || !Array.isArray(members) || members.length === 0) {
+      res.status(400).json({ error: "name (string) and members (non-empty array) are required" });
+      return;
+    }
+    const group = addGroup(name.trim(), members, color || "#6366f1");
+    res.json({ ok: true, group });
+  });
+
+  app.delete("/api/agent-groups/:id", (req, res) => {
+    const ok = deleteGroup(req.params.id);
+    if (!ok) { res.status(404).json({ error: "Group not found" }); return; }
+    res.json({ ok: true });
+  });
+
+  app.post("/api/send-group-message", (req, res) => {
+    const { group_id, message } = req.body ?? {};
+    if (!group_id || typeof group_id !== "string" || !message || typeof message !== "string") {
+      res.status(400).json({ error: "group_id and message are required strings" });
+      return;
+    }
+    const group = getGroup(group_id);
+    if (!group) { res.status(404).json({ error: "Group not found" }); return; }
+
+    const msg = message.trim();
+    const memberList = group.members
+      .map((m) => AGENT_DISPLAY_NAMES[m] ?? m)
+      .join(", ");
+
+    // Send to each member with group context
+    ActiveChannelState.set("dashboard");
+    for (const member of group.members) {
+      const taggedMsg =
+        `[GROUP: ${group.name}] Sir says: ${msg}\n\n` +
+        `Group members: ${memberList}. ` +
+        `Only reply if this is relevant to your role — if it doesn't concern you, no action needed. ` +
+        `Your reply via message_agent(to_agent='user') will be shared with all group members.`;
+      AgentMessageQueue.push("user", member, "", taggedMsg, "normal");
+    }
+
+    // Log user's outbound message with group_id
+    UserChatLog.log({ from: "user", to: `group:${group_id}`, message: msg, channel: "dashboard", group_id });
+
+    // Mark all members as in active group conversation
+    markActiveGroupConversation(group_id, group.members);
+
+    res.json({ ok: true, group_id, members: group.members.length });
   });
 
   app.post("/api/interrupt", (req, res) => {

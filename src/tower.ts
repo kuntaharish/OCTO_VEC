@@ -27,6 +27,7 @@ import { releaseDueTasks } from "./tools/pm/taskTools.js";
 import { AgentInterrupt } from "./atp/agentInterrupt.js";
 import { createTelegramChannel } from "./channels/telegram.js";
 import { createSlackChannel } from "./channels/slack.js";
+import { getActiveGroupForAgent, markActiveGroupConversation } from "./atp/agentGroups.js";
 import { ActiveChannelState } from "./channels/activeChannel.js";
 import { UserChatLog } from "./atp/chatLog.js";
 import { clearAgentHistory } from "./memory/messageHistory.js";
@@ -347,18 +348,42 @@ async function main(): Promise<void> {
       const line = `[${sender}${tag}]: ${msg.message}`;
       const ch = ActiveChannelState.get();
       console.log(`\n  [→ You] ${line}\n`);
-      // Route reply to origin channel only:
-      // - telegram session → forward to Telegram
-      // - slack session    → forward to Slack
-      // - dashboard/cli    → log to UserChatLog
+      // ── Group reply interception ─────────────────────────────────────
+      // If the replying agent is in an active group conversation,
+      // forward their reply to all other group members and log with group_id.
+      const activeGroup = getActiveGroupForAgent(msg.from_agent);
+      if (activeGroup) {
+        // Log with group_id
+        UserChatLog.log({
+          from: msg.from_agent, to: "user",
+          message: msg.message, channel: "agent",
+          group_id: activeGroup.id,
+        });
+        // Forward to other group members
+        const otherMembers = activeGroup.members.filter((m) => m !== msg.from_agent);
+        const senderName = AGENT_DISPLAY_NAMES[msg.from_agent] ?? msg.from_agent;
+        for (const member of otherMembers) {
+          AgentMessageQueue.push(
+            msg.from_agent, member, "",
+            `[GROUP: ${activeGroup.name}] ${senderName} says: ${msg.message}`,
+            "normal",
+          );
+        }
+        // Refresh active timestamp
+        markActiveGroupConversation(activeGroup.id, activeGroup.members);
+      } else {
+        // Normal individual reply — route to origin channel
+        if (ch !== "telegram" && ch !== "slack") {
+          UserChatLog.log({ from: msg.from_agent, to: "user", message: msg.message, channel: "agent" });
+        }
+      }
+
+      // Route reply to origin channel (for both individual and group)
       if (telegram && ch === "telegram") {
         await telegram.sendToUser(line).catch(() => { });
       }
       if (slack && ch === "slack") {
         await slack.sendToUser(line).catch(() => { });
-      }
-      if (ch !== "telegram" && ch !== "slack") {
-        UserChatLog.log({ from: msg.from_agent, to: "user", message: msg.message, channel: "agent" });
       }
     }
   }, 5_000);
