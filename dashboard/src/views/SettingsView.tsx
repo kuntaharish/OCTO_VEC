@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Save, RefreshCw, Server, ChevronDown, ChevronRight,
   Shield, Search, MessageSquare, Cpu, Box, ExternalLink,
   Zap, Settings2, Database, Eye, Star, Check, X, Package,
-  Hash, Globe, Radio, Gamepad2,
+  Hash, Globe, Radio, Gamepad2, FolderOpen,
 } from "lucide-react";
 import { postApi, apiUrl } from "../hooks/useApi";
 import { usePolling } from "../hooks/useApi";
@@ -602,6 +602,7 @@ export default function SettingsView() {
             {s ? (
               <>
                 <ConfigRow label="Company Name" value={s.system.companyName} icon={<Globe size={13} />} />
+                <ConfigRow label="Workspace" value={s.system.workspace} icon={<FolderOpen size={13} />} />
                 <ConfigRow label="CLI Enabled" value={s.system.cliEnabled} />
                 <ConfigRow label="PM Proactive Loop" value={s.proactive.enabled} />
                 {s.proactive.enabled && (

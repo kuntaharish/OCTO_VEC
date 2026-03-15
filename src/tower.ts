@@ -173,34 +173,42 @@ function attachPmStreaming(pmAgent: PMAgent): void {
         publishAgentStream("pm", event);
         if (ae.type === "text_delta" && ae.delta) {
           capturedText += ae.delta;
-          if (!headerPrinted) {
-            process.stdout.write("\nArjun (PM): ");
-            headerPrinted = true;
-            onNewLine = false;
+          if (CLI_MODE) {
+            if (!headerPrinted) {
+              process.stdout.write("\nArjun (PM): ");
+              headerPrinted = true;
+              onNewLine = false;
+            }
+            process.stdout.write(ae.delta);
+            onNewLine = ae.delta.endsWith("\n");
           }
-          process.stdout.write(ae.delta);
-          onNewLine = ae.delta.endsWith("\n");
         }
         break;
       }
 
       case "tool_execution_start":
-        if (!onNewLine) process.stdout.write("\n");
-        process.stdout.write(`  [${event.toolName}] `);
-        onNewLine = false;
+        if (CLI_MODE) {
+          if (!onNewLine) process.stdout.write("\n");
+          process.stdout.write(`  [${event.toolName}] `);
+          onNewLine = false;
+        }
         if (event.toolName === "message_agent") messageAgentCalled = true;
         publishAgentStream("pm", event);
         break;
 
       case "tool_execution_end":
-        process.stdout.write(event.isError ? "ERROR\n" : "done\n");
-        onNewLine = true;
+        if (CLI_MODE) {
+          process.stdout.write(event.isError ? "ERROR\n" : "done\n");
+          onNewLine = true;
+        }
         publishAgentStream("pm", event);
         break;
 
       case "agent_end": {
-        if (!onNewLine) process.stdout.write("\n");
-        onNewLine = true;
+        if (CLI_MODE) {
+          if (!onNewLine) process.stdout.write("\n");
+          onNewLine = true;
+        }
         publishAgentStream("pm", event);
         // Fallback: if PM generated text but never called message_agent,
         // the model output plain text instead of a tool call (Kimi K2 quirk).
@@ -265,6 +273,9 @@ function startLiveMonitor(): { toggle: () => boolean; interval: NodeJS.Timeout }
   };
 }
 
+// ── CLI mode flag ─────────────────────────────────────────────────────────
+const CLI_MODE = process.argv.slice(2).some((a) => a === "--cli" || a === "-c");
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -274,8 +285,10 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // 0b. First-run onboarding (creates ITS_ME.md if missing)
-  await runOnboardingIfNeeded();
+  // 0b. First-run onboarding — only in --cli mode (dashboard handles it otherwise)
+  if (CLI_MODE) {
+    await runOnboardingIfNeeded();
+  }
 
   // 0c. Bootstrap user data directory (creates dirs + seeds roster.json)
   initUserDataDir();
@@ -290,7 +303,7 @@ async function main(): Promise<void> {
   //     Wipes tasks, queues, histories, memories before any agents are created.
   const doStartupReset = process.argv.slice(2).some((a) => a === "--reset" || a === "/reset");
   if (doStartupReset) {
-    console.log("\n  [STARTUP RESET] Wiping all tasks, memories, and queues...");
+    if (CLI_MODE) console.log("\n  [STARTUP RESET] Wiping all tasks, memories, and queues...");
     ATPDatabase.clearAllTasks();
     ATPDatabase.resetEmployeeStatuses();
     MessageQueue.clear();
@@ -300,7 +313,7 @@ async function main(): Promise<void> {
       fs.rmSync(config.memoryDir, { recursive: true, force: true });
       fs.mkdirSync(config.memoryDir, { recursive: true });
     } catch { /* non-fatal */ }
-    console.log("  Done — VEC will start fresh.\n");
+    if (CLI_MODE) console.log("  Done — VEC will start fresh.\n");
   }
 
   // 1c. Initialize MCP bridge — connect to configured MCP servers and discover tools.
@@ -389,12 +402,15 @@ async function main(): Promise<void> {
   const schedulerHandle = setInterval(() => releaseDueTasks(schedulerDeps), 60 * 60_000);
   allHandles.push(schedulerHandle);
 
-  // 8. Start live queue monitor
-  const monitor = startLiveMonitor();
-  allHandles.push(monitor.interval);
+  // 8. Start live queue monitor (CLI mode only)
+  let monitor: ReturnType<typeof startLiveMonitor> | null = null;
+  if (CLI_MODE) {
+    monitor = startLiveMonitor();
+    allHandles.push(monitor.interval);
+  }
 
   function shutdown(): void {
-    console.log("\nShutting down VEC... goodbye.");
+    if (CLI_MODE) console.log("\nShutting down VEC... goodbye.");
     runtime.shutdown();
     for (const h of allHandles) clearInterval(h);
     shutdownMCP().catch(() => { });
@@ -422,7 +438,7 @@ async function main(): Promise<void> {
       const tag = msg.priority === "priority" ? " [PRIORITY]" : "";
       const line = `[${sender}${tag}]: ${msg.message}`;
       const ch = ActiveChannelState.get();
-      console.log(`\n  [→ You] ${line}\n`);
+      if (CLI_MODE) console.log(`\n  [→ You] ${line}\n`);
       // ── Group reply interception ─────────────────────────────────────
       // If the replying agent is in an active group conversation,
       // forward their reply to all other group members and log with group_id.
@@ -470,12 +486,17 @@ async function main(): Promise<void> {
   }, 5_000);
   allHandles.push(userInboxHandle);
 
-  // 12. Print banner
-  printBanner();
+  // 12. Print banner (CLI mode) or minimal daemon message
+  if (CLI_MODE) {
+    printBanner();
+  } else {
+    console.log("  OCTO VEC started. Dashboard will open in your browser.");
+    console.log("  Press Ctrl+C to stop.\n");
+  }
 
-  // 13. Interactive readline loop (skipped in headless mode)
-  if (!config.cliEnabled) {
-    console.log("  Running in headless mode. Use dashboard, Telegram, Slack, or Discord to interact.\n");
+  // 13. Interactive readline loop (CLI mode only)
+  if (!CLI_MODE) {
+    // Daemon mode — keep process alive, no stdin input
     return;
   }
 
@@ -749,7 +770,7 @@ async function main(): Promise<void> {
       }
 
       if (input === "/live") {
-        const now = monitor.toggle();
+        const now = monitor!.toggle();
         console.log(`[Live queue monitor: ${now ? "ON" : "OFF"}]`);
         askLine();
         return;
