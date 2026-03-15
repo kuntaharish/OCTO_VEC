@@ -21,6 +21,7 @@ import rateLimit from "express-rate-limit";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { config, PACKAGE_ROOT } from "../config.js";
+import { getMaskedIntegrationConfig, saveIntegrationConfig } from "../integrations/integrationConfig.js";
 
 // React build output — relative to package root (works both in dev and npm global install)
 const REACT_DIST = join(PACKAGE_ROOT, "dashboard", "dist");
@@ -2479,7 +2480,7 @@ function getDashboardHtml(): string {
 
 // â"€â"€ Server â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
-export function startDashboardServer(runtime: AgentRuntime, port = config.dashboardPort): void {
+export function startDashboardServer(runtime: AgentRuntime, port = config.dashboardPort, onReady?: (url: string) => void): void {
   const agents = runtime.allAgents; // backward compat — same Map reference
   const app = express();
 
@@ -2807,6 +2808,25 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     }
   });
 
+  app.patch("/api/agents/:agentId", (req, res) => {
+    const id = req.params.agentId.trim().toLowerCase();
+    const { name, initials, color } = req.body ?? {};
+    if (!name && !initials && !color) {
+      res.status(400).json({ error: "At least one of name, initials, color is required" });
+      return;
+    }
+    try {
+      const updates: Record<string, string> = {};
+      if (name) updates.name = name;
+      if (initials) updates.initials = initials;
+      if (color) updates.color = color;
+      const entry = runtime.updateAgent(id, updates);
+      res.json({ ok: true, agent: entry });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message ?? String(err) });
+    }
+  });
+
   app.post("/api/agents/:agentId/toggle", (req, res) => {
     const id = req.params.agentId.trim().toLowerCase();
     const { enabled } = req.body ?? {};
@@ -2844,6 +2864,23 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     }
   });
 
+  // ── Docker availability check ──────────────────────────────────────────────
+  app.get("/api/docker-status", (_req, res) => {
+    try {
+      const { execSync } = require("child_process");
+      const version = execSync("docker --version", { timeout: 5000, encoding: "utf-8" }).trim();
+      // Also check if daemon is running
+      try {
+        execSync("docker info", { timeout: 10000, stdio: "pipe" });
+        res.json({ installed: true, running: true, version });
+      } catch {
+        res.json({ installed: true, running: false, version, error: "Docker is installed but the daemon is not running. Start Docker Desktop." });
+      }
+    } catch {
+      res.json({ installed: false, running: false, version: null });
+    }
+  });
+
   // ── Settings: system config & integration status ─────────────────────────
   app.get("/api/settings", (_req, res) => {
     const tgToken = process.env.TELEGRAM_BOT_TOKEN ?? "";
@@ -2869,28 +2906,7 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
         enabled: config.pmProactiveEnabled,
         intervalSecs: config.pmProactiveIntervalSecs,
       },
-      integrations: {
-        telegram: {
-          configured: !!(tgToken && tgChatId),
-          chatId: tgChatId ? `${tgChatId.slice(0, 4)}...` : "",
-        },
-        searxng: {
-          configured: !!config.searxngUrl,
-          url: config.searxngUrl,
-        },
-        sonarqube: {
-          configured: !!config.sonarToken,
-          hostUrl: config.sonarHostUrl,
-          projectKey: config.sonarProjectBaseKey,
-        },
-        slack: {
-          configured: !!(process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN),
-          channelId: process.env.SLACK_CHANNEL_ID ?? "",
-        },
-        gitleaks: { configured: true },
-        semgrep: { configured: true },
-        trivy: { configured: true },
-      },
+      integrations: getMaskedIntegrationConfig(),
     });
   });
 
@@ -3060,6 +3076,61 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     res.json({ ok: true, config: getChannelConfigMasked(connectedMap()) });
   });
 
+  // ── Integration config (SearXNG, SonarQube, Gitleaks, Semgrep, Trivy) ──
+
+  app.get("/api/integration-config", (_req, res) => {
+    res.json(getMaskedIntegrationConfig());
+  });
+
+  app.post("/api/integration-config", (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== "object") {
+      res.status(400).json({ error: "Invalid body" });
+      return;
+    }
+    try {
+      saveIntegrationConfig(body);
+      res.json({ ok: true, config: getMaskedIntegrationConfig() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to save integration config" });
+    }
+  });
+
+  // ── Onboarding / Profile ─────────────────────────────────────────────────
+  const ITS_ME_PATH = join(config.dataDir, "ITS_ME.md");
+  const TOUR_DONE_PATH = join(config.dataDir, ".tour-done");
+
+  app.get("/api/onboarding", (_req, res) => {
+    const done = existsSync(ITS_ME_PATH);
+    const tourDone = existsSync(TOUR_DONE_PATH);
+    let name = "";
+    let role = "";
+    if (done) {
+      try {
+        const raw = readFileSync(ITS_ME_PATH, "utf-8");
+        const nm = raw.match(/\*\*Name:\*\*\s*(.+)/);
+        const rl = raw.match(/\*\*Role:\*\*\s*(.+)/);
+        if (nm) name = nm[1].trim();
+        if (rl) role = rl[1].trim();
+      } catch { /* ignore */ }
+    }
+    res.json({ done, tourDone, name, role, companyName: config.companyName });
+  });
+
+  app.post("/api/onboarding", (req, res) => {
+    const { name, role } = req.body ?? {};
+    const n = (name || "User").trim();
+    const r = (role || "Founder & CEO").trim();
+    const content = `**Name:** ${n}\n**Role:** ${r}\n`;
+    writeFileSync(ITS_ME_PATH, content, "utf-8");
+    res.json({ ok: true, name: n, role: r });
+  });
+
+  app.post("/api/tour-done", (_req, res) => {
+    writeFileSync(TOUR_DONE_PATH, "1", "utf-8");
+    res.json({ ok: true });
+  });
+
   // ── Finance: token usage & cost tracking ────────────────────────────────
   app.get("/api/finance", (_req, res) => {
     res.json({ totals: getFinanceTotals(), agents: getFinanceAllUsage() });
@@ -3124,7 +3195,9 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   const host = getDashboardHost();
   const server = app.listen(port, host, () => {
     const apiKey = getDashboardApiKey();
-    console.log(`  Dashboard: http://${host}:${port}?key=${apiKey}`);
+    const url = `http://${host}:${port}?key=${apiKey}`;
+    console.log(`  Dashboard: ${url}`);
+    if (onReady) onReady(url);
   });
 
   server.on("error", (err: NodeJS.ErrnoException) => {

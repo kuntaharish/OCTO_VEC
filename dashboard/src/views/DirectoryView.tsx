@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
-  Lock, X, Search, ChevronLeft,
+  Lock, X, Search, ChevronLeft, Pencil,
   UserPlus, Power, Trash2,
   LayoutGrid, Building2, Cpu, Check,
   // Role icons
@@ -10,7 +10,7 @@ import {
   Users, LineChart, Rocket, Scale, Headphones,
   type LucideIcon,
 } from "lucide-react";
-import { usePolling, postApi, deleteApi } from "../hooks/useApi";
+import { usePolling, postApi, patchApi, deleteApi } from "../hooks/useApi";
 import { useAgentStream } from "../hooks/useSSE";
 import { useEmployees } from "../context/EmployeesContext";
 import Dropdown from "../components/Dropdown";
@@ -807,7 +807,7 @@ function ExpandedToolsGrid({ profile }: { profile: AgentProfile }) {
 export default function DirectoryView() {
   const { employees, refresh: refreshEmployees } = useEmployees();
   const { data: tasks } = usePolling<Task[]>("/api/tasks", 5000);
-  const { data: companyData } = usePolling<{ agents: AgentProfile[] }>("/api/company", 15000);
+  const { data: companyData, refresh: refreshCompany } = usePolling<{ agents: AgentProfile[] }>("/api/company", 15000);
   const { data: runtimeData, refresh: refreshRuntime } = usePolling<{ agents: AgentRuntimeEntry[] }>("/api/agents/runtime", 4000);
   const { data: templatesData } = usePolling<{ templates: RoleTemplateSummary[] }>("/api/role-templates", 30000);
   const { tokens, activeAgents: activeMap } = useAgentStream();
@@ -827,6 +827,12 @@ export default function DirectoryView() {
   const [animPhase, setAnimPhase] = useState<"idle" | "measure" | "entered" | "exiting">("idle");
   const rootRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Rename state
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const allEmployees = employees ?? [];
   const allTasks = tasks ?? [];
@@ -887,6 +893,7 @@ export default function DirectoryView() {
       rootH: rr.height,
     });
     setExpandedAgent(agentKey);
+    setEditingName(false);
     setAnimPhase("measure");
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setAnimPhase("entered"));
@@ -1350,12 +1357,72 @@ export default function DirectoryView() {
                 </div>
 
                 <div style={{ flex: 1 }}>
-                  <div style={{
-                    display: "flex", alignItems: "center", gap: 8,
-                  }}>
-                    <span style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>
-                      {expandedEmp.name}
-                    </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {editingName ? (
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const trimmed = nameDraft.trim();
+                          if (!trimmed || trimmed === expandedEmp.name) { setEditingName(false); return; }
+                          setSavingName(true);
+                          try {
+                            await patchApi(`/api/agents/${expandedAgent}`, { name: trimmed });
+                            refreshRuntime();
+                            refreshCompany();
+                          } catch { /* ignore */ }
+                          setSavingName(false);
+                          setEditingName(false);
+                        }}
+                        style={{ display: "flex", alignItems: "center", gap: 6 }}
+                      >
+                        <input
+                          ref={nameInputRef}
+                          value={nameDraft}
+                          onChange={(e) => setNameDraft(e.target.value)}
+                          onBlur={() => { if (!savingName) setEditingName(false); }}
+                          onKeyDown={(e) => { if (e.key === "Escape") setEditingName(false); }}
+                          autoFocus
+                          style={{
+                            fontSize: 16, fontWeight: 600, color: "var(--text-primary)",
+                            background: "var(--bg-tertiary)", border: "1px solid var(--accent)",
+                            borderRadius: 6, padding: "2px 8px", fontFamily: "inherit",
+                            outline: "none", width: 200,
+                          }}
+                        />
+                        <button
+                          type="submit"
+                          disabled={savingName}
+                          style={{
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            width: 26, height: 26, borderRadius: 6, border: "none",
+                            background: "var(--accent)", color: "#fff", cursor: "pointer", padding: 0,
+                          }}
+                        >
+                          <Check size={14} />
+                        </button>
+                      </form>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>
+                          {expandedEmp.name}
+                        </span>
+                        <button
+                          onClick={() => { setNameDraft(expandedEmp.name); setEditingName(true); }}
+                          title="Rename agent"
+                          style={{
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            width: 24, height: 24, borderRadius: 6, border: "none",
+                            background: "transparent", color: "var(--text-muted)",
+                            cursor: "pointer", padding: 0,
+                            transition: "background 0.08s, color 0.08s",
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; }}
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      </>
+                    )}
                     <StatusBadge runtime={expandedRuntime} />
                   </div>
                   <div style={{ fontSize: 12, color: expandedColor, fontWeight: 500, marginTop: 1 }}>

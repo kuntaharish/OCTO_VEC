@@ -33,11 +33,15 @@ import { getActiveGroupForAgent, markActiveGroupConversation } from "./atp/agent
 import { ActiveChannelState } from "./channels/activeChannel.js";
 import { channelManager } from "./channels/channelManager.js";
 import { injectChannelEnv } from "./channels/channelConfig.js";
+import { injectIntegrationEnv } from "./integrations/integrationConfig.js";
 import { UserChatLog } from "./atp/chatLog.js";
 import { clearAgentHistory } from "./memory/messageHistory.js";
 import { shouldRunSunset } from "./memory/sessionLifecycle.js";
 import { publishAgentStream } from "./atp/agentStreamBus.js";
 import { initMCP, shutdownMCP } from "./mcp/mcpBridge.js";
+
+import os from "os";
+import { execSync } from "child_process";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -47,12 +51,65 @@ function ensureDirs(): void {
   }
 }
 
+// ── System requirements check ─────────────────────────────────────────────
+
+const MIN_RAM_GB = 4;
+const MIN_CPU_CORES = 2;
+const RECOMMENDED_RAM_GB = 8;
+const RECOMMENDED_CPU_CORES = 4;
+
+function checkSystemRequirements(): void {
+  const totalRamGB = Math.round(os.totalmem() / (1024 ** 3) * 10) / 10;
+  const cpuCores = os.cpus().length;
+  const cpuModel = os.cpus()[0]?.model?.trim() ?? "Unknown";
+
+  console.log(`  System   : ${cpuCores} cores · ${totalRamGB} GB RAM`);
+  console.log(`  CPU      : ${cpuModel}`);
+
+  const warnings: string[] = [];
+
+  if (totalRamGB < MIN_RAM_GB) {
+    warnings.push(`  ⚠ RAM: ${totalRamGB} GB detected — minimum ${MIN_RAM_GB} GB required. Performance may be severely impacted.`);
+  } else if (totalRamGB < RECOMMENDED_RAM_GB) {
+    warnings.push(`  ⚠ RAM: ${totalRamGB} GB detected — ${RECOMMENDED_RAM_GB} GB recommended for running multiple agents.`);
+  }
+
+  if (cpuCores < MIN_CPU_CORES) {
+    warnings.push(`  ⚠ CPU: ${cpuCores} core(s) detected — minimum ${MIN_CPU_CORES} cores required.`);
+  } else if (cpuCores < RECOMMENDED_CPU_CORES) {
+    warnings.push(`  ⚠ CPU: ${cpuCores} core(s) detected — ${RECOMMENDED_CPU_CORES}+ cores recommended for parallel agent execution.`);
+  }
+
+  if (warnings.length > 0) {
+    console.log("");
+    for (const w of warnings) console.log(w);
+  }
+}
+
+// ── Auto-open dashboard in browser ────────────────────────────────────────
+
+function openInBrowser(url: string): void {
+  try {
+    const plat = process.platform;
+    if (plat === "win32") {
+      execSync(`start "" "${url}"`, { stdio: "ignore", shell: "cmd.exe" });
+    } else if (plat === "darwin") {
+      execSync(`open "${url}"`, { stdio: "ignore" });
+    } else {
+      execSync(`xdg-open "${url}"`, { stdio: "ignore" });
+    }
+  } catch {
+    // Silent fail — user can open manually
+  }
+}
+
 function printBanner(): void {
   console.log("");
   console.log("╔══════════════════════════════════════════════════╗");
   console.log("║       VEC — Virtual Employed Company             ║");
   console.log("║       TOWER  |  Agent Task Portal                ║");
   console.log("╚══════════════════════════════════════════════════╝");
+  checkSystemRequirements();
   console.log(`  Model    : ${config.modelProvider}/${config.model}`);
   console.log(`  Thinking : ${config.thinkingLevel}`);
   console.log(
@@ -223,6 +280,9 @@ async function main(): Promise<void> {
   // 0c. Bootstrap user data directory (creates dirs + seeds roster.json)
   initUserDataDir();
 
+  // 0d. Inject saved integration settings (SearXNG, SonarQube, etc.) into process.env
+  injectIntegrationEnv();
+
   // 1. Ensure all data/memory/workspace directories exist
   ensureDirs();
 
@@ -345,7 +405,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 
   // 9. Start dashboard HTTP server
-  startDashboardServer(runtime);
+  startDashboardServer(runtime, config.dashboardPort, openInBrowser);
 
   // 10. Inject saved channel credentials and start channels
   injectChannelEnv();

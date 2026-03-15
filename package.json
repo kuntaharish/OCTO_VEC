@@ -2,6 +2,13 @@
   "name": "octo-vec",
   "version": "1.0.0",
   "description": "OCTO VEC — Virtual Employed Company | AI Agent Orchestration Platform",
+  "license": "MIT",
+  "author": "Akhil",
+  "keywords": ["ai", "agents", "autonomous", "workforce", "kanban", "dashboard"],
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
   "type": "module",
   "main": "./dist/tower.js",
   "bin": {

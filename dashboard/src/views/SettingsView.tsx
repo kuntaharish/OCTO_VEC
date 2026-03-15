@@ -50,6 +50,15 @@ interface ModelConfigData {
   };
 }
 
+interface IntegrationInfo {
+  searxng: { configured: boolean; enabled: boolean; url: string };
+  sonarqube: { configured: boolean; enabled: boolean; hostUrl: string; token: string | null; projectBaseKey: string; scannerImage: string };
+  gitleaks: { configured: boolean; enabled: boolean; image: string };
+  semgrep: { configured: boolean; enabled: boolean; image: string };
+  trivy: { configured: boolean; enabled: boolean; image: string };
+  postTaskScansEnabled: boolean;
+}
+
 interface SystemSettings {
   system: {
     companyName: string;
@@ -71,15 +80,7 @@ interface SystemSettings {
     enabled: boolean;
     intervalSecs: number;
   };
-  integrations: {
-    telegram: { configured: boolean; chatId: string };
-    slack?: { configured: boolean; channelId: string };
-    searxng: { configured: boolean; url: string };
-    sonarqube: { configured: boolean; hostUrl: string; projectKey: string };
-    gitleaks: { configured: boolean };
-    semgrep: { configured: boolean };
-    trivy: { configured: boolean };
-  };
+  integrations: IntegrationInfo;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -165,64 +166,6 @@ function CredentialField({ label, placeholder, value, onChange, isSecret = true 
 }
 
 // ── Integration card ────────────────────────────────────────────────────────
-
-function IntegrationCard({ name, logoUrl, fallbackIcon, configured, detail, color, subtitle }: {
-  name: string;
-  logoUrl: string;
-  fallbackIcon: React.ReactNode;
-  configured: boolean;
-  detail?: string;
-  color: string;
-  subtitle?: string;
-}) {
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 12,
-      padding: "14px 16px", borderRadius: 10,
-      background: "var(--bg-card)", border: "1px solid var(--border)",
-      transition: "border-color 0.12s",
-    }}>
-      <div style={{
-        width: 38, height: 38, borderRadius: 9,
-        background: configured ? `color-mix(in srgb, ${color} 10%, transparent)` : "var(--bg-tertiary)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        color: configured ? color : "var(--text-muted)",
-        flexShrink: 0,
-      }}>
-        <LogoIcon src={logoUrl} fallback={fallbackIcon} size={20} />
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-            {name}
-          </span>
-          {subtitle && (
-            <span style={{
-              fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4,
-              background: `color-mix(in srgb, ${color} 10%, transparent)`,
-              color, letterSpacing: "0.04em",
-            }}>
-              {subtitle}
-            </span>
-          )}
-        </div>
-        {detail && (
-          <div style={{
-            fontSize: 11, color: "var(--text-muted)", marginTop: 2,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
-            {detail}
-          </div>
-        )}
-      </div>
-      <div style={{
-        width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-        background: configured ? "var(--green)" : "var(--text-muted)",
-        opacity: configured ? 1 : 0.4,
-      }} />
-    </div>
-  );
-}
 
 // ── Config row (read-only) ──────────────────────────────────────────────────
 
@@ -419,6 +362,16 @@ function SectionLabel({ title, count }: { title: string; count?: number }) {
 export default function SettingsView() {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
 
+  // Allow external navigation (e.g. from walkthrough tour)
+  useEffect(() => {
+    function onNav(e: Event) {
+      const section = (e as CustomEvent).detail as SettingsSection;
+      if (section) setActiveSection(section);
+    }
+    window.addEventListener("settings-nav", onNav);
+    return () => window.removeEventListener("settings-nav", onNav);
+  }, []);
+
   // System settings (read-only)
   const { data: settings } = usePolling<SystemSettings>("/api/settings", 10000);
 
@@ -446,6 +399,15 @@ export default function SettingsView() {
   const [chTestResult, setChTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [chSaving, setChSaving] = useState(false);
 
+  // Integration config (editable)
+  const [integCfg, setIntegCfg] = useState<IntegrationInfo | null>(null);
+  const [editingInteg, setEditingInteg] = useState<string | null>(null);
+  const [integFields, setIntegFields] = useState<Record<string, string>>({});
+  const [integSaving, setIntegSaving] = useState(false);
+
+  // Docker status
+  const { data: dockerStatus } = usePolling<{ installed: boolean; running: boolean; version: string | null; error?: string }>("/api/docker-status", 30000);
+
   const fetchChannels = useCallback(async () => {
     try {
       const res = await fetch(apiUrl("/api/channel-config")).then(r => r.json());
@@ -453,7 +415,15 @@ export default function SettingsView() {
     } catch { /* silent */ }
   }, []);
 
+  const fetchIntegrations = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl("/api/integration-config")).then(r => r.json());
+      setIntegCfg(res);
+    } catch { /* silent */ }
+  }, []);
+
   useEffect(() => { fetchChannels(); }, [fetchChannels]);
+  useEffect(() => { fetchIntegrations(); }, [fetchIntegrations]);
 
   // Refresh channels periodically
   useEffect(() => {
@@ -504,6 +474,37 @@ export default function SettingsView() {
       setKeyInput("");
     } catch { showToast("Failed to save API key"); }
     finally { setKeySaving(false); }
+  }
+
+  async function saveIntegration(key: string, payload: Record<string, unknown>) {
+    setIntegSaving(true);
+    try {
+      const res = await postApi("/api/integration-config", { [key]: payload });
+      if (res?.ok) {
+        setIntegCfg(res.config);
+        showToast(`${key.charAt(0).toUpperCase() + key.slice(1)} saved`);
+        setEditingInteg(null);
+        setIntegFields({});
+      } else {
+        showToast("Save failed");
+      }
+    } catch { showToast("Save failed"); }
+    finally { setIntegSaving(false); }
+  }
+
+  async function toggleIntegration(key: string, currentlyEnabled: boolean) {
+    setIntegSaving(true);
+    try {
+      // Load current config values so we don't lose them when toggling
+      const current = integCfg?.[key as keyof IntegrationInfo] as Record<string, unknown> | undefined;
+      const payload = current && typeof current === "object" ? { ...current, enabled: !currentlyEnabled } : { enabled: !currentlyEnabled };
+      const res = await postApi("/api/integration-config", { [key]: payload });
+      if (res?.ok) {
+        setIntegCfg(res.config);
+        showToast(`${key} ${!currentlyEnabled ? "enabled" : "disabled"}`);
+      }
+    } catch { showToast("Toggle failed"); }
+    finally { setIntegSaving(false); }
   }
 
   function updateServer(name: string, patch: Partial<MCPServer>) {
@@ -558,13 +559,13 @@ export default function SettingsView() {
 
   const serverNames = Object.keys(mcpConfig.mcpServers);
   const s = settings;
-  const integ = s?.integrations;
+  const integ = integCfg ?? s?.integrations ?? null;
 
   // ── Count stats for sidebar badges ────────────────────────────────────────
 
   const configuredProviders = modelData?.providers.filter(p => p.configured).length ?? 0;
   const channelCount = [channelCfg?.telegram.configured, channelCfg?.slack.configured, channelCfg?.discord.configured].filter(Boolean).length;
-  const integCount = [integ?.searxng.configured, integ?.sonarqube.configured, integ?.gitleaks.configured, integ?.semgrep.configured, integ?.trivy.configured].filter(Boolean).length;
+  const integCount = integ ? [integ.searxng.configured && integ.searxng.enabled, integ.sonarqube.configured && integ.sonarqube.enabled, integ.gitleaks.enabled, integ.semgrep.enabled, integ.trivy.enabled].filter(Boolean).length : 0;
   const connectedServers = mcpStatus.servers.filter(s => s.connected).length;
 
   // ── Section renderers ────────────────────────────────────────────────────
@@ -1091,18 +1092,200 @@ export default function SettingsView() {
     );
   }
 
+  function openIntegEdit(key: string) {
+    if (!integ) return;
+    if (editingInteg === key) { setEditingInteg(null); return; }
+    const defaults: Record<string, Record<string, string>> = {
+      searxng: { url: integ.searxng.url },
+      sonarqube: { hostUrl: integ.sonarqube.hostUrl, token: "", projectBaseKey: integ.sonarqube.projectBaseKey, scannerImage: integ.sonarqube.scannerImage },
+      gitleaks: { image: integ.gitleaks.image },
+      semgrep: { image: integ.semgrep.image },
+      trivy: { image: integ.trivy.image },
+    };
+    setIntegFields(defaults[key] ?? {});
+    setEditingInteg(key);
+  }
+
+  function renderIntegEditCard(
+    key: string,
+    name: string,
+    logoUrl: string,
+    fallbackIcon: React.ReactNode,
+    color: string,
+    subtitle: string,
+    configured: boolean,
+    enabled: boolean,
+    detail: string,
+  ) {
+    const isEditing = editingInteg === key;
+    const isActive = configured && enabled;
+    const f = integFields;
+    const setF = (k: string, v: string) => setIntegFields(prev => ({ ...prev, [k]: v }));
+
+    const defaultImages: Record<string, string> = { gitleaks: "zricethezav/gitleaks:latest", semgrep: "semgrep/semgrep", trivy: "aquasec/trivy:latest" };
+
+    return (
+      <div style={{
+        padding: "18px 20px", borderRadius: 12,
+        background: "var(--bg-card)", border: `1px solid ${isEditing ? color : "var(--border)"}`,
+        transition: "border-color 0.15s",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: isEditing ? 16 : 0 }}>
+          <div style={{
+            width: 42, height: 42, borderRadius: 10,
+            background: isActive ? `color-mix(in srgb, ${color} 10%, transparent)` : "var(--bg-tertiary)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: isActive ? color : "var(--text-muted)", flexShrink: 0,
+          }}>
+            <LogoIcon src={logoUrl} fallback={fallbackIcon} size={22} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{name}</span>
+              <span style={{
+                fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4,
+                background: `color-mix(in srgb, ${color} 10%, transparent)`,
+                color, letterSpacing: "0.04em",
+              }}>
+                {subtitle}
+              </span>
+            </div>
+            {!isEditing && (
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {detail}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Enabled/Disabled badge */}
+            <span style={{
+              fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 6,
+              background: isActive
+                ? "color-mix(in srgb, var(--green) 10%, transparent)"
+                : "var(--bg-tertiary)",
+              color: isActive ? "var(--green)" : "var(--text-muted)",
+              border: `1px solid ${isActive ? "color-mix(in srgb, var(--green) 18%, transparent)" : "var(--border)"}`,
+              flexShrink: 0, letterSpacing: "0.04em", cursor: "pointer",
+            }} onClick={(e) => { e.stopPropagation(); toggleIntegration(key, enabled); }}>
+              {enabled ? "ENABLED" : "DISABLED"}
+            </span>
+          </div>
+        </div>
+
+        {/* Action buttons (when not editing) */}
+        {!isEditing && (
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button
+              onClick={() => openIntegEdit(key)}
+              style={{
+                padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+                border: "1px solid var(--border)", background: "var(--bg-hover)",
+                color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Configure
+            </button>
+            {enabled && (
+              <button
+                onClick={() => toggleIntegration(key, true)}
+                style={{
+                  padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+                  border: "1px solid color-mix(in srgb, var(--red) 30%, transparent)",
+                  background: "color-mix(in srgb, var(--red) 8%, transparent)",
+                  color: "var(--red)", cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                Disable
+              </button>
+            )}
+            {!enabled && (
+              <button
+                onClick={() => toggleIntegration(key, false)}
+                style={{
+                  padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+                  border: "1px solid color-mix(in srgb, var(--green) 30%, transparent)",
+                  background: "color-mix(in srgb, var(--green) 8%, transparent)",
+                  color: "var(--green)", cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                Enable
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Edit form */}
+        {isEditing && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {key === "searxng" && (
+              <CredentialField label="SearXNG URL" placeholder="http://localhost:8080" value={f.url ?? ""} onChange={(v) => setF("url", v)} isSecret={false} />
+            )}
+            {key === "sonarqube" && (
+              <>
+                <CredentialField label="Host URL" placeholder="http://localhost:9000" value={f.hostUrl ?? ""} onChange={(v) => setF("hostUrl", v)} isSecret={false} />
+                <CredentialField label="Token" placeholder="squ_..." value={f.token ?? ""} onChange={(v) => setF("token", v)} />
+                <CredentialField label="Project Base Key" placeholder="vec" value={f.projectBaseKey ?? ""} onChange={(v) => setF("projectBaseKey", v)} isSecret={false} />
+                <CredentialField label="Scanner Docker Image" placeholder="sonarsource/sonar-scanner-cli:latest" value={f.scannerImage ?? ""} onChange={(v) => setF("scannerImage", v)} isSecret={false} />
+              </>
+            )}
+            {(key === "gitleaks" || key === "semgrep" || key === "trivy") && (
+              <CredentialField label="Docker Image" placeholder={defaultImages[key] ?? ""} value={f.image ?? ""} onChange={(v) => setF("image", v)} isSecret={false} />
+            )}
+
+            {/* Buttons */}
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <button
+                onClick={() => setEditingInteg(null)}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+                  border: "1px solid var(--border)", background: "var(--bg-hover)",
+                  color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                disabled={integSaving}
+                onClick={() => {
+                  if (key === "searxng") saveIntegration("searxng", { url: f.url || "", enabled: true });
+                  else if (key === "sonarqube") saveIntegration("sonarqube", {
+                    hostUrl: f.hostUrl || "http://localhost:9000", token: f.token || "",
+                    projectBaseKey: f.projectBaseKey || "vec",
+                    scannerImage: f.scannerImage || "sonarsource/sonar-scanner-cli:latest", enabled: true,
+                  });
+                  else saveIntegration(key, { image: f.image || defaultImages[key] || "", enabled: true });
+                }}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                  border: "none", background: color, color: "#fff",
+                  cursor: integSaving ? "wait" : "pointer", fontFamily: "inherit",
+                  opacity: integSaving ? 0.5 : 1,
+                }}
+              >
+                {integSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderIntegrations() {
     const ICON_BASE = "/icons/integrations";
 
-    const categories: { title: string; color: string; items: { name: string; logoUrl: string; fallbackIcon: React.ReactNode; configured: boolean; detail: string; color: string; subtitle: string }[] }[] = [
+    type IntegItem = { key: string; name: string; logoUrl: string; fallbackIcon: React.ReactNode; configured: boolean; enabled: boolean; detail: string; color: string; subtitle: string };
+
+    const categories: { title: string; color: string; items: IntegItem[] }[] = [
       {
         title: "Search",
         color: "var(--green)",
         items: [
           {
-            name: "SearXNG", logoUrl: `${ICON_BASE}/searxng.svg`, fallbackIcon: <Search size={16} />,
-            configured: integ?.searxng.configured ?? false,
-            detail: integ?.searxng.configured ? integ.searxng.url : "Set SEARXNG_URL to enable",
+            key: "searxng", name: "SearXNG", logoUrl: `${ICON_BASE}/searxng.svg`, fallbackIcon: <Search size={16} />,
+            configured: integ?.searxng.configured ?? false, enabled: integ?.searxng.enabled ?? false,
+            detail: integ?.searxng.configured ? integ.searxng.url : "Not configured",
             color: "var(--green)", subtitle: "WEB SEARCH",
           },
         ],
@@ -1112,9 +1295,9 @@ export default function SettingsView() {
         color: "var(--blue)",
         items: [
           {
-            name: "SonarQube", logoUrl: `${ICON_BASE}/sonarqube.svg`, fallbackIcon: <Eye size={16} />,
-            configured: integ?.sonarqube.configured ?? false,
-            detail: integ?.sonarqube.configured ? `${integ.sonarqube.hostUrl} (${integ.sonarqube.projectKey})` : "Set SONAR_TOKEN to enable",
+            key: "sonarqube", name: "SonarQube", logoUrl: `${ICON_BASE}/sonarqube.svg`, fallbackIcon: <Eye size={16} />,
+            configured: integ?.sonarqube.configured ?? false, enabled: integ?.sonarqube.enabled ?? false,
+            detail: integ?.sonarqube.configured ? `${integ.sonarqube.hostUrl} (${integ.sonarqube.projectBaseKey})` : "Not configured",
             color: "var(--blue)", subtitle: "ANALYSIS",
           },
         ],
@@ -1124,21 +1307,21 @@ export default function SettingsView() {
         color: "var(--red)",
         items: [
           {
-            name: "Gitleaks", logoUrl: `${ICON_BASE}/gitleaks.svg`, fallbackIcon: <Shield size={16} />,
-            configured: integ?.gitleaks.configured ?? false,
-            detail: "Secret scanning — detects hardcoded credentials via Docker",
+            key: "gitleaks", name: "Gitleaks", logoUrl: `${ICON_BASE}/gitleaks.svg`, fallbackIcon: <Shield size={16} />,
+            configured: true, enabled: integ?.gitleaks.enabled ?? true,
+            detail: `Image: ${integ?.gitleaks.image ?? "zricethezav/gitleaks:latest"}`,
             color: "var(--red)", subtitle: "SECRETS",
           },
           {
-            name: "Semgrep", logoUrl: `${ICON_BASE}/semgrep.svg`, fallbackIcon: <Shield size={16} />,
-            configured: integ?.semgrep.configured ?? false,
-            detail: "SAST — static analysis for OWASP Top 10 vulnerabilities",
+            key: "semgrep", name: "Semgrep", logoUrl: `${ICON_BASE}/semgrep.svg`, fallbackIcon: <Shield size={16} />,
+            configured: true, enabled: integ?.semgrep.enabled ?? true,
+            detail: `Image: ${integ?.semgrep.image ?? "semgrep/semgrep"}`,
             color: "var(--orange)", subtitle: "SAST",
           },
           {
-            name: "Trivy", logoUrl: `${ICON_BASE}/trivy.svg`, fallbackIcon: <Database size={16} />,
-            configured: integ?.trivy.configured ?? false,
-            detail: "SCA — scans dependencies for known CVEs",
+            key: "trivy", name: "Trivy", logoUrl: `${ICON_BASE}/trivy.svg`, fallbackIcon: <Database size={16} />,
+            configured: true, enabled: integ?.trivy.enabled ?? true,
+            detail: `Image: ${integ?.trivy.image ?? "aquasec/trivy:latest"}`,
             color: "var(--purple)", subtitle: "SCA",
           },
         ],
@@ -1146,16 +1329,61 @@ export default function SettingsView() {
     ];
 
     const allItems = categories.flatMap(c => c.items);
-    const activeCount = allItems.filter(i => i.configured).length;
+    const activeCount = allItems.filter(i => i.configured && i.enabled).length;
+    const postScans = integ?.postTaskScansEnabled ?? false;
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        {/* Docker status banner */}
+        {dockerStatus && !dockerStatus.running && (
+          <div style={{
+            padding: "14px 18px", borderRadius: 10,
+            background: !dockerStatus.installed ? "rgba(239,68,68,0.08)" : "rgba(245,158,11,0.08)",
+            border: `1px solid ${!dockerStatus.installed ? "rgba(239,68,68,0.2)" : "rgba(245,158,11,0.2)"}`,
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8,
+              background: !dockerStatus.installed ? "rgba(239,68,68,0.12)" : "rgba(245,158,11,0.12)",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={!dockerStatus.installed ? "var(--red)" : "var(--orange)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+                {!dockerStatus.installed ? "Docker Not Installed" : "Docker Not Running"}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                {!dockerStatus.installed
+                  ? "Security scanners (Gitleaks, Semgrep, Trivy, SonarQube) require Docker to run."
+                  : "Docker is installed but the daemon isn't running. Start Docker to use scanners."}
+              </div>
+            </div>
+            {!dockerStatus.installed && (
+              <a
+                href="https://docs.docker.com/get-docker/"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  background: "var(--accent)", color: "#fff", textDecoration: "none",
+                  flexShrink: 0, whiteSpace: "nowrap",
+                }}
+              >
+                Get Docker
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Stats */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {[
             { label: "Active", value: String(activeCount), color: "var(--green)" },
             { label: "Total", value: String(allItems.length), color: "var(--orange)" },
-            { label: "Categories", value: String(categories.length), color: "var(--blue)" },
           ].map((stat) => (
             <div key={stat.label} style={{
               flex: "1 1 120px", padding: "14px 16px",
@@ -1167,18 +1395,47 @@ export default function SettingsView() {
               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{stat.label}</div>
             </div>
           ))}
+          {/* Post-task scans toggle card */}
+          <div
+            onClick={async () => {
+              setIntegSaving(true);
+              try {
+                const res = await postApi("/api/integration-config", { postTaskScansEnabled: !postScans });
+                if (res?.ok) { setIntegCfg(res.config); showToast(`Post-task scans ${!postScans ? "enabled" : "disabled"}`); }
+              } catch { showToast("Toggle failed"); }
+              finally { setIntegSaving(false); }
+            }}
+            style={{
+              flex: "1 1 120px", padding: "14px 16px",
+              background: "var(--bg-card)",
+              border: `1px solid ${postScans ? "color-mix(in srgb, var(--green) 25%, transparent)" : "var(--border)"}`,
+              borderRadius: 8, cursor: "pointer", transition: "border-color 0.15s",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: postScans ? "var(--green)" : "var(--text-muted)", lineHeight: 1 }}>
+                {postScans ? "ON" : "OFF"}
+              </div>
+              <div style={{
+                width: 7, height: 7, borderRadius: "50%",
+                background: postScans ? "var(--green)" : "var(--text-muted)",
+                boxShadow: postScans ? "0 0 6px var(--green)" : "none",
+                opacity: postScans ? 1 : 0.4,
+              }} />
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Post-Task Scans</div>
+          </div>
         </div>
 
         {/* Categorized integrations */}
         {categories.map((cat) => (
           <div key={cat.title}>
             <SectionLabel title={cat.title} count={cat.items.length} />
-            <div style={{
-              display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-              gap: 8,
-            }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 10 }}>
               {cat.items.map((item) => (
-                <IntegrationCard key={item.name} {...item} />
+                <div key={item.key}>
+                  {renderIntegEditCard(item.key, item.name, item.logoUrl, item.fallbackIcon, item.color, item.subtitle, item.configured, item.enabled, item.detail)}
+                </div>
               ))}
             </div>
           </div>
@@ -1318,6 +1575,7 @@ export default function SettingsView() {
             return (
               <button
                 key={item.key}
+                data-tour-id={`settings-${item.key}`}
                 onClick={() => setActiveSection(item.key)}
                 style={{
                   display: "flex", alignItems: "center", gap: 10,

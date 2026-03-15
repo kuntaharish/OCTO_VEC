@@ -90,6 +90,16 @@ export async function postApi(url: string, body: unknown) {
   return res.json();
 }
 
+export async function patchApi(url: string, body: unknown) {
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function deleteApi(url: string) {
   const res = await fetch(url, {
     method: "DELETE",

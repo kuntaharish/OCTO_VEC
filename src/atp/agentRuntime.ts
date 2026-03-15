@@ -19,6 +19,7 @@ import {
   addAgentToRoster,
   removeAgentFromRoster,
   toggleAgentInRoster,
+  updateAgentInRoster,
   getRoleTemplates,
   type RosterEntry,
 } from "../ar/roster.js";
@@ -274,6 +275,16 @@ export class AgentRuntime {
       status: enabled ? "running" : "paused",
       enabled,
     };
+  }
+
+  /** Update an agent's name/initials/color. */
+  updateAgent(agentId: string, updates: Partial<Pick<RosterEntry, "name" | "initials" | "color">>): RosterEntry {
+    const entry = updateAgentInRoster(agentId, updates);
+    // Update in-memory handle if exists
+    const handle = this.handles.get(agentId);
+    if (handle) handle.entry = entry;
+    refreshAgentMeta();
+    return entry;
   }
 
   // ── Status ──────────────────────────────────────────────────────────────────

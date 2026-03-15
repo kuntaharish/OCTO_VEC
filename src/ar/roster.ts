@@ -303,3 +303,31 @@ export function toggleAgentInRoster(agentId: string, enabled: boolean): RosterEn
   saveRoster(roster);
   return entry;
 }
+
+/**
+ * Update an existing agent's mutable fields (name, initials, color).
+ */
+export function updateAgentInRoster(
+  agentId: string,
+  updates: Partial<Pick<RosterEntry, "name" | "initials" | "color">>
+): RosterEntry {
+  const roster = loadRoster();
+  const entry = roster.agents.find((a) => a.agent_id === agentId);
+  if (!entry) throw new Error(`Agent '${agentId}' not found in roster.`);
+
+  if (updates.name !== undefined) {
+    entry.name = updates.name.trim();
+    // Auto-update initials if not explicitly provided
+    if (updates.initials === undefined) {
+      const parts = entry.name.split(/\s+/).filter(Boolean);
+      entry.initials = parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        : entry.name.slice(0, 2).toUpperCase();
+    }
+  }
+  if (updates.initials !== undefined) entry.initials = updates.initials.toUpperCase();
+  if (updates.color !== undefined) entry.color = updates.color;
+
+  saveRoster(roster);
+  return entry;
+}

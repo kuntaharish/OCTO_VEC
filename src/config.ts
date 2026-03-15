@@ -31,6 +31,18 @@ export const USER_DATA_DIR: string = process.env.VEC_DATA_DIR
 export const CORE_DIR = join(PACKAGE_ROOT, "core");
 export const CORE_PROMPTS_DIR = join(CORE_DIR, "prompts");
 export const DEFAULT_ROSTER_PATH = join(CORE_DIR, "roster.json");
+
+// ── Early bootstrap ────────────────────────────────────────────────────────
+// Seed USER_DATA_DIR + roster.json BEFORE any other module tries to load it.
+// This must happen here (not in main()) because modules like agentMessageQueue.ts
+// call loadRoster() at top-level import time.
+import { mkdirSync, existsSync, copyFileSync } from "fs";
+mkdirSync(USER_DATA_DIR, { recursive: true });
+const _userRoster = join(USER_DATA_DIR, "roster.json");
+if (!existsSync(_userRoster) && existsSync(DEFAULT_ROSTER_PATH)) {
+  copyFileSync(DEFAULT_ROSTER_PATH, _userRoster);
+}
+
 const thinkingLevelRaw = (process.env.VEC_THINKING_LEVEL ?? "off").trim().toLowerCase();
 const thinkingLevel: ThinkingLevel =
   thinkingLevelRaw === "minimal" ||

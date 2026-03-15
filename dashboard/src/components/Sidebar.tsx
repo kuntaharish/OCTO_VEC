@@ -158,6 +158,7 @@ export default function Sidebar({ activeView, setActiveView }: Props) {
             return (
               <button
                 key={item.id}
+                data-tour-id={item.id}
                 title={collapsed ? item.label : undefined}
                 onClick={() => setActiveView(item.id)}
                 style={{
