@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Save, RefreshCw, Server, ChevronDown, ChevronRight,
   Shield, Search, MessageSquare, Cpu, Box, ExternalLink,
   Zap, Settings2, Database, Eye, Star, Check, X, Package,
-  Hash, Globe, Radio, Gamepad2, FolderOpen,
+  Hash, Globe, Radio, Gamepad2, FolderOpen, Phone, Users, Grid3X3,
 } from "lucide-react";
 import { postApi, apiUrl } from "../hooks/useApi";
 import { usePolling } from "../hooks/useApi";
@@ -101,14 +101,14 @@ const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode;
 
 // ── Logo icon helper ─────────────────────────────────────────────────────────
 
-function LogoIcon({ src, fallback, size = 20 }: { src: string; fallback: React.ReactNode; size?: number }) {
+function LogoIcon({ src, fallback, size = 20, colored }: { src: string; fallback: React.ReactNode; size?: number; colored?: boolean }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <>{fallback}</>;
   return (
     <img
       src={src}
       alt=""
-      style={{ width: size, height: size, borderRadius: 3, filter: "var(--icon-filter, none)" }}
+      style={{ width: size, height: size, borderRadius: 3, filter: colored ? "none" : "var(--icon-filter, none)" }}
       onError={() => setFailed(true)}
     />
   );
@@ -465,8 +465,8 @@ export default function SettingsView() {
 
   // Channel config (editable)
   interface ChannelInfo { configured: boolean; connected: boolean; botToken: string | null; chatId?: string | null; appToken?: string | null; channelId?: string | null }
-  const [channelCfg, setChannelCfg] = useState<{ telegram: ChannelInfo; slack: ChannelInfo; discord: ChannelInfo } | null>(null);
-  const [editingChannel, setEditingChannel] = useState<"telegram" | "slack" | "discord" | null>(null);
+  const [channelCfg, setChannelCfg] = useState<{ telegram: ChannelInfo; slack: ChannelInfo; discord: ChannelInfo; whatsapp: ChannelInfo; teams: ChannelInfo; matrix: ChannelInfo } | null>(null);
+  const [editingChannel, setEditingChannel] = useState<"telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix" | null>(null);
   const [chFields, setChFields] = useState<Record<string, string>>({});
   const [chTesting, setChTesting] = useState(false);
   const [chTestResult, setChTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -637,7 +637,7 @@ export default function SettingsView() {
   // ── Count stats for sidebar badges ────────────────────────────────────────
 
   const configuredProviders = modelData?.providers.filter(p => p.configured).length ?? 0;
-  const channelCount = [channelCfg?.telegram.configured, channelCfg?.slack.configured, channelCfg?.discord.configured].filter(Boolean).length;
+  const channelCount = [channelCfg?.telegram?.configured, channelCfg?.slack?.configured, channelCfg?.discord?.configured, channelCfg?.whatsapp?.configured, channelCfg?.teams?.configured, channelCfg?.matrix?.configured].filter(Boolean).length;
   const integCount = integ ? [integ.searxng.configured && integ.searxng.enabled, integ.sonarqube.configured && integ.sonarqube.enabled, integ.gitleaks.enabled, integ.semgrep.enabled, integ.trivy.enabled].filter(Boolean).length : 0;
   const connectedServers = mcpStatus.servers.filter(s => s.connected).length;
 
@@ -845,7 +845,7 @@ export default function SettingsView() {
     );
   }
 
-  function openChannelEdit(ch: "telegram" | "slack" | "discord") {
+  function openChannelEdit(ch: "telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix") {
     setEditingChannel(ch);
     setChFields({});
     setChTestResult(null);
@@ -863,9 +863,18 @@ export default function SettingsView() {
     setChTestResult(null);
     try {
       const body: Record<string, string> = { channel: editingChannel };
-      body.botToken = chFields.botToken ?? "";
-      if (editingChannel === "slack") {
-        body.appToken = chFields.appToken ?? "";
+      if (editingChannel === "whatsapp") {
+        body.authorizedJid = chFields.authorizedJid ?? "";
+      } else if (editingChannel === "teams") {
+        body.incomingWebhookUrl = chFields.incomingWebhookUrl ?? "";
+      } else if (editingChannel === "matrix") {
+        body.homeserverUrl = chFields.homeserverUrl ?? "";
+        body.accessToken = chFields.accessToken ?? "";
+      } else {
+        body.botToken = chFields.botToken ?? "";
+        if (editingChannel === "slack") {
+          body.appToken = chFields.appToken ?? "";
+        }
       }
       const res = await postApi("/api/channel-test", body);
       setChTestResult(res.ok
@@ -883,14 +892,25 @@ export default function SettingsView() {
     setChSaving(true);
     try {
       const body: Record<string, string> = { channel: editingChannel };
-      body.botToken = chFields.botToken ?? "";
-      if (editingChannel === "telegram") {
-        body.chatId = chFields.chatId ?? "";
-      } else if (editingChannel === "slack") {
-        body.appToken = chFields.appToken ?? "";
-        body.channelId = chFields.channelId ?? "";
+      if (editingChannel === "whatsapp") {
+        body.authorizedJid = chFields.authorizedJid ?? "";
+      } else if (editingChannel === "teams") {
+        body.incomingWebhookUrl = chFields.incomingWebhookUrl ?? "";
+        body.outgoingWebhookSecret = chFields.outgoingWebhookSecret ?? "";
+      } else if (editingChannel === "matrix") {
+        body.homeserverUrl = chFields.homeserverUrl ?? "";
+        body.accessToken = chFields.accessToken ?? "";
+        body.roomId = chFields.roomId ?? "";
       } else {
-        body.channelId = chFields.channelId ?? "";
+        body.botToken = chFields.botToken ?? "";
+        if (editingChannel === "telegram") {
+          body.chatId = chFields.chatId ?? "";
+        } else if (editingChannel === "slack") {
+          body.appToken = chFields.appToken ?? "";
+          body.channelId = chFields.channelId ?? "";
+        } else {
+          body.channelId = chFields.channelId ?? "";
+        }
       }
       const res = await postApi("/api/channel-config", body);
       if (res.ok) {
@@ -898,7 +918,7 @@ export default function SettingsView() {
         await postApi("/api/channel-restart", { channel: editingChannel });
         await fetchChannels();
         closeChannelEdit();
-        const labels: Record<string, string> = { telegram: "Telegram", slack: "Slack", discord: "Discord" };
+        const labels: Record<string, string> = { telegram: "Telegram", slack: "Slack", discord: "Discord", whatsapp: "WhatsApp", teams: "Teams", matrix: "Matrix" };
         showToast(`${labels[editingChannel] ?? editingChannel} connected`);
       } else {
         showToast(res.error ?? "Save failed");
@@ -910,9 +930,9 @@ export default function SettingsView() {
     }
   }
 
-  async function disconnectChannel(ch: "telegram" | "slack" | "discord") {
+  async function disconnectChannel(ch: "telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix") {
     try {
-      const labels: Record<string, string> = { telegram: "Telegram", slack: "Slack", discord: "Discord" };
+      const labels: Record<string, string> = { telegram: "Telegram", slack: "Slack", discord: "Discord", whatsapp: "WhatsApp", teams: "Teams", matrix: "Matrix" };
       await postApi("/api/channel-disconnect", { channel: ch });
       await fetchChannels();
       showToast(`${labels[ch] ?? ch} disconnected`);
@@ -922,7 +942,7 @@ export default function SettingsView() {
   }
 
   function renderChannelEditCard(
-    ch: "telegram" | "slack" | "discord",
+    ch: "telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix",
     info: ChannelInfo | undefined,
     label: string,
     logoUrl: string,
@@ -947,13 +967,13 @@ export default function SettingsView() {
             display: "flex", alignItems: "center", justifyContent: "center",
             color: configured ? color : "var(--text-muted)", flexShrink: 0,
           }}>
-            <LogoIcon src={logoUrl} fallback={fallbackIcon} size={22} />
+            <LogoIcon src={logoUrl} fallback={fallbackIcon} size={22} colored />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{label}</div>
             {configured && !isEditing && (
               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                {ch === "telegram" ? `Chat ID: ${info?.chatId ?? ""}` : `Channel: ${info?.channelId ?? ""}`}
+                {ch === "telegram" ? `Chat ID: ${info?.chatId ?? ""}` : ch === "whatsapp" ? `JID: ${info?.chatId ?? ""}` : ch === "teams" ? `Webhook: ${info?.botToken ?? ""}` : ch === "matrix" ? `Room: ${info?.chatId ?? ""}` : `Channel: ${info?.channelId ?? ""}`}
 
               </div>
             )}
@@ -1057,7 +1077,7 @@ export default function SettingsView() {
                   isSecret={false}
                 />
               </>
-            ) : (
+            ) : ch === "discord" ? (
               <>
                 <CredentialField
                   label="Bot Token"
@@ -1070,6 +1090,57 @@ export default function SettingsView() {
                   placeholder="Right-click channel → Copy Channel ID"
                   value={chFields.channelId ?? ""}
                   onChange={(v) => setChFields(f => ({ ...f, channelId: v }))}
+                  isSecret={false}
+                />
+              </>
+            ) : ch === "whatsapp" ? (
+              <>
+                <CredentialField
+                  label="Authorized JID"
+                  placeholder="919876543210@s.whatsapp.net"
+                  value={chFields.authorizedJid ?? ""}
+                  onChange={(v) => setChFields(f => ({ ...f, authorizedJid: v }))}
+                  isSecret={false}
+                />
+                <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px" }}>
+                  On first connect, a QR code will appear in the server terminal. Scan it with WhatsApp to authenticate.
+                </div>
+              </>
+            ) : ch === "teams" ? (
+              <>
+                <CredentialField
+                  label="Incoming Webhook URL"
+                  placeholder="https://outlook.office.com/webhook/..."
+                  value={chFields.incomingWebhookUrl ?? ""}
+                  onChange={(v) => setChFields(f => ({ ...f, incomingWebhookUrl: v }))}
+                />
+                <CredentialField
+                  label="Outgoing Webhook Secret (optional)"
+                  placeholder="HMAC secret for verifying Teams messages"
+                  value={chFields.outgoingWebhookSecret ?? ""}
+                  onChange={(v) => setChFields(f => ({ ...f, outgoingWebhookSecret: v }))}
+                />
+              </>
+            ) : (
+              <>
+                <CredentialField
+                  label="Homeserver URL"
+                  placeholder="https://matrix.org"
+                  value={chFields.homeserverUrl ?? ""}
+                  onChange={(v) => setChFields(f => ({ ...f, homeserverUrl: v }))}
+                  isSecret={false}
+                />
+                <CredentialField
+                  label="Access Token"
+                  placeholder="Bot user access token"
+                  value={chFields.accessToken ?? ""}
+                  onChange={(v) => setChFields(f => ({ ...f, accessToken: v }))}
+                />
+                <CredentialField
+                  label="Room ID"
+                  placeholder="!abc123:matrix.org"
+                  value={chFields.roomId ?? ""}
+                  onChange={(v) => setChFields(f => ({ ...f, roomId: v }))}
                   isSecret={false}
                 />
               </>
@@ -1097,24 +1168,24 @@ export default function SettingsView() {
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
               <button
                 onClick={testChannel}
-                disabled={chTesting || !(chFields.botToken)}
+                disabled={chTesting || !(chFields.botToken || chFields.authorizedJid || chFields.incomingWebhookUrl || chFields.accessToken)}
                 style={{
                   padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
                   border: "1px solid var(--border)", background: "var(--bg-hover)",
                   color: "var(--text-primary)", cursor: chTesting ? "wait" : "pointer",
-                  fontFamily: "inherit", opacity: chTesting || !chFields.botToken ? 0.5 : 1,
+                  fontFamily: "inherit", opacity: chTesting || !(chFields.botToken || chFields.authorizedJid || chFields.incomingWebhookUrl || chFields.accessToken) ? 0.5 : 1,
                 }}
               >
                 {chTesting ? "Testing..." : "Test Connection"}
               </button>
               <button
                 onClick={saveChannel}
-                disabled={chSaving || !(chFields.botToken)}
+                disabled={chSaving || !(chFields.botToken || chFields.authorizedJid || chFields.incomingWebhookUrl || chFields.accessToken)}
                 style={{
                   padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
                   border: "none", background: color, color: "#fff",
                   cursor: chSaving ? "wait" : "pointer", fontFamily: "inherit",
-                  opacity: chSaving || !chFields.botToken ? 0.5 : 1,
+                  opacity: chSaving || !(chFields.botToken || chFields.authorizedJid || chFields.incomingWebhookUrl || chFields.accessToken) ? 0.5 : 1,
                 }}
               >
                 {chSaving ? "Saving..." : "Save & Connect"}
@@ -1155,7 +1226,7 @@ export default function SettingsView() {
             background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8,
           }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-muted)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-              {3 - channelCount}
+              {6 - channelCount}
             </div>
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Not Configured</div>
           </div>
@@ -1168,6 +1239,9 @@ export default function SettingsView() {
             {renderChannelEditCard("telegram", channelCfg?.telegram, "Telegram", "/icons/integrations/telegram.svg", <MessageSquare size={18} />, "var(--blue)")}
             {renderChannelEditCard("slack", channelCfg?.slack, "Slack", "/icons/integrations/slack.svg", <Hash size={18} />, "var(--purple)")}
             {renderChannelEditCard("discord", channelCfg?.discord, "Discord", "/icons/integrations/discord.svg", <Gamepad2 size={18} />, "#5865F2")}
+            {renderChannelEditCard("whatsapp", channelCfg?.whatsapp, "WhatsApp", "/icons/integrations/whatsapp.svg", <Phone size={18} />, "#25D366")}
+            {renderChannelEditCard("teams", channelCfg?.teams, "Teams", "/icons/integrations/teams.svg", <Users size={18} />, "#6264A7")}
+            {renderChannelEditCard("matrix", channelCfg?.matrix, "Matrix", "/icons/integrations/matrix.svg", <Grid3X3 size={18} />, "#0DBD8B")}
           </div>
         </div>
       </div>

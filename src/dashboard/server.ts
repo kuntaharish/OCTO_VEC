@@ -3011,15 +3011,22 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     res.json({ ok: true, providers: getProviders() });
   });
 
-  // ── Channel configuration (Telegram / Slack / Discord) ───────────────────
+  // ── Channel configuration (Telegram / Slack / Discord / WhatsApp / Teams / Matrix) ──
 
-  const VALID_CHANNELS = ["telegram", "slack", "discord"] as const;
+  const VALID_CHANNELS = ["telegram", "slack", "discord", "whatsapp", "teams", "matrix"] as const;
   type ValidChannel = (typeof VALID_CHANNELS)[number];
   function isValidChannel(v: unknown): v is ValidChannel {
     return typeof v === "string" && (VALID_CHANNELS as readonly string[]).includes(v);
   }
   function connectedMap() {
-    return { telegram: channelManager.isConnected("telegram"), slack: channelManager.isConnected("slack"), discord: channelManager.isConnected("discord") };
+    return {
+      telegram: channelManager.isConnected("telegram"),
+      slack: channelManager.isConnected("slack"),
+      discord: channelManager.isConnected("discord"),
+      whatsapp: channelManager.isConnected("whatsapp"),
+      teams: channelManager.isConnected("teams"),
+      matrix: channelManager.isConnected("matrix"),
+    };
   }
 
   app.get("/api/channel-config", (_req, res) => {
@@ -3029,7 +3036,7 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   app.post("/api/channel-config", (req, res) => {
     const { channel, ...creds } = req.body ?? {};
     if (!isValidChannel(channel)) {
-      res.status(400).json({ error: "channel must be 'telegram', 'slack', or 'discord'" });
+      res.status(400).json({ error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
       return;
     }
     if (channel === "telegram") {
@@ -3046,13 +3053,34 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
         return;
       }
       saveChannelCredentials("slack", { botToken, appToken, channelId });
-    } else {
+    } else if (channel === "discord") {
       const { botToken, channelId } = creds;
       if (!botToken || !channelId) {
         res.status(400).json({ error: "botToken and channelId are required" });
         return;
       }
       saveChannelCredentials("discord", { botToken, channelId });
+    } else if (channel === "whatsapp") {
+      const { authorizedJid } = creds;
+      if (!authorizedJid) {
+        res.status(400).json({ error: "authorizedJid is required (e.g. '919876543210@s.whatsapp.net')" });
+        return;
+      }
+      saveChannelCredentials("whatsapp", { authorizedJid });
+    } else if (channel === "teams") {
+      const { incomingWebhookUrl, outgoingWebhookSecret } = creds;
+      if (!incomingWebhookUrl) {
+        res.status(400).json({ error: "incomingWebhookUrl is required" });
+        return;
+      }
+      saveChannelCredentials("teams", { incomingWebhookUrl, outgoingWebhookSecret: outgoingWebhookSecret ?? "" });
+    } else if (channel === "matrix") {
+      const { homeserverUrl, accessToken, roomId } = creds;
+      if (!homeserverUrl || !accessToken || !roomId) {
+        res.status(400).json({ error: "homeserverUrl, accessToken, and roomId are required" });
+        return;
+      }
+      saveChannelCredentials("matrix", { homeserverUrl, accessToken, roomId });
     }
     res.json({ ok: true, config: getChannelConfigMasked(connectedMap()) });
   });
@@ -3103,15 +3131,52 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
       } catch (err: any) {
         res.json({ ok: false, error: err?.message ?? "Connection failed" });
       }
+    } else if (channel === "whatsapp") {
+      // WhatsApp uses QR code auth — no token to test remotely
+      res.json({ ok: true, botName: "WhatsApp (QR code auth)" });
+    } else if (channel === "teams") {
+      const { incomingWebhookUrl } = req.body ?? {};
+      if (!incomingWebhookUrl) { res.status(400).json({ ok: false, error: "incomingWebhookUrl is required" }); return; }
+      try {
+        // Send a test message to verify the webhook works
+        const resp = await fetch(incomingWebhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: "OCTO VEC — connection test successful!" }),
+        });
+        if (resp.ok) {
+          res.json({ ok: true, botName: "Teams Webhook" });
+        } else {
+          res.json({ ok: false, error: `Webhook returned ${resp.status}` });
+        }
+      } catch (err: any) {
+        res.json({ ok: false, error: err?.message ?? "Connection failed" });
+      }
+    } else if (channel === "matrix") {
+      const { homeserverUrl, accessToken: matrixToken } = req.body ?? {};
+      if (!homeserverUrl || !matrixToken) { res.status(400).json({ ok: false, error: "homeserverUrl and accessToken are required" }); return; }
+      try {
+        const resp = await fetch(`${homeserverUrl}/_matrix/client/v3/account/whoami`, {
+          headers: { "Authorization": `Bearer ${matrixToken}` },
+        });
+        const data = await resp.json() as any;
+        if (resp.ok && data.user_id) {
+          res.json({ ok: true, botName: data.user_id });
+        } else {
+          res.json({ ok: false, error: data.error ?? "Invalid access token" });
+        }
+      } catch (err: any) {
+        res.json({ ok: false, error: err?.message ?? "Connection failed" });
+      }
     } else {
-      res.status(400).json({ ok: false, error: "channel must be 'telegram', 'slack', or 'discord'" });
+      res.status(400).json({ ok: false, error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
     }
   });
 
   app.post("/api/channel-restart", async (req, res) => {
     const { channel } = req.body ?? {};
     if (!isValidChannel(channel)) {
-      res.status(400).json({ error: "channel must be 'telegram', 'slack', or 'discord'" });
+      res.status(400).json({ error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
       return;
     }
     const result = await channelManager.restartChannel(channel);
@@ -3121,14 +3186,39 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   app.post("/api/channel-disconnect", async (req, res) => {
     const { channel } = req.body ?? {};
     if (!isValidChannel(channel)) {
-      res.status(400).json({ error: "channel must be 'telegram', 'slack', or 'discord'" });
+      res.status(400).json({ error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
       return;
     }
     await channelManager.stopChannel(channel);
-    if (channel === "telegram") saveChannelCredentials("telegram", null);
-    else if (channel === "slack") saveChannelCredentials("slack", null);
-    else saveChannelCredentials("discord", null);
+    saveChannelCredentials(channel, null);
     res.json({ ok: true, config: getChannelConfigMasked(connectedMap()) });
+  });
+
+  // ── Teams outgoing webhook endpoint ────────────────────────────────────
+  app.post("/api/teams-webhook", async (req, res) => {
+    const teamsChannel = channelManager.getChannel("teams");
+    if (!teamsChannel) {
+      res.status(503).json({ type: "message", text: "Teams channel not configured" });
+      return;
+    }
+    // Import TeamsChannel for type-specific methods
+    const { TeamsChannel } = await import("../channels/teams.js");
+    if (!(teamsChannel instanceof TeamsChannel)) {
+      res.status(503).json({ type: "message", text: "Teams channel unavailable" });
+      return;
+    }
+
+    // Verify HMAC signature
+    const rawBody = JSON.stringify(req.body);
+    const authHeader = req.headers["authorization"] as string | undefined;
+    if (!teamsChannel.verifySignature(rawBody, authHeader)) {
+      res.status(401).json({ type: "message", text: "Unauthorized" });
+      return;
+    }
+
+    const text = req.body?.text ?? "";
+    const reply = await teamsChannel.handleIncoming(text);
+    res.json({ type: "message", text: reply });
   });
 
   // ── Integration config (SearXNG, SonarQube, Gitleaks, Semgrep, Trivy) ──

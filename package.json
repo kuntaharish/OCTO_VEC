@@ -48,6 +48,7 @@
     "@mariozechner/pi-coding-agent": "^0.53.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@slack/bolt": "^4.6.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "better-sqlite3": "^9.6.0",
     "commander": "^14.0.3",
     "cors": "^2.8.6",
@@ -56,7 +57,8 @@
     "express": "^4.21.0",
     "express-rate-limit": "^8.3.1",
     "grammy": "^1.40.0",
-    "helmet": "^8.1.0"
+    "helmet": "^8.1.0",
+    "matrix-bot-sdk": "^0.8.0"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^0.1.95",

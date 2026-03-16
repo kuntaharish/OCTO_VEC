@@ -32,10 +32,28 @@ export interface DiscordCredentials {
   channelId: string;
 }
 
+export interface WhatsAppCredentials {
+  authorizedJid: string;
+}
+
+export interface TeamsCredentials {
+  incomingWebhookUrl: string;
+  outgoingWebhookSecret: string;
+}
+
+export interface MatrixCredentials {
+  homeserverUrl: string;
+  accessToken: string;
+  roomId: string;
+}
+
 export interface ChannelConfig {
   telegram?: TelegramCredentials;
   slack?: SlackCredentials;
   discord?: DiscordCredentials;
+  whatsapp?: WhatsAppCredentials;
+  teams?: TeamsCredentials;
+  matrix?: MatrixCredentials;
 }
 
 export interface MaskedChannelInfo {
@@ -89,8 +107,24 @@ export function saveChannelCredentials(
   creds: DiscordCredentials | null,
 ): void;
 export function saveChannelCredentials(
-  channel: "telegram" | "slack" | "discord",
-  creds: TelegramCredentials | SlackCredentials | DiscordCredentials | null,
+  channel: "whatsapp",
+  creds: WhatsAppCredentials | null,
+): void;
+export function saveChannelCredentials(
+  channel: "teams",
+  creds: TeamsCredentials | null,
+): void;
+export function saveChannelCredentials(
+  channel: "matrix",
+  creds: MatrixCredentials | null,
+): void;
+export function saveChannelCredentials(
+  channel: "telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix",
+  creds: null,
+): void;
+export function saveChannelCredentials(
+  channel: "telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix",
+  creds: TelegramCredentials | SlackCredentials | DiscordCredentials | WhatsAppCredentials | TeamsCredentials | MatrixCredentials | null,
 ): void {
   const cfg = loadChannelConfig();
 
@@ -118,7 +152,7 @@ export function saveChannelCredentials(
       delete process.env.SLACK_APP_TOKEN;
       delete process.env.SLACK_CHANNEL_ID;
     }
-  } else {
+  } else if (channel === "discord") {
     if (creds) {
       const dc = creds as DiscordCredentials;
       cfg.discord = dc;
@@ -128,6 +162,39 @@ export function saveChannelCredentials(
       delete cfg.discord;
       delete process.env.DISCORD_BOT_TOKEN;
       delete process.env.DISCORD_CHANNEL_ID;
+    }
+  } else if (channel === "whatsapp") {
+    if (creds) {
+      const wc = creds as WhatsAppCredentials;
+      cfg.whatsapp = wc;
+      process.env.WHATSAPP_AUTHORIZED_JID = wc.authorizedJid;
+    } else {
+      delete cfg.whatsapp;
+      delete process.env.WHATSAPP_AUTHORIZED_JID;
+    }
+  } else if (channel === "teams") {
+    if (creds) {
+      const tc = creds as TeamsCredentials;
+      cfg.teams = tc;
+      process.env.TEAMS_INCOMING_WEBHOOK_URL = tc.incomingWebhookUrl;
+      process.env.TEAMS_OUTGOING_WEBHOOK_SECRET = tc.outgoingWebhookSecret;
+    } else {
+      delete cfg.teams;
+      delete process.env.TEAMS_INCOMING_WEBHOOK_URL;
+      delete process.env.TEAMS_OUTGOING_WEBHOOK_SECRET;
+    }
+  } else if (channel === "matrix") {
+    if (creds) {
+      const mc = creds as MatrixCredentials;
+      cfg.matrix = mc;
+      process.env.MATRIX_HOMESERVER_URL = mc.homeserverUrl;
+      process.env.MATRIX_ACCESS_TOKEN = mc.accessToken;
+      process.env.MATRIX_ROOM_ID = mc.roomId;
+    } else {
+      delete cfg.matrix;
+      delete process.env.MATRIX_HOMESERVER_URL;
+      delete process.env.MATRIX_ACCESS_TOKEN;
+      delete process.env.MATRIX_ROOM_ID;
     }
   }
 
@@ -153,15 +220,33 @@ export function injectChannelEnv(): void {
     process.env.DISCORD_BOT_TOKEN = cfg.discord.botToken;
     process.env.DISCORD_CHANNEL_ID = cfg.discord.channelId;
   }
+  if (cfg.whatsapp) {
+    process.env.WHATSAPP_AUTHORIZED_JID = cfg.whatsapp.authorizedJid;
+  }
+  if (cfg.teams) {
+    process.env.TEAMS_INCOMING_WEBHOOK_URL = cfg.teams.incomingWebhookUrl;
+    process.env.TEAMS_OUTGOING_WEBHOOK_SECRET = cfg.teams.outgoingWebhookSecret;
+  }
+  if (cfg.matrix) {
+    process.env.MATRIX_HOMESERVER_URL = cfg.matrix.homeserverUrl;
+    process.env.MATRIX_ACCESS_TOKEN = cfg.matrix.accessToken;
+    process.env.MATRIX_ROOM_ID = cfg.matrix.roomId;
+  }
 }
 
 /**
  * Return channel config with all tokens masked. Safe to send to the browser.
  */
-export function getChannelConfigMasked(connected: { telegram: boolean; slack: boolean; discord: boolean }): {
+export function getChannelConfigMasked(connected: {
+  telegram: boolean; slack: boolean; discord: boolean;
+  whatsapp: boolean; teams: boolean; matrix: boolean;
+}): {
   telegram: MaskedChannelInfo;
   slack: MaskedChannelInfo;
   discord: MaskedChannelInfo;
+  whatsapp: MaskedChannelInfo;
+  teams: MaskedChannelInfo;
+  matrix: MaskedChannelInfo;
 } {
   const cfg = loadChannelConfig();
   return {
@@ -183,6 +268,24 @@ export function getChannelConfigMasked(connected: { telegram: boolean; slack: bo
       connected: connected.discord,
       botToken: maskToken(cfg.discord?.botToken),
       channelId: cfg.discord?.channelId ?? null,
+    },
+    whatsapp: {
+      configured: !!(cfg.whatsapp?.authorizedJid),
+      connected: connected.whatsapp,
+      botToken: null,
+      chatId: cfg.whatsapp?.authorizedJid ?? null,
+    },
+    teams: {
+      configured: !!(cfg.teams?.incomingWebhookUrl),
+      connected: connected.teams,
+      botToken: maskToken(cfg.teams?.incomingWebhookUrl),
+      chatId: cfg.teams?.outgoingWebhookSecret ? "configured" : null,
+    },
+    matrix: {
+      configured: !!(cfg.matrix?.homeserverUrl && cfg.matrix?.accessToken && cfg.matrix?.roomId),
+      connected: connected.matrix,
+      botToken: maskToken(cfg.matrix?.accessToken),
+      chatId: cfg.matrix?.roomId ?? null,
     },
   };
 }

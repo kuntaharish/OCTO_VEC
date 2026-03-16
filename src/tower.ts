@@ -508,7 +508,7 @@ async function startServer(doStartupReset: boolean): Promise<void> {
         markActiveGroupConversation(activeGroup.id, activeGroup.members);
       } else {
         // Normal individual reply — route to origin channel
-        if (ch !== "telegram" && ch !== "slack" && ch !== "discord") {
+        if (ch !== "telegram" && ch !== "slack" && ch !== "discord" && ch !== "whatsapp" && ch !== "teams" && ch !== "matrix") {
           UserChatLog.log({ from: msg.from_agent, to: "user", message: msg.message, channel: "agent" });
         }
       }
@@ -525,6 +525,18 @@ async function startServer(doStartupReset: boolean): Promise<void> {
       const dc = channelManager.getChannel("discord");
       if (dc && ch === "discord") {
         await dc.sendToUser(line).catch(() => { });
+      }
+      const wa = channelManager.getChannel("whatsapp");
+      if (wa && ch === "whatsapp") {
+        await wa.sendToUser(line).catch(() => { });
+      }
+      const tm = channelManager.getChannel("teams");
+      if (tm && ch === "teams") {
+        await tm.sendToUser(line).catch(() => { });
+      }
+      const mx = channelManager.getChannel("matrix");
+      if (mx && ch === "matrix") {
+        await mx.sendToUser(line).catch(() => { });
       }
     }
   }, 5_000);

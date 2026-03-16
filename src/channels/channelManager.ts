@@ -8,14 +8,20 @@ import type { PMAgent } from "../agents/pmAgent.js";
 import { createTelegramChannel } from "./telegram.js";
 import { createSlackChannel } from "./slack.js";
 import { createDiscordChannel } from "./discord.js";
+import { createWhatsAppChannel } from "./whatsapp.js";
+import { createTeamsChannel } from "./teams.js";
+import { createMatrixChannel } from "./matrix.js";
 
-type ChannelId = "telegram" | "slack" | "discord";
+type ChannelId = "telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix";
 
 let _pmAgent: PMAgent | null = null;
 const _channels: Record<ChannelId, VECChannel | null> = {
   telegram: null,
   slack: null,
   discord: null,
+  whatsapp: null,
+  teams: null,
+  matrix: null,
 };
 
 export const channelManager = {
@@ -28,6 +34,12 @@ export const channelManager = {
     if (_channels.slack) await _channels.slack.start();
     _channels.discord = createDiscordChannel(pmAgent);
     if (_channels.discord) await _channels.discord.start();
+    _channels.whatsapp = createWhatsAppChannel(pmAgent);
+    if (_channels.whatsapp) await _channels.whatsapp.start();
+    _channels.teams = createTeamsChannel(pmAgent);
+    if (_channels.teams) await _channels.teams.start();
+    _channels.matrix = createMatrixChannel(pmAgent);
+    if (_channels.matrix) await _channels.matrix.start();
   },
 
   getChannel(id: ChannelId): VECChannel | null {
@@ -60,11 +72,17 @@ export const channelManager = {
         telegram: () => createTelegramChannel(_pmAgent!),
         slack: () => createSlackChannel(_pmAgent!),
         discord: () => createDiscordChannel(_pmAgent!),
+        whatsapp: () => createWhatsAppChannel(_pmAgent!),
+        teams: () => createTeamsChannel(_pmAgent!),
+        matrix: () => createMatrixChannel(_pmAgent!),
       };
       const labels: Record<ChannelId, string> = {
         telegram: "Telegram",
         slack: "Slack",
         discord: "Discord",
+        whatsapp: "WhatsApp",
+        teams: "Teams",
+        matrix: "Matrix",
       };
 
       const ch = creators[id]();
