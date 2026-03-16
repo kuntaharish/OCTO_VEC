@@ -1,5 +1,5 @@
 /**
- * JSON-backed storage for channel credentials (Telegram, Slack).
+ * JSON-backed storage for channel credentials.
  * Follows the same pattern as modelConfig.ts setProviderApiKey.
  *
  * Security:
@@ -14,55 +14,85 @@ import { config } from "../config.js";
 
 const CONFIG_PATH = join(config.dataDir, "channel-config.json");
 
+// ── All Channel IDs ─────────────────────────────────────────────────────────
+
+export const ALL_CHANNEL_IDS = [
+  "telegram", "slack", "discord", "whatsapp", "teams", "matrix",
+  "signal", "googlechat", "irc", "line", "mattermost", "twitch",
+  "nostr", "nextcloud", "synology", "feishu",
+] as const;
+
+export type ChannelId = (typeof ALL_CHANNEL_IDS)[number];
+
+export function isValidChannel(v: unknown): v is ChannelId {
+  return typeof v === "string" && (ALL_CHANNEL_IDS as readonly string[]).includes(v);
+}
+
+export const CHANNEL_LABELS: Record<ChannelId, string> = {
+  telegram: "Telegram", slack: "Slack", discord: "Discord",
+  whatsapp: "WhatsApp", teams: "Teams", matrix: "Matrix",
+  signal: "Signal", googlechat: "Google Chat", irc: "IRC",
+  line: "LINE", mattermost: "Mattermost", twitch: "Twitch",
+  nostr: "Nostr", nextcloud: "Nextcloud Talk", synology: "Synology Chat",
+  feishu: "Feishu/Lark",
+};
+
+// ── Channel credential fields (what env vars each channel needs) ────────────
+
+export const CHANNEL_ENV_MAP: Record<ChannelId, Record<string, string>> = {
+  telegram:    { botToken: "TELEGRAM_BOT_TOKEN", chatId: "TELEGRAM_CHAT_ID" },
+  slack:       { botToken: "SLACK_BOT_TOKEN", appToken: "SLACK_APP_TOKEN", channelId: "SLACK_CHANNEL_ID" },
+  discord:     { botToken: "DISCORD_BOT_TOKEN", channelId: "DISCORD_CHANNEL_ID" },
+  whatsapp:    { authorizedJid: "WHATSAPP_AUTHORIZED_JID" },
+  teams:       { incomingWebhookUrl: "TEAMS_INCOMING_WEBHOOK_URL", outgoingWebhookSecret: "TEAMS_OUTGOING_WEBHOOK_SECRET" },
+  matrix:      { homeserverUrl: "MATRIX_HOMESERVER_URL", accessToken: "MATRIX_ACCESS_TOKEN", roomId: "MATRIX_ROOM_ID" },
+  signal:      { phoneNumber: "SIGNAL_PHONE_NUMBER", recipient: "SIGNAL_RECIPIENT", cliPath: "SIGNAL_CLI_PATH" },
+  googlechat:  { webhookUrl: "GOOGLE_CHAT_WEBHOOK_URL" },
+  irc:         { server: "IRC_SERVER", port: "IRC_PORT", nickname: "IRC_NICKNAME", channel: "IRC_CHANNEL", authNick: "IRC_AUTH_NICK", useTls: "IRC_USE_TLS" },
+  line:        { channelAccessToken: "LINE_CHANNEL_ACCESS_TOKEN", channelSecret: "LINE_CHANNEL_SECRET", userId: "LINE_USER_ID" },
+  mattermost:  { serverUrl: "MATTERMOST_URL", botToken: "MATTERMOST_BOT_TOKEN", channelId: "MATTERMOST_CHANNEL_ID", authUser: "MATTERMOST_AUTH_USER" },
+  twitch:      { botUsername: "TWITCH_BOT_USERNAME", oauthToken: "TWITCH_OAUTH_TOKEN", channel: "TWITCH_CHANNEL", authUser: "TWITCH_AUTH_USER" },
+  nostr:       { privateKey: "NOSTR_PRIVATE_KEY", relayUrl: "NOSTR_RELAY_URL", authPubkey: "NOSTR_AUTH_PUBKEY" },
+  nextcloud:   { serverUrl: "NEXTCLOUD_URL", username: "NEXTCLOUD_USERNAME", password: "NEXTCLOUD_PASSWORD", roomToken: "NEXTCLOUD_ROOM_TOKEN", authUser: "NEXTCLOUD_AUTH_USER" },
+  synology:    { incomingUrl: "SYNOLOGY_CHAT_INCOMING_URL", outgoingToken: "SYNOLOGY_CHAT_OUTGOING_TOKEN" },
+  feishu:      { webhookUrl: "FEISHU_WEBHOOK_URL", verificationToken: "FEISHU_VERIFICATION_TOKEN" },
+};
+
+// Fields that are secret (tokens, passwords) — shown masked in UI
+const SECRET_FIELDS = new Set([
+  "botToken", "appToken", "accessToken", "channelAccessToken", "channelSecret",
+  "oauthToken", "privateKey", "password", "outgoingWebhookSecret", "outgoingToken",
+  "verificationToken", "incomingWebhookUrl", "webhookUrl", "incomingUrl",
+]);
+
+// The primary "required" field per channel that determines if it's "configured"
+const REQUIRED_FIELDS: Record<ChannelId, string[]> = {
+  telegram:    ["botToken", "chatId"],
+  slack:       ["botToken", "appToken", "channelId"],
+  discord:     ["botToken", "channelId"],
+  whatsapp:    ["authorizedJid"],
+  teams:       ["incomingWebhookUrl"],
+  matrix:      ["homeserverUrl", "accessToken", "roomId"],
+  signal:      ["phoneNumber", "recipient"],
+  googlechat:  ["webhookUrl"],
+  irc:         ["server", "nickname", "channel", "authNick"],
+  line:        ["channelAccessToken", "channelSecret"],
+  mattermost:  ["serverUrl", "botToken", "channelId"],
+  twitch:      ["botUsername", "oauthToken", "channel", "authUser"],
+  nostr:       ["privateKey", "relayUrl", "authPubkey"],
+  nextcloud:   ["serverUrl", "username", "password", "roomToken"],
+  synology:    ["incomingUrl"],
+  feishu:      ["webhookUrl"],
+};
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export interface TelegramCredentials {
-  botToken: string;
-  chatId: string;
-}
-
-export interface SlackCredentials {
-  botToken: string;
-  appToken: string;
-  channelId: string;
-}
-
-export interface DiscordCredentials {
-  botToken: string;
-  channelId: string;
-}
-
-export interface WhatsAppCredentials {
-  authorizedJid: string;
-}
-
-export interface TeamsCredentials {
-  incomingWebhookUrl: string;
-  outgoingWebhookSecret: string;
-}
-
-export interface MatrixCredentials {
-  homeserverUrl: string;
-  accessToken: string;
-  roomId: string;
-}
-
-export interface ChannelConfig {
-  telegram?: TelegramCredentials;
-  slack?: SlackCredentials;
-  discord?: DiscordCredentials;
-  whatsapp?: WhatsAppCredentials;
-  teams?: TeamsCredentials;
-  matrix?: MatrixCredentials;
-}
+export type ChannelConfig = Record<string, Record<string, string> | undefined>;
 
 export interface MaskedChannelInfo {
   configured: boolean;
   connected: boolean;
-  botToken: string | null;
-  chatId?: string | null;
-  appToken?: string | null;
-  channelId?: string | null;
+  fields: Record<string, string | null>; // field name → masked value or plain value
 }
 
 // ── Masking ──────────────────────────────────────────────────────────────────
@@ -94,107 +124,21 @@ function saveRaw(cfg: ChannelConfig): void {
  * Save credentials for a channel. Pass null to clear.
  * Also injects into process.env so channels can be (re)started immediately.
  */
-export function saveChannelCredentials(
-  channel: "telegram",
-  creds: TelegramCredentials | null,
-): void;
-export function saveChannelCredentials(
-  channel: "slack",
-  creds: SlackCredentials | null,
-): void;
-export function saveChannelCredentials(
-  channel: "discord",
-  creds: DiscordCredentials | null,
-): void;
-export function saveChannelCredentials(
-  channel: "whatsapp",
-  creds: WhatsAppCredentials | null,
-): void;
-export function saveChannelCredentials(
-  channel: "teams",
-  creds: TeamsCredentials | null,
-): void;
-export function saveChannelCredentials(
-  channel: "matrix",
-  creds: MatrixCredentials | null,
-): void;
-export function saveChannelCredentials(
-  channel: "telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix",
-  creds: null,
-): void;
-export function saveChannelCredentials(
-  channel: "telegram" | "slack" | "discord" | "whatsapp" | "teams" | "matrix",
-  creds: TelegramCredentials | SlackCredentials | DiscordCredentials | WhatsAppCredentials | TeamsCredentials | MatrixCredentials | null,
-): void {
+export function saveChannelCredentials(channel: ChannelId, creds: Record<string, string> | null): void {
   const cfg = loadChannelConfig();
+  const envMap = CHANNEL_ENV_MAP[channel];
 
-  if (channel === "telegram") {
-    if (creds) {
-      const tc = creds as TelegramCredentials;
-      cfg.telegram = tc;
-      process.env.TELEGRAM_BOT_TOKEN = tc.botToken;
-      process.env.TELEGRAM_CHAT_ID = tc.chatId;
-    } else {
-      delete cfg.telegram;
-      delete process.env.TELEGRAM_BOT_TOKEN;
-      delete process.env.TELEGRAM_CHAT_ID;
+  if (creds) {
+    cfg[channel] = creds;
+    // Inject into process.env
+    for (const [field, envVar] of Object.entries(envMap)) {
+      if (creds[field]) process.env[envVar] = creds[field];
     }
-  } else if (channel === "slack") {
-    if (creds) {
-      const sc = creds as SlackCredentials;
-      cfg.slack = sc;
-      process.env.SLACK_BOT_TOKEN = sc.botToken;
-      process.env.SLACK_APP_TOKEN = sc.appToken;
-      process.env.SLACK_CHANNEL_ID = sc.channelId;
-    } else {
-      delete cfg.slack;
-      delete process.env.SLACK_BOT_TOKEN;
-      delete process.env.SLACK_APP_TOKEN;
-      delete process.env.SLACK_CHANNEL_ID;
-    }
-  } else if (channel === "discord") {
-    if (creds) {
-      const dc = creds as DiscordCredentials;
-      cfg.discord = dc;
-      process.env.DISCORD_BOT_TOKEN = dc.botToken;
-      process.env.DISCORD_CHANNEL_ID = dc.channelId;
-    } else {
-      delete cfg.discord;
-      delete process.env.DISCORD_BOT_TOKEN;
-      delete process.env.DISCORD_CHANNEL_ID;
-    }
-  } else if (channel === "whatsapp") {
-    if (creds) {
-      const wc = creds as WhatsAppCredentials;
-      cfg.whatsapp = wc;
-      process.env.WHATSAPP_AUTHORIZED_JID = wc.authorizedJid;
-    } else {
-      delete cfg.whatsapp;
-      delete process.env.WHATSAPP_AUTHORIZED_JID;
-    }
-  } else if (channel === "teams") {
-    if (creds) {
-      const tc = creds as TeamsCredentials;
-      cfg.teams = tc;
-      process.env.TEAMS_INCOMING_WEBHOOK_URL = tc.incomingWebhookUrl;
-      process.env.TEAMS_OUTGOING_WEBHOOK_SECRET = tc.outgoingWebhookSecret;
-    } else {
-      delete cfg.teams;
-      delete process.env.TEAMS_INCOMING_WEBHOOK_URL;
-      delete process.env.TEAMS_OUTGOING_WEBHOOK_SECRET;
-    }
-  } else if (channel === "matrix") {
-    if (creds) {
-      const mc = creds as MatrixCredentials;
-      cfg.matrix = mc;
-      process.env.MATRIX_HOMESERVER_URL = mc.homeserverUrl;
-      process.env.MATRIX_ACCESS_TOKEN = mc.accessToken;
-      process.env.MATRIX_ROOM_ID = mc.roomId;
-    } else {
-      delete cfg.matrix;
-      delete process.env.MATRIX_HOMESERVER_URL;
-      delete process.env.MATRIX_ACCESS_TOKEN;
-      delete process.env.MATRIX_ROOM_ID;
+  } else {
+    delete cfg[channel];
+    // Remove from process.env
+    for (const envVar of Object.values(envMap)) {
+      delete process.env[envVar];
     }
   }
 
@@ -203,89 +147,45 @@ export function saveChannelCredentials(
 
 /**
  * Load saved channel config into process.env on startup.
- * JSON file takes precedence over .env if both are set.
  */
 export function injectChannelEnv(): void {
   const cfg = loadChannelConfig();
-  if (cfg.telegram) {
-    process.env.TELEGRAM_BOT_TOKEN = cfg.telegram.botToken;
-    process.env.TELEGRAM_CHAT_ID = cfg.telegram.chatId;
-  }
-  if (cfg.slack) {
-    process.env.SLACK_BOT_TOKEN = cfg.slack.botToken;
-    process.env.SLACK_APP_TOKEN = cfg.slack.appToken;
-    process.env.SLACK_CHANNEL_ID = cfg.slack.channelId;
-  }
-  if (cfg.discord) {
-    process.env.DISCORD_BOT_TOKEN = cfg.discord.botToken;
-    process.env.DISCORD_CHANNEL_ID = cfg.discord.channelId;
-  }
-  if (cfg.whatsapp) {
-    process.env.WHATSAPP_AUTHORIZED_JID = cfg.whatsapp.authorizedJid;
-  }
-  if (cfg.teams) {
-    process.env.TEAMS_INCOMING_WEBHOOK_URL = cfg.teams.incomingWebhookUrl;
-    process.env.TEAMS_OUTGOING_WEBHOOK_SECRET = cfg.teams.outgoingWebhookSecret;
-  }
-  if (cfg.matrix) {
-    process.env.MATRIX_HOMESERVER_URL = cfg.matrix.homeserverUrl;
-    process.env.MATRIX_ACCESS_TOKEN = cfg.matrix.accessToken;
-    process.env.MATRIX_ROOM_ID = cfg.matrix.roomId;
+  for (const channelId of ALL_CHANNEL_IDS) {
+    const creds = cfg[channelId];
+    if (!creds) continue;
+    const envMap = CHANNEL_ENV_MAP[channelId];
+    for (const [field, envVar] of Object.entries(envMap)) {
+      if (creds[field]) process.env[envVar] = creds[field];
+    }
   }
 }
 
 /**
  * Return channel config with all tokens masked. Safe to send to the browser.
  */
-export function getChannelConfigMasked(connected: {
-  telegram: boolean; slack: boolean; discord: boolean;
-  whatsapp: boolean; teams: boolean; matrix: boolean;
-}): {
-  telegram: MaskedChannelInfo;
-  slack: MaskedChannelInfo;
-  discord: MaskedChannelInfo;
-  whatsapp: MaskedChannelInfo;
-  teams: MaskedChannelInfo;
-  matrix: MaskedChannelInfo;
-} {
+export function getChannelConfigMasked(
+  connected: Record<ChannelId, boolean>,
+): Record<ChannelId, MaskedChannelInfo> {
   const cfg = loadChannelConfig();
-  return {
-    telegram: {
-      configured: !!(cfg.telegram?.botToken && cfg.telegram?.chatId),
-      connected: connected.telegram,
-      botToken: maskToken(cfg.telegram?.botToken),
-      chatId: cfg.telegram?.chatId ?? null,
-    },
-    slack: {
-      configured: !!(cfg.slack?.botToken && cfg.slack?.appToken && cfg.slack?.channelId),
-      connected: connected.slack,
-      botToken: maskToken(cfg.slack?.botToken),
-      appToken: maskToken(cfg.slack?.appToken),
-      channelId: cfg.slack?.channelId ?? null,
-    },
-    discord: {
-      configured: !!(cfg.discord?.botToken && cfg.discord?.channelId),
-      connected: connected.discord,
-      botToken: maskToken(cfg.discord?.botToken),
-      channelId: cfg.discord?.channelId ?? null,
-    },
-    whatsapp: {
-      configured: !!(cfg.whatsapp?.authorizedJid),
-      connected: connected.whatsapp,
-      botToken: null,
-      chatId: cfg.whatsapp?.authorizedJid ?? null,
-    },
-    teams: {
-      configured: !!(cfg.teams?.incomingWebhookUrl),
-      connected: connected.teams,
-      botToken: maskToken(cfg.teams?.incomingWebhookUrl),
-      chatId: cfg.teams?.outgoingWebhookSecret ? "configured" : null,
-    },
-    matrix: {
-      configured: !!(cfg.matrix?.homeserverUrl && cfg.matrix?.accessToken && cfg.matrix?.roomId),
-      connected: connected.matrix,
-      botToken: maskToken(cfg.matrix?.accessToken),
-      chatId: cfg.matrix?.roomId ?? null,
-    },
-  };
+  const result = {} as Record<ChannelId, MaskedChannelInfo>;
+
+  for (const channelId of ALL_CHANNEL_IDS) {
+    const creds = cfg[channelId] ?? {};
+    const envMap = CHANNEL_ENV_MAP[channelId];
+    const required = REQUIRED_FIELDS[channelId];
+
+    const fields: Record<string, string | null> = {};
+    for (const field of Object.keys(envMap)) {
+      const val = creds[field];
+      fields[field] = SECRET_FIELDS.has(field) ? maskToken(val) : (val ?? null);
+    }
+
+    result[channelId] = {
+      configured: required.every(f => !!creds[f]),
+      connected: connected[channelId] ?? false,
+      fields,
+    };
+  }
+
+  return result;
 }

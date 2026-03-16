@@ -123,12 +123,7 @@ function printBanner(): void {
   console.log(`    Agents : workspace/agents/{EMP-ID}/ (per-agent private folders)`);
   console.log(`  Proactive: ${config.pmProactiveEnabled ? `ON (every ${config.pmProactiveIntervalSecs}s)` : "OFF"}`);
   // Dashboard URL with key is printed by server.ts on listen
-  const tgChatId = process.env.TELEGRAM_CHAT_ID;
-  console.log(`  Telegram : ${tgChatId ? `active (chat ${tgChatId})` : "disabled (set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID to enable)"}`);
-  const slackCh = process.env.SLACK_CHANNEL_ID;
-  console.log(`  Slack    : ${slackCh ? `active (channel ${slackCh})` : "disabled (set SLACK_BOT_TOKEN + SLACK_APP_TOKEN + SLACK_CHANNEL_ID to enable)"}`);
-  const discordCh = process.env.DISCORD_CHANNEL_ID;
-  console.log(`  Discord  : ${discordCh ? `active (channel ${discordCh})` : "disabled (set DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID to enable)"}`);
+  console.log(`  Channels : Telegram, Slack, Discord, WhatsApp, Teams, Matrix, Signal, Google Chat, IRC, LINE, Mattermost, Twitch, Nostr, Nextcloud, Synology, Feishu`);
   console.log(`  CLI      : ${config.cliEnabled ? "ON" : "OFF (headless — set VEC_CLI_ENABLED=1 to enable)"}`);
   if (config.cliEnabled) {
     console.log("  /board   — Task board (SQLite)");
@@ -217,13 +212,13 @@ function attachPmStreaming(pmAgent: PMAgent): void {
         // Skip: Telegram-originated prompts (Telegram handles its own reply).
         // Skip: system-initiated prompts (sunset, proactive) — suppressChatLog flag.
         const text = capturedText.trim();
+        const _ch = ActiveChannelState.get();
         if (
           text &&
           !messageAgentCalled &&
           !suppressChatLog &&
           !text.startsWith("NO_ACTION_REQUIRED") &&
-          ActiveChannelState.get() !== "telegram" &&
-          ActiveChannelState.get() !== "slack"
+          (_ch === "cli" || _ch === "dashboard")
         ) {
           UserChatLog.log({ from: "pm", to: "user", message: text, channel: "agent" });
         }
@@ -507,36 +502,16 @@ async function startServer(doStartupReset: boolean): Promise<void> {
         // Refresh active timestamp
         markActiveGroupConversation(activeGroup.id, activeGroup.members);
       } else {
-        // Normal individual reply — route to origin channel
-        if (ch !== "telegram" && ch !== "slack" && ch !== "discord" && ch !== "whatsapp" && ch !== "teams" && ch !== "matrix") {
+        // Normal individual reply — log only for CLI/dashboard (external channels handle their own logging)
+        if (ch === "cli" || ch === "dashboard") {
           UserChatLog.log({ from: msg.from_agent, to: "user", message: msg.message, channel: "agent" });
         }
       }
 
       // Route reply to origin channel (for both individual and group)
-      const tg = channelManager.getChannel("telegram");
-      if (tg && ch === "telegram") {
-        await tg.sendToUser(line).catch(() => { });
-      }
-      const sl = channelManager.getChannel("slack");
-      if (sl && ch === "slack") {
-        await sl.sendToUser(line).catch(() => { });
-      }
-      const dc = channelManager.getChannel("discord");
-      if (dc && ch === "discord") {
-        await dc.sendToUser(line).catch(() => { });
-      }
-      const wa = channelManager.getChannel("whatsapp");
-      if (wa && ch === "whatsapp") {
-        await wa.sendToUser(line).catch(() => { });
-      }
-      const tm = channelManager.getChannel("teams");
-      if (tm && ch === "teams") {
-        await tm.sendToUser(line).catch(() => { });
-      }
-      const mx = channelManager.getChannel("matrix");
-      if (mx && ch === "matrix") {
-        await mx.sendToUser(line).catch(() => { });
+      if (ch !== "cli" && ch !== "dashboard") {
+        const target = channelManager.getChannel(ch as any);
+        if (target) await target.sendToUser(line).catch(() => { });
       }
     }
   }, 5_000);

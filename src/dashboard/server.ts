@@ -42,7 +42,7 @@ import { ActiveChannelState } from "../channels/activeChannel.js";
 import type { VECAgent } from "../atp/inboxLoop.js";
 import { getAllUsage as getFinanceAllUsage, getTotals as getFinanceTotals, resetUsage as resetFinanceUsage } from "../atp/tokenTracker.js";
 import { getProviders, getModelConfig, setModelConfig, setAgentModel, getEffectiveModel, setProviderApiKey } from "../atp/modelConfig.js";
-import { saveChannelCredentials, getChannelConfigMasked } from "../channels/channelConfig.js";
+import { saveChannelCredentials, getChannelConfigMasked, ALL_CHANNEL_IDS, isValidChannel, CHANNEL_LABELS, type ChannelId } from "../channels/channelConfig.js";
 import { channelManager } from "../channels/channelManager.js";
 import {
   apiKeyAuth,
@@ -3011,172 +3011,115 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     res.json({ ok: true, providers: getProviders() });
   });
 
-  // ── Channel configuration (Telegram / Slack / Discord / WhatsApp / Teams / Matrix) ──
+  // ── Channel configuration (all 16 channels) ──────────────────────────────
 
-  const VALID_CHANNELS = ["telegram", "slack", "discord", "whatsapp", "teams", "matrix"] as const;
-  type ValidChannel = (typeof VALID_CHANNELS)[number];
-  function isValidChannel(v: unknown): v is ValidChannel {
-    return typeof v === "string" && (VALID_CHANNELS as readonly string[]).includes(v);
-  }
-  function connectedMap() {
-    return {
-      telegram: channelManager.isConnected("telegram"),
-      slack: channelManager.isConnected("slack"),
-      discord: channelManager.isConnected("discord"),
-      whatsapp: channelManager.isConnected("whatsapp"),
-      teams: channelManager.isConnected("teams"),
-      matrix: channelManager.isConnected("matrix"),
-    };
+  function connectedMap(): Record<ChannelId, boolean> {
+    return Object.fromEntries(
+      ALL_CHANNEL_IDS.map(id => [id, channelManager.isConnected(id)])
+    ) as Record<ChannelId, boolean>;
   }
 
   app.get("/api/channel-config", (_req, res) => {
     res.json(getChannelConfigMasked(connectedMap()));
   });
 
+  // Generic save — accepts { channel, ...fieldValues }
   app.post("/api/channel-config", (req, res) => {
     const { channel, ...creds } = req.body ?? {};
     if (!isValidChannel(channel)) {
-      res.status(400).json({ error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
+      res.status(400).json({ error: `Invalid channel: ${channel}` });
       return;
     }
-    if (channel === "telegram") {
-      const { botToken, chatId } = creds;
-      if (!botToken || !chatId) {
-        res.status(400).json({ error: "botToken and chatId are required" });
-        return;
-      }
-      saveChannelCredentials("telegram", { botToken, chatId });
-    } else if (channel === "slack") {
-      const { botToken, appToken, channelId } = creds;
-      if (!botToken || !appToken || !channelId) {
-        res.status(400).json({ error: "botToken, appToken, and channelId are required" });
-        return;
-      }
-      saveChannelCredentials("slack", { botToken, appToken, channelId });
-    } else if (channel === "discord") {
-      const { botToken, channelId } = creds;
-      if (!botToken || !channelId) {
-        res.status(400).json({ error: "botToken and channelId are required" });
-        return;
-      }
-      saveChannelCredentials("discord", { botToken, channelId });
-    } else if (channel === "whatsapp") {
-      const { authorizedJid } = creds;
-      if (!authorizedJid) {
-        res.status(400).json({ error: "authorizedJid is required (e.g. '919876543210@s.whatsapp.net')" });
-        return;
-      }
-      saveChannelCredentials("whatsapp", { authorizedJid });
-    } else if (channel === "teams") {
-      const { incomingWebhookUrl, outgoingWebhookSecret } = creds;
-      if (!incomingWebhookUrl) {
-        res.status(400).json({ error: "incomingWebhookUrl is required" });
-        return;
-      }
-      saveChannelCredentials("teams", { incomingWebhookUrl, outgoingWebhookSecret: outgoingWebhookSecret ?? "" });
-    } else if (channel === "matrix") {
-      const { homeserverUrl, accessToken, roomId } = creds;
-      if (!homeserverUrl || !accessToken || !roomId) {
-        res.status(400).json({ error: "homeserverUrl, accessToken, and roomId are required" });
-        return;
-      }
-      saveChannelCredentials("matrix", { homeserverUrl, accessToken, roomId });
+    // Pass all credential fields through — channelConfig handles storage
+    const cleaned: Record<string, string> = {};
+    for (const [k, v] of Object.entries(creds)) {
+      if (typeof v === "string") cleaned[k] = v;
     }
+    saveChannelCredentials(channel, cleaned);
     res.json({ ok: true, config: getChannelConfigMasked(connectedMap()) });
   });
 
+  // Generic test — channel-specific validation where possible
   app.post("/api/channel-test", async (req, res) => {
-    const { channel, botToken, appToken } = req.body ?? {};
-    if (channel === "telegram") {
-      if (!botToken) { res.status(400).json({ ok: false, error: "botToken is required" }); return; }
-      try {
-        const resp = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const { channel, ...fields } = req.body ?? {};
+    if (!isValidChannel(channel)) {
+      res.status(400).json({ ok: false, error: `Invalid channel: ${channel}` });
+      return;
+    }
+    try {
+      if (channel === "telegram") {
+        const resp = await fetch(`https://api.telegram.org/bot${fields.botToken}/getMe`);
         const data = await resp.json() as any;
-        if (data.ok) {
-          res.json({ ok: true, botName: data.result?.first_name ?? data.result?.username ?? "Bot" });
-        } else {
-          res.json({ ok: false, error: data.description ?? "Invalid bot token" });
-        }
-      } catch (err: any) {
-        res.json({ ok: false, error: err?.message ?? "Connection failed" });
-      }
-    } else if (channel === "slack") {
-      if (!botToken) { res.status(400).json({ ok: false, error: "botToken is required" }); return; }
-      try {
+        res.json(data.ok
+          ? { ok: true, botName: data.result?.first_name ?? data.result?.username ?? "Bot" }
+          : { ok: false, error: data.description ?? "Invalid bot token" });
+      } else if (channel === "slack") {
         const resp = await fetch("https://slack.com/api/auth.test", {
           method: "POST",
-          headers: { "Authorization": `Bearer ${botToken}`, "Content-Type": "application/json" },
+          headers: { "Authorization": `Bearer ${fields.botToken}`, "Content-Type": "application/json" },
         });
         const data = await resp.json() as any;
-        if (data.ok) {
-          res.json({ ok: true, botName: data.bot_id ?? data.user ?? "Bot" });
-        } else {
-          res.json({ ok: false, error: data.error ?? "Invalid bot token" });
-        }
-      } catch (err: any) {
-        res.json({ ok: false, error: err?.message ?? "Connection failed" });
-      }
-    } else if (channel === "discord") {
-      if (!botToken) { res.status(400).json({ ok: false, error: "botToken is required" }); return; }
-      try {
+        res.json(data.ok
+          ? { ok: true, botName: data.bot_id ?? data.user ?? "Bot" }
+          : { ok: false, error: data.error ?? "Invalid bot token" });
+      } else if (channel === "discord") {
         const resp = await fetch("https://discord.com/api/v10/users/@me", {
-          headers: { "Authorization": `Bot ${botToken}` },
+          headers: { "Authorization": `Bot ${fields.botToken}` },
         });
         const data = await resp.json() as any;
-        if (resp.ok && data.username) {
-          res.json({ ok: true, botName: data.username });
-        } else {
-          res.json({ ok: false, error: data.message ?? "Invalid bot token" });
-        }
-      } catch (err: any) {
-        res.json({ ok: false, error: err?.message ?? "Connection failed" });
-      }
-    } else if (channel === "whatsapp") {
-      // WhatsApp uses QR code auth — no token to test remotely
-      res.json({ ok: true, botName: "WhatsApp (QR code auth)" });
-    } else if (channel === "teams") {
-      const { incomingWebhookUrl } = req.body ?? {};
-      if (!incomingWebhookUrl) { res.status(400).json({ ok: false, error: "incomingWebhookUrl is required" }); return; }
-      try {
-        // Send a test message to verify the webhook works
-        const resp = await fetch(incomingWebhookUrl, {
+        res.json(resp.ok && data.username
+          ? { ok: true, botName: data.username }
+          : { ok: false, error: data.message ?? "Invalid bot token" });
+      } else if (channel === "matrix") {
+        const resp = await fetch(`${fields.homeserverUrl}/_matrix/client/v3/account/whoami`, {
+          headers: { "Authorization": `Bearer ${fields.accessToken}` },
+        });
+        const data = await resp.json() as any;
+        res.json(resp.ok && data.user_id
+          ? { ok: true, botName: data.user_id }
+          : { ok: false, error: data.error ?? "Invalid access token" });
+      } else if (channel === "teams" || channel === "googlechat" || channel === "feishu") {
+        // Webhook-based — send a test message
+        const url = fields.incomingWebhookUrl || fields.webhookUrl || "";
+        if (!url) { res.json({ ok: false, error: "Webhook URL is required" }); return; }
+        const resp = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: "OCTO VEC — connection test successful!" }),
+          body: JSON.stringify(channel === "feishu"
+            ? { msg_type: "text", content: { text: "OCTO VEC — test" } }
+            : { text: "OCTO VEC — connection test successful!" }),
         });
-        if (resp.ok) {
-          res.json({ ok: true, botName: "Teams Webhook" });
-        } else {
-          res.json({ ok: false, error: `Webhook returned ${resp.status}` });
-        }
-      } catch (err: any) {
-        res.json({ ok: false, error: err?.message ?? "Connection failed" });
-      }
-    } else if (channel === "matrix") {
-      const { homeserverUrl, accessToken: matrixToken } = req.body ?? {};
-      if (!homeserverUrl || !matrixToken) { res.status(400).json({ ok: false, error: "homeserverUrl and accessToken are required" }); return; }
-      try {
-        const resp = await fetch(`${homeserverUrl}/_matrix/client/v3/account/whoami`, {
-          headers: { "Authorization": `Bearer ${matrixToken}` },
+        res.json(resp.ok ? { ok: true, botName: `${CHANNEL_LABELS[channel]} Webhook` } : { ok: false, error: `Webhook returned ${resp.status}` });
+      } else if (channel === "mattermost") {
+        const resp = await fetch(`${fields.serverUrl}/api/v4/users/me`, {
+          headers: { "Authorization": `Bearer ${fields.botToken}` },
         });
         const data = await resp.json() as any;
-        if (resp.ok && data.user_id) {
-          res.json({ ok: true, botName: data.user_id });
-        } else {
-          res.json({ ok: false, error: data.error ?? "Invalid access token" });
-        }
-      } catch (err: any) {
-        res.json({ ok: false, error: err?.message ?? "Connection failed" });
+        res.json(resp.ok && data.username
+          ? { ok: true, botName: data.username }
+          : { ok: false, error: data.message ?? "Invalid credentials" });
+      } else if (channel === "synology") {
+        const url = fields.incomingUrl || "";
+        if (!url) { res.json({ ok: false, error: "Incoming URL is required" }); return; }
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: "OCTO VEC — test" }),
+        });
+        res.json(resp.ok ? { ok: true, botName: "Synology Chat" } : { ok: false, error: `Returned ${resp.status}` });
+      } else {
+        // Channels without remote test (WhatsApp QR, Signal CLI, IRC, LINE, Twitch, Nostr, Nextcloud)
+        res.json({ ok: true, botName: `${CHANNEL_LABELS[channel]} (save to connect)` });
       }
-    } else {
-      res.status(400).json({ ok: false, error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
+    } catch (err: any) {
+      res.json({ ok: false, error: err?.message ?? "Connection failed" });
     }
   });
 
   app.post("/api/channel-restart", async (req, res) => {
     const { channel } = req.body ?? {};
     if (!isValidChannel(channel)) {
-      res.status(400).json({ error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
+      res.status(400).json({ error: `Invalid channel: ${channel}` });
       return;
     }
     const result = await channelManager.restartChannel(channel);
@@ -3186,7 +3129,7 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   app.post("/api/channel-disconnect", async (req, res) => {
     const { channel } = req.body ?? {};
     if (!isValidChannel(channel)) {
-      res.status(400).json({ error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
+      res.status(400).json({ error: `Invalid channel: ${channel}` });
       return;
     }
     await channelManager.stopChannel(channel);
@@ -3194,31 +3137,74 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     res.json({ ok: true, config: getChannelConfigMasked(connectedMap()) });
   });
 
-  // ── Teams outgoing webhook endpoint ────────────────────────────────────
+  // ── Webhook endpoints for channels that receive via HTTP ────────────────
+
+  // Teams outgoing webhook
   app.post("/api/teams-webhook", async (req, res) => {
     const teamsChannel = channelManager.getChannel("teams");
-    if (!teamsChannel) {
-      res.status(503).json({ type: "message", text: "Teams channel not configured" });
-      return;
-    }
-    // Import TeamsChannel for type-specific methods
+    if (!teamsChannel) { res.status(503).json({ type: "message", text: "Teams channel not configured" }); return; }
     const { TeamsChannel } = await import("../channels/teams.js");
-    if (!(teamsChannel instanceof TeamsChannel)) {
-      res.status(503).json({ type: "message", text: "Teams channel unavailable" });
-      return;
-    }
-
-    // Verify HMAC signature
+    if (!(teamsChannel instanceof TeamsChannel)) { res.status(503).json({ type: "message", text: "Teams channel unavailable" }); return; }
     const rawBody = JSON.stringify(req.body);
     const authHeader = req.headers["authorization"] as string | undefined;
-    if (!teamsChannel.verifySignature(rawBody, authHeader)) {
-      res.status(401).json({ type: "message", text: "Unauthorized" });
+    if (!teamsChannel.verifySignature(rawBody, authHeader)) { res.status(401).json({ type: "message", text: "Unauthorized" }); return; }
+    const reply = await teamsChannel.handleIncoming(req.body?.text ?? "");
+    res.json({ type: "message", text: reply });
+  });
+
+  // Google Chat webhook
+  app.post("/api/googlechat-webhook", async (req, res) => {
+    const ch = channelManager.getChannel("googlechat");
+    if (!ch) { res.status(503).json({ text: "Google Chat not configured" }); return; }
+    const { GoogleChatChannel } = await import("../channels/googlechat.js");
+    if (!(ch instanceof GoogleChatChannel)) { res.status(503).json({ text: "Google Chat unavailable" }); return; }
+    const text = req.body?.message?.text ?? req.body?.text ?? "";
+    const reply = await ch.handleIncoming(text);
+    res.json({ text: reply });
+  });
+
+  // LINE webhook
+  app.post("/api/line-webhook", async (req, res) => {
+    const ch = channelManager.getChannel("line");
+    if (!ch) { res.status(503).send("LINE not configured"); return; }
+    const { LINEChannel } = await import("../channels/line.js");
+    if (!(ch instanceof LINEChannel)) { res.status(503).send("LINE unavailable"); return; }
+    await ch.handleWebhookEvents(req.body?.events ?? []);
+    res.status(200).send("OK");
+  });
+
+  // Synology Chat outgoing webhook
+  app.post("/api/synology-webhook", async (req, res) => {
+    const ch = channelManager.getChannel("synology");
+    if (!ch) { res.status(503).json({ text: "Synology Chat not configured" }); return; }
+    const { SynologyChannel } = await import("../channels/synology.js");
+    if (!(ch instanceof SynologyChannel)) { res.status(503).json({ text: "Synology Chat unavailable" }); return; }
+    const token = req.body?.token ?? req.query?.token;
+    if (!ch.verifyToken(token)) { res.status(401).json({ text: "Unauthorized" }); return; }
+    const text = req.body?.text ?? "";
+    const reply = await ch.handleIncoming(text);
+    res.json({ text: reply });
+  });
+
+  // Feishu/Lark event webhook
+  app.post("/api/feishu-webhook", async (req, res) => {
+    // Feishu URL verification challenge
+    if (req.body?.type === "url_verification") {
+      res.json({ challenge: req.body.challenge });
       return;
     }
-
-    const text = req.body?.text ?? "";
-    const reply = await teamsChannel.handleIncoming(text);
-    res.json({ type: "message", text: reply });
+    const ch = channelManager.getChannel("feishu");
+    if (!ch) { res.status(503).json({ msg: "Feishu not configured" }); return; }
+    const { FeishuChannel } = await import("../channels/feishu.js");
+    if (!(ch instanceof FeishuChannel)) { res.status(503).json({ msg: "Feishu unavailable" }); return; }
+    const token = req.body?.header?.token ?? req.body?.token;
+    if (!ch.verifyRequest(token)) { res.status(401).json({ msg: "Unauthorized" }); return; }
+    const text = req.body?.event?.message?.content ?? req.body?.text ?? "";
+    // Parse Feishu message content (JSON string with "text" field)
+    let msgText = text;
+    try { const parsed = JSON.parse(text); msgText = parsed.text ?? text; } catch { /* use raw */ }
+    const reply = await ch.handleIncoming(msgText);
+    res.json({ msg: reply });
   });
 
   // ── Integration config (SearXNG, SonarQube, Gitleaks, Semgrep, Trivy) ──
