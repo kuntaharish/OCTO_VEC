@@ -804,14 +804,14 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
   {
     id: "salesforce-mcp",
     name: "Salesforce",
-    description: "Query, create, update, and manage Salesforce objects — leads, contacts, opportunities, accounts. Run SOQL queries and describe object schemas.",
+    description: "Official Salesforce DX MCP server — interact with Salesforce orgs, query data, manage resources, and operate Salesforce securely via natural language.",
     category: "cloud",
-    package: "@anthropic/salesforce-mcp",
+    package: "@salesforce/mcp",
     command: "npx",
-    args: ["-y", "@anthropic/salesforce-mcp"],
+    args: ["-y", "@salesforce/mcp"],
     envVars: { SALESFORCE_INSTANCE_URL: "https://your-org.my.salesforce.com", SALESFORCE_ACCESS_TOKEN: "your-access-token" },
     tools: ["salesforce_query", "salesforce_create", "salesforce_update", "salesforce_describe", "salesforce_search"],
-    docsUrl: "https://github.com/anthropics/salesforce-mcp",
+    docsUrl: "https://github.com/salesforcecli/mcp",
     iconDomain: "salesforce.com",
   },
   {
