@@ -1,5 +1,5 @@
 /**
- * MCP Server Directory — curated registry of popular MCP servers.
+ * MCP Server Directory — curated registry of 50 best MCP servers.
  *
  * Each entry has enough info to:
  *   1) display a card (name, description, tools, category, icon)
@@ -36,25 +36,30 @@ export type MCPCategory =
   | "cloud"
   | "design"
   | "communication"
+  | "monitoring"
   | "ai"
   | "other";
 
 export const CATEGORY_META: Record<MCPCategory, { label: string; color: string }> = {
-  "files":         { label: "Files",         color: "var(--green)" },
-  "dev-tools":     { label: "Dev Tools",     color: "var(--accent)" },
-  "browser":       { label: "Browser",       color: "var(--blue)" },
-  "search":        { label: "Search",        color: "var(--orange)" },
-  "database":      { label: "Database",      color: "var(--purple)" },
-  "productivity":  { label: "Productivity",  color: "var(--yellow)" },
-  "cloud":         { label: "Cloud",         color: "var(--blue)" },
-  "design":        { label: "Design",        color: "var(--pink, var(--red))" },
-  "communication": { label: "Communication", color: "var(--blue)" },
-  "ai":            { label: "AI",            color: "var(--accent)" },
-  "other":         { label: "Other",         color: "var(--text-muted)" },
+  "files":         { label: "Files & Storage", color: "var(--green)" },
+  "dev-tools":     { label: "Dev Tools",       color: "var(--accent)" },
+  "browser":       { label: "Browser & Web",   color: "var(--blue)" },
+  "search":        { label: "Search",          color: "var(--orange)" },
+  "database":      { label: "Database",        color: "var(--purple)" },
+  "productivity":  { label: "Productivity",    color: "var(--yellow)" },
+  "cloud":         { label: "Cloud & APIs",    color: "var(--blue)" },
+  "design":        { label: "Design & UI",     color: "var(--pink, var(--red))" },
+  "communication": { label: "Communication",   color: "var(--blue)" },
+  "monitoring":    { label: "Monitoring",       color: "var(--red)" },
+  "ai":            { label: "AI & Reasoning",  color: "var(--accent)" },
+  "other":         { label: "Other",           color: "var(--text-muted)" },
 };
 
 const MCP_DIRECTORY: MCPDirectoryEntry[] = [
-  // ── Files ──────────────────────────────────────────────────────────────────
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // FILES & STORAGE
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "filesystem",
     name: "Filesystem",
@@ -68,19 +73,21 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
   },
   {
-    id: "memory",
-    name: "Memory",
-    description: "Knowledge graph-based persistent memory. Store entities, observations, and relations across sessions.",
-    category: "ai",
-    package: "@modelcontextprotocol/server-memory",
+    id: "google-drive",
+    name: "Google Drive",
+    description: "Search, read, and manage files in Google Drive — docs, sheets, slides, and shared drives.",
+    category: "files",
+    package: "@anthropic/google-drive-mcp",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-memory"],
-    envVars: {},
-    tools: ["create_entities", "create_relations", "add_observations", "read_graph", "search_nodes", "open_nodes"],
-    docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+    args: ["-y", "@anthropic/google-drive-mcp"],
+    envVars: { GOOGLE_CLIENT_ID: "your-client-id", GOOGLE_CLIENT_SECRET: "your-client-secret" },
+    tools: ["search_files", "read_file", "list_files", "get_file_metadata"],
+    docsUrl: "https://github.com/anthropics/google-drive-mcp",
   },
 
-  // ── Dev Tools ──────────────────────────────────────────────────────────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // DEV TOOLS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "github",
     name: "GitHub",
@@ -92,6 +99,18 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_xxxxxxxxxxxx" },
     tools: ["get_file_contents", "create_or_update_file", "create_issue", "create_pull_request", "search_code", "list_commits"],
     docsUrl: "https://github.com/github/github-mcp-server",
+  },
+  {
+    id: "gitlab",
+    name: "GitLab",
+    description: "Interact with GitLab — repos, merge requests, issues, pipelines, and CI/CD configuration.",
+    category: "dev-tools",
+    package: "@modelcontextprotocol/server-gitlab",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-gitlab"],
+    envVars: { GITLAB_PERSONAL_ACCESS_TOKEN: "glpat-xxxxxxxxxxxx", GITLAB_API_URL: "https://gitlab.com/api/v4" },
+    tools: ["create_or_update_file", "search_repositories", "create_issue", "create_merge_request", "get_file_contents"],
+    docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab",
   },
   {
     id: "git",
@@ -130,31 +149,45 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     docsUrl: "https://github.com/getsentry/sentry-mcp-stdio",
   },
   {
-    id: "sequential-thinking",
-    name: "Sequential Thinking",
-    description: "Dynamic and reflective problem-solving through thought sequences. Helps break down complex problems.",
-    category: "ai",
-    package: "@modelcontextprotocol/server-sequential-thinking",
+    id: "vercel",
+    name: "Vercel",
+    description: "Manage Vercel deployments, projects, domains, and environment variables from your AI workflow.",
+    category: "dev-tools",
+    package: "@vercel/mcp",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-sequential-thinking"],
-    envVars: {},
-    tools: ["sequentialthinking"],
-    docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+    args: ["-y", "@vercel/mcp"],
+    envVars: { VERCEL_TOKEN: "your-vercel-token" },
+    tools: ["list_projects", "get_deployments", "create_deployment", "get_domains", "set_env_var"],
+    docsUrl: "https://vercel.com/docs/mcp",
   },
   {
-    id: "context7",
-    name: "Context7",
-    description: "Up-to-date, version-specific library documentation and code examples for AI coding assistants.",
-    category: "ai",
-    package: "@upstash/context7-mcp",
+    id: "e2b",
+    name: "E2B Code Sandbox",
+    description: "Execute code in secure cloud sandboxes — Python, JS, shell. Isolated environments with file system access.",
+    category: "dev-tools",
+    package: "@e2b/mcp-server",
     command: "npx",
-    args: ["-y", "@upstash/context7-mcp"],
+    args: ["-y", "@e2b/mcp-server"],
+    envVars: { E2B_API_KEY: "e2b_xxxxxxxxxxxx" },
+    tools: ["run_code", "install_packages", "read_file", "write_file", "list_files"],
+    docsUrl: "https://github.com/e2b-dev/mcp-server",
+  },
+  {
+    id: "kubernetes",
+    name: "Kubernetes",
+    description: "Manage Kubernetes clusters — pods, deployments, services, logs, and kubectl operations.",
+    category: "dev-tools",
+    package: "mcp-server-kubernetes",
+    command: "npx",
+    args: ["-y", "mcp-server-kubernetes"],
     envVars: {},
-    tools: ["resolve-library-id", "query-docs"],
-    docsUrl: "https://github.com/upstash/context7",
+    tools: ["get_pods", "get_deployments", "get_services", "get_logs", "apply_manifest", "delete_resource"],
+    docsUrl: "https://github.com/Flux159/mcp-server-kubernetes",
   },
 
-  // ── Browser ────────────────────────────────────────────────────────────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // BROWSER & WEB
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "playwright",
     name: "Playwright",
@@ -191,8 +224,34 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["puppeteer_navigate", "puppeteer_screenshot", "puppeteer_click", "puppeteer_fill", "puppeteer_evaluate"],
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/puppeteer",
   },
+  {
+    id: "browserbase",
+    name: "Browserbase",
+    description: "Cloud browser infrastructure — headless browsers with stealth mode, proxy rotation, and CAPTCHA solving.",
+    category: "browser",
+    package: "@browserbasehq/mcp-server-browserbase",
+    command: "npx",
+    args: ["-y", "@browserbasehq/mcp-server-browserbase"],
+    envVars: { BROWSERBASE_API_KEY: "bb_xxxxxxxxxxxx", BROWSERBASE_PROJECT_ID: "your-project-id" },
+    tools: ["create_session", "navigate", "screenshot", "get_content", "click", "type"],
+    docsUrl: "https://github.com/browserbase/mcp-server-browserbase",
+  },
+  {
+    id: "firecrawl",
+    name: "Firecrawl",
+    description: "Web scraping and crawling — extract clean markdown from any website, sitemap crawling, structured data.",
+    category: "browser",
+    package: "@mendable/firecrawl-mcp-server",
+    command: "npx",
+    args: ["-y", "@mendable/firecrawl-mcp-server"],
+    envVars: { FIRECRAWL_API_KEY: "fc-xxxxxxxxxxxx" },
+    tools: ["scrape_url", "crawl_url", "search", "extract"],
+    docsUrl: "https://github.com/mendableai/firecrawl-mcp-server",
+  },
 
-  // ── Search ─────────────────────────────────────────────────────────────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // SEARCH
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "brave-search",
     name: "Brave Search",
@@ -217,8 +276,34 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["web_search_exa", "get_code_context_exa", "company_research", "crawling"],
     docsUrl: "https://github.com/exa-labs/exa-mcp-server",
   },
+  {
+    id: "tavily",
+    name: "Tavily",
+    description: "AI-optimized search engine — real-time web search with answer extraction and source citation.",
+    category: "search",
+    package: "tavily-mcp",
+    command: "npx",
+    args: ["-y", "tavily-mcp"],
+    envVars: { TAVILY_API_KEY: "tvly-xxxxxxxxxxxx" },
+    tools: ["search", "extract", "get_search_context"],
+    docsUrl: "https://github.com/tavily-ai/tavily-mcp",
+  },
+  {
+    id: "perplexity",
+    name: "Perplexity",
+    description: "AI search with citations — ask complex questions and get researched answers with source links.",
+    category: "search",
+    package: "perplexity-mcp",
+    command: "npx",
+    args: ["-y", "perplexity-mcp"],
+    envVars: { PERPLEXITY_API_KEY: "pplx-xxxxxxxxxxxx" },
+    tools: ["perplexity_search", "perplexity_ask"],
+    docsUrl: "https://github.com/ppl-ai/perplexity-mcp",
+  },
 
-  // ── Database ───────────────────────────────────────────────────────────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // DATABASE
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "postgres",
     name: "PostgreSQL",
@@ -243,8 +328,82 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["sqlite_get_catalog", "sqlite_execute"],
     docsUrl: "https://github.com/johnnyoshika/mcp-server-sqlite-npx",
   },
+  {
+    id: "mysql",
+    name: "MySQL",
+    description: "Connect to MySQL/MariaDB databases — execute queries, inspect schemas, and manage tables.",
+    category: "database",
+    package: "@benborla29/mcp-server-mysql",
+    command: "npx",
+    args: ["-y", "@benborla29/mcp-server-mysql"],
+    envVars: { MYSQL_HOST: "localhost", MYSQL_PORT: "3306", MYSQL_USER: "root", MYSQL_PASSWORD: "password", MYSQL_DATABASE: "mydb" },
+    tools: ["query", "list_tables", "describe_table"],
+    docsUrl: "https://www.npmjs.com/package/@benborla29/mcp-server-mysql",
+  },
+  {
+    id: "mongodb",
+    name: "MongoDB",
+    description: "Access MongoDB databases — query collections, aggregate data, inspect schemas, and manage documents.",
+    category: "database",
+    package: "mcp-mongo-server",
+    command: "npx",
+    args: ["-y", "mcp-mongo-server"],
+    envVars: { MONGO_URI: "mongodb://localhost:27017/mydb" },
+    tools: ["find", "aggregate", "insert", "update", "delete", "list_collections"],
+    docsUrl: "https://github.com/kiliczsh/mcp-mongo-server",
+  },
+  {
+    id: "redis",
+    name: "Redis (Upstash)",
+    description: "Interact with Redis — get/set keys, manage lists, sets, hashes, and sorted sets. Works with Upstash serverless Redis.",
+    category: "database",
+    package: "@upstash/mcp-server",
+    command: "npx",
+    args: ["-y", "@upstash/mcp-server"],
+    envVars: { UPSTASH_REDIS_REST_URL: "https://...", UPSTASH_REDIS_REST_TOKEN: "AX..." },
+    tools: ["redis_get", "redis_set", "redis_del", "redis_keys", "redis_hgetall", "redis_lpush"],
+    docsUrl: "https://github.com/upstash/mcp-server",
+  },
+  {
+    id: "neon",
+    name: "Neon",
+    description: "Serverless Postgres by Neon — create databases, branches, run migrations, and execute queries instantly.",
+    category: "database",
+    package: "@neondatabase/mcp-server-neon",
+    command: "npx",
+    args: ["-y", "@neondatabase/mcp-server-neon"],
+    envVars: { NEON_API_KEY: "neon-xxxxxxxxxxxx" },
+    tools: ["create_project", "create_branch", "run_sql", "list_databases", "get_connection_string"],
+    docsUrl: "https://github.com/neondatabase/mcp-server-neon",
+  },
+  {
+    id: "supabase",
+    name: "Supabase",
+    description: "Manage Supabase projects — database queries, auth, storage, edge functions, and real-time subscriptions.",
+    category: "database",
+    package: "@supabase/mcp-server",
+    command: "npx",
+    args: ["-y", "@supabase/mcp-server", "--supabase-url=YOUR_URL", "--supabase-key=YOUR_KEY"],
+    envVars: {},
+    tools: ["execute_sql", "list_tables", "get_schema", "manage_storage", "list_functions"],
+    docsUrl: "https://github.com/supabase/mcp-server",
+  },
+  {
+    id: "qdrant",
+    name: "Qdrant",
+    description: "Vector database for AI — store, search, and manage embeddings. Semantic search and RAG pipelines.",
+    category: "database",
+    package: "@qdrant/mcp-server-qdrant",
+    command: "npx",
+    args: ["-y", "@qdrant/mcp-server-qdrant"],
+    envVars: { QDRANT_URL: "http://localhost:6333", QDRANT_API_KEY: "your-api-key" },
+    tools: ["store_memory", "find_similar", "list_collections", "create_collection"],
+    docsUrl: "https://github.com/qdrant/mcp-server-qdrant",
+  },
 
-  // ── Productivity ───────────────────────────────────────────────────────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PRODUCTIVITY
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "notion",
     name: "Notion",
@@ -269,8 +428,70 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["search_issues", "create_issue", "update_issue", "get_teams", "get_my_issues"],
     docsUrl: "https://linear.app/docs/mcp",
   },
+  {
+    id: "todoist",
+    name: "Todoist",
+    description: "Manage tasks in Todoist — create, complete, and organize tasks, projects, and labels.",
+    category: "productivity",
+    package: "todoist-mcp-server",
+    command: "npx",
+    args: ["-y", "todoist-mcp-server"],
+    envVars: { TODOIST_API_TOKEN: "your-api-token" },
+    tools: ["get_tasks", "create_task", "complete_task", "get_projects", "create_project"],
+    docsUrl: "https://www.npmjs.com/package/todoist-mcp-server",
+  },
+  {
+    id: "google-calendar",
+    name: "Google Calendar",
+    description: "Read and manage Google Calendar events — list, create, update, and delete events across calendars.",
+    category: "productivity",
+    package: "@anthropic/google-calendar-mcp",
+    command: "npx",
+    args: ["-y", "@anthropic/google-calendar-mcp"],
+    envVars: { GOOGLE_CLIENT_ID: "your-client-id", GOOGLE_CLIENT_SECRET: "your-client-secret" },
+    tools: ["list_events", "create_event", "update_event", "delete_event", "list_calendars"],
+    docsUrl: "https://github.com/anthropics/google-calendar-mcp",
+  },
+  {
+    id: "obsidian",
+    name: "Obsidian",
+    description: "Read, search, and manage notes in your Obsidian vault — create, edit, link, and search across notes.",
+    category: "productivity",
+    package: "obsidian-mcp",
+    command: "npx",
+    args: ["-y", "obsidian-mcp", "--vault-path=/path/to/vault"],
+    envVars: {},
+    tools: ["read_note", "write_note", "search_notes", "list_notes", "get_backlinks"],
+    docsUrl: "https://github.com/smithery-ai/obsidian-mcp",
+  },
+  {
+    id: "jira",
+    name: "Jira",
+    description: "Interact with Atlassian Jira — search issues, create tickets, update status, and manage sprints.",
+    category: "productivity",
+    package: "mcp-server-atlassian",
+    command: "npx",
+    args: ["-y", "mcp-server-atlassian", "--jira"],
+    envVars: { JIRA_URL: "https://your-domain.atlassian.net", JIRA_EMAIL: "you@example.com", JIRA_API_TOKEN: "your-api-token" },
+    tools: ["search_issues", "get_issue", "create_issue", "update_issue", "list_projects", "get_sprint"],
+    docsUrl: "https://www.npmjs.com/package/mcp-server-atlassian",
+  },
+  {
+    id: "airtable",
+    name: "Airtable",
+    description: "Read and manage Airtable bases — list records, create, update, and query tables and views.",
+    category: "productivity",
+    package: "@airtable/mcp-server",
+    command: "npx",
+    args: ["-y", "@airtable/mcp-server"],
+    envVars: { AIRTABLE_API_KEY: "pat_xxxxxxxxxxxx" },
+    tools: ["list_bases", "list_records", "create_record", "update_record", "search_records"],
+    docsUrl: "https://github.com/Airtable/mcp-server",
+  },
 
-  // ── Communication ──────────────────────────────────────────────────────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // COMMUNICATION
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "slack",
     name: "Slack",
@@ -283,8 +504,46 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["list_channels", "post_message", "reply_to_thread", "get_channel_history", "search_messages"],
     docsUrl: "https://github.com/modelcontextprotocol/servers",
   },
+  {
+    id: "discord-mcp",
+    name: "Discord",
+    description: "Read and send messages in Discord — manage channels, threads, and server interactions.",
+    category: "communication",
+    package: "mcp-server-discord",
+    command: "npx",
+    args: ["-y", "mcp-server-discord"],
+    envVars: { DISCORD_TOKEN: "your-bot-token" },
+    tools: ["send_message", "read_messages", "list_channels", "list_guilds", "create_thread"],
+    docsUrl: "https://www.npmjs.com/package/mcp-server-discord",
+  },
+  {
+    id: "email-resend",
+    name: "Resend (Email)",
+    description: "Send transactional emails via Resend — HTML emails, templates, attachments, and delivery tracking.",
+    category: "communication",
+    package: "mcp-server-resend",
+    command: "npx",
+    args: ["-y", "mcp-server-resend"],
+    envVars: { RESEND_API_KEY: "re_xxxxxxxxxxxx" },
+    tools: ["send_email", "list_emails", "get_email"],
+    docsUrl: "https://github.com/resendlabs/mcp-server-resend",
+  },
+  {
+    id: "twilio",
+    name: "Twilio",
+    description: "Send and receive SMS, make calls, and manage phone numbers via the Twilio API.",
+    category: "communication",
+    package: "twilio-mcp-server",
+    command: "npx",
+    args: ["-y", "twilio-mcp-server"],
+    envVars: { TWILIO_ACCOUNT_SID: "AC...", TWILIO_AUTH_TOKEN: "your-auth-token", TWILIO_PHONE_NUMBER: "+1234567890" },
+    tools: ["send_sms", "make_call", "list_messages", "get_phone_numbers"],
+    docsUrl: "https://www.npmjs.com/package/twilio-mcp-server",
+  },
 
-  // ── Cloud ──────────────────────────────────────────────────────────────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CLOUD & APIs
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "cloudflare",
     name: "Cloudflare",
@@ -297,8 +556,6 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["search", "execute"],
     docsUrl: "https://github.com/cloudflare/mcp-server-cloudflare",
   },
-
-  // ── Payments ───────────────────────────────────────────────────────────────
   {
     id: "stripe",
     name: "Stripe",
@@ -311,8 +568,74 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["customers.create", "customers.read", "products.create", "invoices.create", "payment_intents.create"],
     docsUrl: "https://docs.stripe.com/mcp",
   },
+  {
+    id: "google-maps",
+    name: "Google Maps",
+    description: "Location services — geocoding, place search, directions, distance matrix, and elevation data.",
+    category: "cloud",
+    package: "@modelcontextprotocol/server-google-maps",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-google-maps"],
+    envVars: { GOOGLE_MAPS_API_KEY: "AIza_xxxxxxxxxxxx" },
+    tools: ["maps_geocode", "maps_search_places", "maps_directions", "maps_distance_matrix", "maps_elevation"],
+    docsUrl: "https://github.com/modelcontextprotocol/servers",
+  },
+  {
+    id: "aws",
+    name: "AWS",
+    description: "Interact with AWS services — S3, Lambda, EC2, DynamoDB, CloudWatch, and more via the AWS SDK.",
+    category: "cloud",
+    package: "mcp-server-aws",
+    command: "npx",
+    args: ["-y", "mcp-server-aws"],
+    envVars: { AWS_ACCESS_KEY_ID: "AKIA...", AWS_SECRET_ACCESS_KEY: "your-secret", AWS_REGION: "us-east-1" },
+    tools: ["invoke_lambda", "list_s3_buckets", "describe_instances", "get_cloudwatch_metrics", "query_dynamodb"],
+    docsUrl: "https://www.npmjs.com/package/mcp-server-aws",
+  },
+  {
+    id: "shopify",
+    name: "Shopify",
+    description: "Manage your Shopify store — products, orders, inventory, customers, and analytics via the Admin API.",
+    category: "cloud",
+    package: "@shopify/dev-mcp",
+    command: "npx",
+    args: ["-y", "@shopify/dev-mcp"],
+    envVars: {},
+    tools: ["search_products", "get_orders", "manage_inventory", "get_customers", "get_analytics"],
+    docsUrl: "https://github.com/Shopify/dev-mcp",
+  },
 
-  // ── Design ─────────────────────────────────────────────────────────────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MONITORING & OBSERVABILITY
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    id: "grafana",
+    name: "Grafana",
+    description: "Query Grafana dashboards, datasources, and alerts — Prometheus, Loki, and infrastructure monitoring.",
+    category: "monitoring",
+    package: "@grafana/mcp-server",
+    command: "npx",
+    args: ["-y", "@grafana/mcp-server"],
+    envVars: { GRAFANA_URL: "http://localhost:3000", GRAFANA_API_KEY: "your-api-key" },
+    tools: ["search_dashboards", "query_prometheus", "query_loki", "list_datasources", "get_alerts"],
+    docsUrl: "https://github.com/grafana/mcp-grafana",
+  },
+  {
+    id: "axiom",
+    name: "Axiom",
+    description: "Query and analyze log data in Axiom — APL queries, dataset exploration, and real-time log search.",
+    category: "monitoring",
+    package: "@axiomhq/mcp-server-axiom",
+    command: "npx",
+    args: ["-y", "@axiomhq/mcp-server-axiom"],
+    envVars: { AXIOM_TOKEN: "xaat-xxxxxxxxxxxx", AXIOM_ORG_ID: "your-org-id" },
+    tools: ["query_apl", "list_datasets", "ingest_events"],
+    docsUrl: "https://github.com/axiomhq/mcp-server-axiom",
+  },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // DESIGN & UI
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   {
     id: "figma",
     name: "Figma",
@@ -325,19 +648,57 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["get_file", "get_file_nodes", "get_image", "get_component", "get_styles"],
     docsUrl: "https://help.figma.com/hc/en-us/articles/32132100833559",
   },
-
-  // ── Maps ───────────────────────────────────────────────────────────────────
   {
-    id: "google-maps",
-    name: "Google Maps",
-    description: "Location services — geocoding, place search, directions, distance matrix, and elevation data.",
-    category: "cloud",
-    package: "@modelcontextprotocol/server-google-maps",
+    id: "magic-mcp",
+    name: "21st.dev Magic",
+    description: "Generate production-ready UI components — React, Tailwind, shadcn/ui from natural language descriptions.",
+    category: "design",
+    package: "@21st-dev/magic-mcp",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-google-maps"],
-    envVars: { GOOGLE_MAPS_API_KEY: "AIza_xxxxxxxxxxxx" },
-    tools: ["maps_geocode", "maps_search_places", "maps_directions", "maps_distance_matrix", "maps_elevation"],
-    docsUrl: "https://github.com/modelcontextprotocol/servers",
+    args: ["-y", "@21st-dev/magic-mcp"],
+    envVars: { TWENTYFIRST_API_KEY: "your-api-key" },
+    tools: ["generate_component", "search_components", "get_component_code"],
+    docsUrl: "https://github.com/21st-dev/magic-mcp",
+  },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // AI & REASONING
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    id: "memory",
+    name: "Memory",
+    description: "Knowledge graph-based persistent memory. Store entities, observations, and relations across sessions.",
+    category: "ai",
+    package: "@modelcontextprotocol/server-memory",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-memory"],
+    envVars: {},
+    tools: ["create_entities", "create_relations", "add_observations", "read_graph", "search_nodes", "open_nodes"],
+    docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+  },
+  {
+    id: "sequential-thinking",
+    name: "Sequential Thinking",
+    description: "Dynamic and reflective problem-solving through thought sequences. Helps break down complex problems.",
+    category: "ai",
+    package: "@modelcontextprotocol/server-sequential-thinking",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    envVars: {},
+    tools: ["sequentialthinking"],
+    docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+  },
+  {
+    id: "context7",
+    name: "Context7",
+    description: "Up-to-date, version-specific library documentation and code examples for AI coding assistants.",
+    category: "ai",
+    package: "@upstash/context7-mcp",
+    command: "npx",
+    args: ["-y", "@upstash/context7-mcp"],
+    envVars: {},
+    tools: ["resolve-library-id", "query-docs"],
+    docsUrl: "https://github.com/upstash/context7",
   },
 ];
 

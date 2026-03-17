@@ -114,6 +114,21 @@ function LogoIcon({ src, fallback, size = 20, colored }: { src: string; fallback
   );
 }
 
+// ── MCP Server Icon — loads colored brand SVG from /icons/mcp/ ───────────────
+
+function McpServerIcon({ id, size = 20 }: { id: string; category?: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <Package size={size} />;
+  return (
+    <img
+      src={`/icons/mcp/${id}.svg`}
+      alt=""
+      style={{ width: size, height: size }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 // ── Credential input field ────────────────────────────────────────────────────
 
 function CredentialField({ label, placeholder, value, onChange, isSecret = true }: {
@@ -2328,65 +2343,63 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
               </div>
             )}
 
-            {/* Directory grid */}
+            {/* Directory grid — clean 2-column Connectors-style layout */}
             <div style={{
-              display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-              gap: 8,
+              display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: 10,
             }}>
               {filtered.map(entry => {
                 const catMeta = CATEGORY_META[entry.category];
                 return (
                   <div key={entry.id} style={{
-                    display: "flex", flexDirection: "column", gap: 6,
-                    padding: "12px 14px", borderRadius: 8,
+                    display: "flex", alignItems: "center", gap: 14,
+                    padding: "14px 16px", borderRadius: 12,
                     background: "var(--bg-card)", border: "1px solid var(--border)",
-                    transition: "border-color 0.12s",
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {entry.name}
-                      </span>
-                      <span style={{
-                        fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4,
-                        background: `color-mix(in srgb, ${catMeta.color} 10%, transparent)`,
-                        color: catMeta.color, flexShrink: 0,
-                      }}>{catMeta.label}</span>
-                    </div>
-
+                    transition: "border-color 0.15s, box-shadow 0.15s",
+                    minWidth: 0, overflow: "hidden",
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--text-muted) 40%, transparent)"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.1)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
+                  >
+                    {/* Icon — rounded square with brand SVG */}
                     <div style={{
-                      fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4,
-                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}>{entry.description}</div>
-
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: "auto" }}>
-                      <span style={{
-                        fontSize: 10, color: "var(--text-muted)", fontFamily: "monospace",
-                        flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>{entry.tools.slice(0, 3).join(", ")}{entry.tools.length > 3 ? ` +${entry.tools.length - 3}` : ""}</span>
-                      {Object.keys(entry.envVars).length > 0 && (
-                        <span style={{
-                          fontSize: 9, padding: "2px 5px", borderRadius: 3,
-                          background: "var(--yellow-bg)", color: "var(--yellow)", flexShrink: 0,
-                        }}>KEY</span>
-                      )}
-                      {entry.docsUrl && (
-                        <a href={entry.docsUrl} target="_blank" rel="noopener noreferrer"
-                          style={{ display: "flex", padding: 3, borderRadius: 4, color: "var(--text-muted)", flexShrink: 0 }}
-                          title="Docs"
-                        ><ExternalLink size={11} /></a>
-                      )}
-                      <button
-                        onClick={() => handleAddClick(entry)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 4,
-                          padding: "4px 10px", borderRadius: 5, border: "none",
-                          background: "var(--accent)", color: "#fff",
-                          cursor: "pointer", fontSize: 10, fontWeight: 600,
-                          fontFamily: "inherit", flexShrink: 0,
-                        }}
-                      ><Plus size={10} /> Add</button>
+                      width: 42, height: 42, borderRadius: 10, flexShrink: 0,
+                      background: "var(--bg-tertiary)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <McpServerIcon id={entry.id} category={entry.category} size={22} />
                     </div>
+
+                    {/* Name + one-line description */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <span style={{
+                          fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                        }}>
+                          {entry.name}
+                        </span>
+                      </div>
+                      <div style={{
+                        fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.4, marginTop: 2,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>{entry.description}</div>
+                    </div>
+
+                    {/* + button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleAddClick(entry); }}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        width: 30, height: 30, borderRadius: 8, border: "1px solid var(--border)",
+                        background: "transparent", color: "var(--text-muted)",
+                        cursor: "pointer", flexShrink: 0,
+                        transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "var(--accent)"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = "var(--accent)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
+                      title={`Add ${entry.name}`}
+                    ><Plus size={14} /></button>
                   </div>
                 );
               })}
