@@ -6,6 +6,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { RosterEntry } from "./roster.js";
 import { getSpecialistTaskTools } from "../tools/domain/baseSpecialistTools.js";
+import { getTodoTool } from "../tools/shared/todoTools.js";
 import { getMemoryToolsSlim } from "../tools/shared/memoryTools.js";
 import { getMessagingTools } from "../tools/shared/messagingTools.js";
 import { getDateTool } from "../tools/shared/dateTools.js";
@@ -54,14 +55,17 @@ export function buildToolset(
   // 1. Task management tools (all specialists)
   tools.push(...getSpecialistTaskTools(agentId, deps));
 
-  // 2. Memory tools
+  // 2. Personal todo list
+  tools.push(getTodoTool(agentId));
+
+  // 3. Memory tools
   tools.push(...getMemoryToolsSlim(agentId));
 
-  // 3. File tools — based on tool_profile
+  // 4. File tools — based on tool_profile
   const fileTools = buildFileTools(entry);
   tools.push(...sandboxFileTools(agentId, fileTools));
 
-  // 4. Capability extras
+  // 5. Capability extras
   if (entry.capabilities.glob) {
     tools.push(getGlobTool());
   }
@@ -78,20 +82,20 @@ export function buildToolset(
     }
   }
 
-  // 5. Domain-specific tool bundles
+  // 6. Domain-specific tool bundles
   for (const bundleName of entry.domain_tools) {
     const bundle = DOMAIN_TOOL_BUNDLES[bundleName];
     if (bundle) tools.push(...bundle);
   }
 
-  // 6. Messaging (filter out broadcast — PM-only)
+  // 7. Messaging (filter out broadcast — PM-only)
   tools.push(
     ...getMessagingTools(agentId, inbox).filter(
       (t) => t.name !== "broadcast_message"
     )
   );
 
-  // 7. Shared utilities
+  // 8. Shared utilities
   tools.push(getDateTool());
   tools.push(...getWebTools());
   tools.push(...getMCPTools());

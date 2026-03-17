@@ -287,8 +287,8 @@ export class BaseSpecialistAgent implements VECAgent {
       `Execution requirements:\n` +
       `- Start by checking task details with read_task_details(task_id='${normalizedId}')\n` +
       `- Check PM instructions via read_task_messages(task_id='${normalizedId}', priority='normal')\n` +
-      `- THINK: plan your approach before doing anything\n` +
-      `- DO: execute the task using your available tools\n` +
+      `- PLAN: Break the work into steps using the todo() tool — create your checklist BEFORE doing anything\n` +
+      `- DO: Execute each step. Mark each todo in_progress when you start it and completed when done. Update todos frequently.\n` +
       `- ONLY THEN: update_my_task(task_id='${normalizedId}', status='completed', result='...')\n` +
       `  Your result MUST include what you produced and where it is.` +
       interruptBlock;

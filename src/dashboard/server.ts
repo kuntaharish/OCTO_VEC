@@ -33,6 +33,7 @@ import { AgentInterrupt } from "../atp/agentInterrupt.js";
 import { UserChatLog } from "../atp/chatLog.js";
 import { agentStreamBus, getReplayBuffer } from "../atp/agentStreamBus.js";
 import type { StreamToken } from "../atp/agentStreamBus.js";
+import { getAllAgentTodos, getAgentTodos } from "../tools/shared/todoTools.js";
 import { getAgentProfiles, getEnabledTools, setAgentTools, getEnabledMCPServers, setAgentMCPServers } from "../atp/agentToolConfig.js";
 import { getAllGroups, getGroup, addGroup, deleteGroup, markActiveGroupConversation, clearActiveGroup } from "../atp/agentGroups.js";
 import { getRosterEntry, getRoleTemplates } from "../ar/roster.js";
@@ -2499,6 +2500,14 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
       status: t.status === "pending" ? "todo" : t.status,
     }));
     res.json(tasks);
+  });
+
+  app.get("/api/todos", (_req, res) => {
+    res.json(getAllAgentTodos());
+  });
+
+  app.get("/api/todos/:agentId", (req, res) => {
+    res.json(getAgentTodos(req.params.agentId));
   });
 
   app.get("/api/employees", (_req, res) => {

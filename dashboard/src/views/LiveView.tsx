@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { Monitor, Waypoints, Building2, ZoomIn, ZoomOut, RotateCcw, Navigation, StopCircle } from "lucide-react";
 import { usePolling, postApi } from "../hooks/useApi";
-import { useAgentStream, type ActivityEntry } from "../hooks/useSSE";
+import { useAgentStream, type ActivityEntry, type TodoItem } from "../hooks/useSSE";
 import { useEmployees } from "../context/EmployeesContext";
 import type { Employee, MessageFlowEntry } from "../types";
 import NetworkPanel from "./NetworkView";
@@ -114,8 +114,9 @@ function TimelineItem({ entry, isLast, color }: { entry: ActivityEntry; isLast: 
 }
 
 /* ── Per-agent card with timeline inside ── */
-function AgentTimelineCard({ name, role, items, active, color, agentKey }: {
+function AgentTimelineCard({ name, role, items, active, color, agentKey, todos }: {
   name: string; role: string; items: ActivityEntry[]; active: boolean; color: string; agentKey: string;
+  todos: TodoItem[];
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [steerMsg, setSteerMsg] = useState("");
@@ -234,15 +235,46 @@ function AgentTimelineCard({ name, role, items, active, color, agentKey }: {
           </button>
         </div>
       )}
+      {/* Todo checklist */}
+      {todos.length > 0 && (
+        <div style={{
+          padding: "6px 10px", borderBottom: "1px solid var(--border)",
+          background: "var(--bg-secondary)", flexShrink: 0,
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            {todos.filter(t => t.status === "completed").length}/{todos.length} done
+          </div>
+          {todos.map((t) => (
+            <div key={t.id} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "1.5px 0",
+              opacity: t.status === "completed" ? 0.5 : 1,
+            }}>
+              <span style={{
+                fontSize: 10, lineHeight: 1, flexShrink: 0,
+                color: t.status === "completed" ? "var(--green)" : t.status === "in_progress" ? color : "var(--text-muted)",
+              }}>
+                {t.status === "completed" ? "✓" : t.status === "in_progress" ? "►" : "○"}
+              </span>
+              <span style={{
+                fontSize: 10.5, color: "var(--text-primary)", lineHeight: 1.3,
+                textDecoration: t.status === "completed" ? "line-through" : "none",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {t.content}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       <div ref={scrollRef} style={{
         flex: 1, overflowY: "auto", padding: "8px 10px 6px",
         background: "var(--bg-tertiary)",
       }}>
-        {items.length === 0 ? (
+        {items.length === 0 && todos.length === 0 ? (
           <div style={{ color: "var(--text-muted)", fontSize: 11, padding: "12px 0", textAlign: "center" }}>
             No activity yet
           </div>
-        ) : (
+        ) : items.length === 0 ? null : (
           items.map((entry, i) => (
             <TimelineItem key={entry.id} entry={entry} isLast={i === items.length - 1} color={color} />
           ))
@@ -253,8 +285,9 @@ function AgentTimelineCard({ name, role, items, active, color, agentKey }: {
 }
 
 /* ── Live Mode: per-agent cards with dot-and-line timeline inside ── */
-function LiveMode({ activity, activeAgents, agents }: {
+function LiveMode({ activity, activeAgents, agents, agentTodos }: {
   activity: ActivityEntry[]; activeAgents: Record<string, boolean>; agents: Employee[];
+  agentTodos: Record<string, TodoItem[]>;
 }) {
   const items = activity.filter((e) =>
     e.type === "text" || e.type === "tool_start" || e.type === "tool_end" ||
@@ -293,6 +326,7 @@ function LiveMode({ activity, activeAgents, agents }: {
           active={activeAgents[emp.agent_key] ?? false}
           color={emp.color || "var(--text-muted)"}
           agentKey={emp.agent_key}
+          todos={agentTodos[emp.agent_key] ?? []}
         />
       ))}
     </div>
@@ -943,7 +977,7 @@ function ModeBar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) 
 /* ── Main LiveView ── */
 export default function LiveView() {
   const [mode, setMode] = useState<Mode>("live");
-  const { tokens, activity, connected, activeAgents } = useAgentStream();
+  const { tokens, activity, connected, activeAgents, agentTodos } = useAgentStream();
   const { employees } = useEmployees();
   const { data: flowData } = usePolling<MessageFlowEntry[]>("/api/message-flow", 3000);
   const emps = employees ?? [];
@@ -963,7 +997,7 @@ export default function LiveView() {
         </div>
       </div>
 
-      {mode === "live" && <LiveMode activity={activity} activeAgents={activeAgents} agents={agents} />}
+      {mode === "live" && <LiveMode activity={activity} activeAgents={activeAgents} agents={agents} agentTodos={agentTodos} />}
       {mode === "network" && <NetworkPanel />}
       {mode === "office" && (
         <OfficeMode

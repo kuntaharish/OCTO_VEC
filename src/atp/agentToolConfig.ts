@@ -88,7 +88,7 @@ const SPECIALIST_TASK_TOOLS: ToolDef[] = [
   { id: "read_task_details",  name: "Task Details",       description: "Get full task information",                  group: "Task Management" },
   { id: "update_my_task",     name: "Update My Task",     description: "Update task status & result",                group: "Task Management" },
   { id: "read_task_messages", name: "Read Task Messages", description: "Read PM messages for a specific task",       group: "Task Management" },
-  { id: "self_assign_task",   name: "Self-Assign Task",   description: "Create & claim a task from direct request",  group: "Task Management" },
+  { id: "todo",               name: "Todo",               description: "Personal checklist to track work progress",  group: "Task Management" },
 ];
 
 // ── Tool profile to ToolDef[] mapping ─────────────────────────────────────────

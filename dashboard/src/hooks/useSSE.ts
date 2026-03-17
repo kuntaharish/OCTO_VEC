@@ -6,13 +6,22 @@ import { apiUrl } from "./useApi";
 export interface ActivityEntry {
   id: number;
   agentId: string;
-  type: "text" | "tool_start" | "tool_end" | "thinking" | "agent_end" | "agent_start";
+  type: "text" | "tool_start" | "tool_end" | "thinking" | "agent_end" | "agent_start" | "todo_update";
   content: string;
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
   isError?: boolean;
   timestamp: number;
+}
+
+// ── Todo item shape ───────────────────────────────────────────────────────────
+
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  priority: "high" | "medium" | "low";
 }
 
 // ── Global singleton SSE store ────────────────────────────────────────────────
@@ -27,12 +36,14 @@ let _tokens: Record<string, string> = {};
 let _activity: ActivityEntry[] = [];
 let _connected = false;
 let _activeAgents: Record<string, boolean> = {}; // true = between agent_start and agent_end
+let _agentTodos: Record<string, TodoItem[]> = {};
 
 // Snapshot references — replaced on every mutation so React detects changes
 let _tokensSnap: Record<string, string> = {};
 let _activitySnap: ActivityEntry[] = [];
 let _connectedSnap = false;
 let _activeAgentsSnap: Record<string, boolean> = {};
+let _agentTodosSnap: Record<string, TodoItem[]> = {};
 
 // Listeners for useSyncExternalStore
 const _listeners = new Set<() => void>();
@@ -91,6 +102,7 @@ function handleToken(data: string) {
       isError?: boolean;
     };
     const { agentId, type, content } = token;
+    const tokenAny = token as any;
 
     switch (type) {
       case "text": {
@@ -150,6 +162,17 @@ function handleToken(data: string) {
         break;
       }
 
+      case "todo_update": {
+        const todos = tokenAny.todos as TodoItem[] | undefined;
+        if (todos) {
+          _agentTodos = { ..._agentTodos, [agentId]: todos };
+          _agentTodosSnap = _agentTodos;
+          const done = todos.filter((t: TodoItem) => t.status === "completed").length;
+          pushActivity({ agentId, type: "todo_update", content: `${done}/${todos.length} completed` });
+        }
+        break;
+      }
+
       default:
         break;
     }
@@ -193,5 +216,6 @@ export function useAgentStream() {
   const activity = useSyncExternalStore(subscribe, () => _activitySnap);
   const connected = useSyncExternalStore(subscribe, () => _connectedSnap);
   const activeAgents = useSyncExternalStore(subscribe, () => _activeAgentsSnap);
-  return { tokens, activity, connected, activeAgents };
+  const agentTodos = useSyncExternalStore(subscribe, () => _agentTodosSnap);
+  return { tokens, activity, connected, activeAgents, agentTodos };
 }

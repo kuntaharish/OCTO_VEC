@@ -25,7 +25,8 @@ export type StreamTokenType =
   | "thinking_end"
   | "tool_start"
   | "tool_end"
-  | "agent_end";
+  | "agent_end"
+  | "todo_update";
 
 export interface StreamToken {
   agentId: string;
@@ -35,6 +36,7 @@ export interface StreamToken {
   toolArgs?: Record<string, unknown>;
   toolResult?: string; // truncated text output of the tool call (for tool_end)
   isError?: boolean;
+  todos?: { id: string; content: string; status: string; priority: string }[];
 }
 
 // ── Bus ───────────────────────────────────────────────────────────────────────
@@ -195,4 +197,19 @@ export function publishAgentStream(agentId: string, event: AgentEvent): void {
     default:
       break;
   }
+}
+
+// ── Todo update publisher ─────────────────────────────────────────────────────
+
+/**
+ * Broadcast a todo list update for an agent to all SSE clients.
+ * Called from the todo tool when an agent updates its checklist.
+ */
+export function publishTodoUpdate(
+  agentId: string,
+  todos: { id: string; content: string; status: string; priority: string }[]
+): void {
+  const tok: StreamToken = { agentId, type: "todo_update", content: "", todos };
+  bufferToken(tok);
+  agentStreamBus.emit("token", tok);
 }

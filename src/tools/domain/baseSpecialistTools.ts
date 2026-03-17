@@ -215,43 +215,5 @@ export function getSpecialistTaskTools(agentId: string, deps: SpecialistTaskDeps
     },
   };
 
-  const self_assign_task: AgentTool = {
-    name: "self_assign_task",
-    label: "Self-Assign Task",
-    description:
-      "Create a new task for yourself and mark it in_progress immediately. " +
-      "Use this when the founder gives you a direct work request and there is no existing task for it. " +
-      "After calling this, the system will automatically route you into full task execution mode.",
-    parameters: Type.Object({
-      description: Type.String({ description: "Clear description of what needs to be built or done" }),
-      priority: Type.Optional(
-        Type.Union(
-          [Type.Literal("high"), Type.Literal("medium"), Type.Literal("low")],
-          { description: "Task priority (default: high for direct founder requests)" }
-        )
-      ),
-    }),
-    execute: async (_, params: any) => {
-      AgentInterrupt.check(agentId);
-      const priority = (params.priority ?? "high") as string;
-      const task = deps.db.createTask(params.description, agentId, priority);
-      deps.db.updateTaskStatus(task.task_id, "in_progress");
-      EventLog.log(
-        EventType.TASK_IN_PROGRESS, agentId, task.task_id,
-        `${agentId.toUpperCase()} self-assigned ${task.task_id}: ${params.description}`
-      );
-      deps.pmQueue.pushSimple(
-        agentId, task.task_id,
-        `${agentId.toUpperCase()} self-assigned task ${task.task_id} from direct founder request: ${params.description}`,
-        "info"
-      );
-      return ok(
-        `Task ${task.task_id} created and marked in_progress.\n` +
-        `Description: ${params.description}\n` +
-        `The system will now route you into full task execution. Stand by.`
-      );
-    },
-  };
-
-  return [read_my_tasks, read_task_details, update_my_task, read_task_messages, self_assign_task];
+  return [read_my_tasks, read_task_details, update_my_task, read_task_messages];
 }
