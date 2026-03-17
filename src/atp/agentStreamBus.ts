@@ -36,6 +36,7 @@ export interface StreamToken {
   toolArgs?: Record<string, unknown>;
   toolResult?: string; // truncated text output of the tool call (for tool_end)
   isError?: boolean;
+  taskId?: string;     // for todo_update: which task this todo list belongs to
   todos?: { id: string; content: string; status: string; priority: string }[];
 }
 
@@ -207,9 +208,10 @@ export function publishAgentStream(agentId: string, event: AgentEvent): void {
  */
 export function publishTodoUpdate(
   agentId: string,
+  taskId: string,
   todos: { id: string; content: string; status: string; priority: string }[]
 ): void {
-  const tok: StreamToken = { agentId, type: "todo_update", content: "", todos };
+  const tok: StreamToken = { agentId, type: "todo_update", content: "", taskId, todos };
   bufferToken(tok);
   agentStreamBus.emit("token", tok);
 }

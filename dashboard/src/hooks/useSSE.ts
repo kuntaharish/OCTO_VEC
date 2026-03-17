@@ -24,6 +24,11 @@ export interface TodoItem {
   priority: "high" | "medium" | "low";
 }
 
+export interface TodoSnapshot {
+  taskId: string;
+  todos: TodoItem[];
+}
+
 // ── Global singleton SSE store ────────────────────────────────────────────────
 // Connects ONCE when the module loads. Survives view switches.
 // All React hooks just read snapshots from this store.
@@ -36,14 +41,14 @@ let _tokens: Record<string, string> = {};
 let _activity: ActivityEntry[] = [];
 let _connected = false;
 let _activeAgents: Record<string, boolean> = {}; // true = between agent_start and agent_end
-let _agentTodos: Record<string, TodoItem[]> = {};
+let _agentTodos: Record<string, TodoSnapshot> = {};
 
 // Snapshot references — replaced on every mutation so React detects changes
 let _tokensSnap: Record<string, string> = {};
 let _activitySnap: ActivityEntry[] = [];
 let _connectedSnap = false;
 let _activeAgentsSnap: Record<string, boolean> = {};
-let _agentTodosSnap: Record<string, TodoItem[]> = {};
+let _agentTodosSnap: Record<string, TodoSnapshot> = {};
 
 // Listeners for useSyncExternalStore
 const _listeners = new Set<() => void>();
@@ -164,11 +169,12 @@ function handleToken(data: string) {
 
       case "todo_update": {
         const todos = tokenAny.todos as TodoItem[] | undefined;
-        if (todos) {
-          _agentTodos = { ..._agentTodos, [agentId]: todos };
+        const taskId = tokenAny.taskId as string | undefined;
+        if (todos && taskId) {
+          _agentTodos = { ..._agentTodos, [agentId]: { taskId, todos } };
           _agentTodosSnap = _agentTodos;
           const done = todos.filter((t: TodoItem) => t.status === "completed").length;
-          pushActivity({ agentId, type: "todo_update", content: `${done}/${todos.length} completed` });
+          pushActivity({ agentId, type: "todo_update", content: `[${taskId}] ${done}/${todos.length} completed` });
         }
         break;
       }
