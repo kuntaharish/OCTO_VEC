@@ -124,6 +124,22 @@ const SECURITY_DOMAIN_TOOLS: ToolDef[] = [
   { id: "run_flow", name: "Run OCTO-Flow", description: "Trigger any named OCTO-FLOW pipeline", group: "OCTO-Flows" },
 ];
 
+const SEO_DOMAIN_TOOLS: ToolDef[] = [
+  { id: "seo_audit",           name: "SEO Audit",           description: "Run technical SEO audit on a URL",                  group: "Marketing" },
+  { id: "keyword_analysis",    name: "Keyword Analysis",    description: "Analyse page keywords and density",                 group: "Marketing" },
+  { id: "competitor_analysis", name: "Competitor Analysis",  description: "Compare SEO signals between two URLs",              group: "Marketing" },
+];
+
+const SOCIAL_DOMAIN_TOOLS: ToolDef[] = [
+  { id: "draft_social_post",     name: "Draft Social Post",     description: "Create platform-formatted social media post draft", group: "Marketing" },
+  { id: "analyse_social_profile", name: "Analyse Social Profile", description: "Fetch and analyse a public social profile",       group: "Marketing" },
+];
+
+const GEO_DOMAIN_TOOLS: ToolDef[] = [
+  { id: "geo_brand_check",     name: "GEO Brand Check",      description: "Check brand visibility in search results",          group: "Marketing" },
+  { id: "content_gap_analysis", name: "Content Gap Analysis", description: "Identify content gaps and opportunities for a topic", group: "Marketing" },
+];
+
 /** Build ToolDef[] for a specialist based on their roster entry. */
 function buildToolDefs(entry: RosterEntry): ToolDef[] {
   const tools: ToolDef[] = [...SPECIALIST_TASK_TOOLS];
@@ -159,6 +175,10 @@ function buildToolDefs(entry: RosterEntry): ToolDef[] {
   // Domain tools
   if (entry.domain_tools?.includes("qa")) tools.push(...QA_DOMAIN_TOOLS);
   if (entry.domain_tools?.includes("security")) tools.push(...SECURITY_DOMAIN_TOOLS);
+  if (entry.domain_tools?.includes("seo")) tools.push(...SEO_DOMAIN_TOOLS);
+  if (entry.domain_tools?.includes("social")) tools.push(...SOCIAL_DOMAIN_TOOLS);
+  if (entry.domain_tools?.includes("geo")) tools.push(...GEO_DOMAIN_TOOLS);
+  if (entry.domain_tools?.includes("marketing")) tools.push(...SEO_DOMAIN_TOOLS, ...SOCIAL_DOMAIN_TOOLS, ...GEO_DOMAIN_TOOLS);
 
   tools.push(...MEMORY_TOOLS, ...AGENT_MESSAGING_TOOLS, DATE_TOOL, ...WEB_TOOLS);
   return tools;

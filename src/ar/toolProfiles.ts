@@ -24,6 +24,7 @@ import { getBAFileTools } from "../tools/domain/baFileTools.js";
 import { getGitReadTools, getGitWriteTools, getGitAdminTools } from "../tools/domain/gitTools.js";
 import { qaTools } from "../tools/domain/qaTools.js";
 import { securityFlowTools } from "../tools/domain/securityFlowTools.js";
+import { getSEOTools, getSocialTools, getGEOTools, getAllMarketingTools } from "../tools/domain/marketingTools.js";
 import type { AgentInbox } from "../atp/agentMessageQueue.js";
 
 // ── Domain tool bundles keyed by roster.json "domain_tools" strings ───────────
@@ -31,6 +32,10 @@ import type { AgentInbox } from "../atp/agentMessageQueue.js";
 const DOMAIN_TOOL_BUNDLES: Record<string, AgentTool[]> = {
   qa: qaTools,
   security: securityFlowTools,
+  seo: getSEOTools(),
+  social: getSocialTools(),
+  geo: getGEOTools(),
+  marketing: getAllMarketingTools(),
 };
 
 // ── Public API ────────────────────────────────────────────────────────────────

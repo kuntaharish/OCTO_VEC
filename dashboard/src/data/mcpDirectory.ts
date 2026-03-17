@@ -1,5 +1,5 @@
 /**
- * MCP Server Directory — curated registry of 50 best MCP servers.
+ * MCP Server Directory — curated registry of 55 best MCP servers.
  *
  * Each entry has enough info to:
  *   1) display a card (name, description, tools, category, icon)
@@ -40,6 +40,7 @@ export type MCPCategory =
   | "communication"
   | "monitoring"
   | "ai"
+  | "marketing"
   | "other";
 
 export const CATEGORY_META: Record<MCPCategory, { label: string; color: string }> = {
@@ -54,6 +55,7 @@ export const CATEGORY_META: Record<MCPCategory, { label: string; color: string }
   "communication": { label: "Communication",   color: "var(--blue)" },
   "monitoring":    { label: "Monitoring",       color: "var(--red)" },
   "ai":            { label: "AI & Reasoning",  color: "var(--accent)" },
+  "marketing":     { label: "Marketing",        color: "var(--green)" },
   "other":         { label: "Other",           color: "var(--text-muted)" },
 };
 
@@ -751,6 +753,79 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["resolve-library-id", "query-docs"],
     docsUrl: "https://github.com/upstash/context7",
     iconDomain: "context7.com",
+  },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARKETING
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    id: "twitter-mcp",
+    name: "Twitter / X",
+    description: "Post tweets, search Twitter, manage followers, and interact with X/Twitter via the official API v2. Free tier: 500 tweets/month.",
+    category: "marketing",
+    package: "twitter-mcp",
+    command: "npx",
+    args: ["-y", "twitter-mcp"],
+    envVars: { TWITTER_API_KEY: "your-api-key", TWITTER_API_SECRET: "your-api-secret", TWITTER_ACCESS_TOKEN: "your-access-token", TWITTER_ACCESS_SECRET: "your-access-secret" },
+    tools: ["post_tweet", "search_tweets", "get_user_info", "get_timeline", "delete_tweet"],
+    docsUrl: "https://github.com/EnesCinr/twitter-mcp",
+    iconDomain: "x.com",
+  },
+  {
+    id: "reddit-mcp",
+    name: "Reddit",
+    description: "Read, search, and post to Reddit — browse subreddits, fetch posts and comments, submit posts and replies. Free API for non-commercial use.",
+    category: "marketing",
+    package: "reddit-mcp",
+    command: "npx",
+    args: ["-y", "reddit-mcp"],
+    envVars: { REDDIT_CLIENT_ID: "your-client-id", REDDIT_CLIENT_SECRET: "your-client-secret", REDDIT_USERNAME: "your-username", REDDIT_PASSWORD: "your-password" },
+    tools: ["get_frontpage_posts", "get_subreddit_hot_posts", "get_post_content", "get_post_comments", "submit_post", "submit_comment"],
+    docsUrl: "https://github.com/Arindam200/reddit-mcp",
+    iconDomain: "reddit.com",
+  },
+  {
+    id: "linkedin-mcp",
+    name: "LinkedIn",
+    description: "Post updates, search profiles, find jobs, and interact with LinkedIn's API. Create and schedule professional content.",
+    category: "marketing",
+    package: "linkedin-mcpserver",
+    command: "npx",
+    args: ["-y", "linkedin-mcpserver"],
+    envVars: { LINKEDIN_ACCESS_TOKEN: "your-access-token" },
+    tools: ["create_post", "get_profile", "search_people", "get_feed", "send_message"],
+    docsUrl: "https://github.com/felipfr/linkedin-mcpserver",
+    iconDomain: "linkedin.com",
+  },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CRM & DATA PLATFORMS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    id: "salesforce-mcp",
+    name: "Salesforce",
+    description: "Query, create, update, and manage Salesforce objects — leads, contacts, opportunities, accounts. Run SOQL queries and describe object schemas.",
+    category: "cloud",
+    package: "@anthropic/salesforce-mcp",
+    command: "npx",
+    args: ["-y", "@anthropic/salesforce-mcp"],
+    envVars: { SALESFORCE_INSTANCE_URL: "https://your-org.my.salesforce.com", SALESFORCE_ACCESS_TOKEN: "your-access-token" },
+    tools: ["salesforce_query", "salesforce_create", "salesforce_update", "salesforce_describe", "salesforce_search"],
+    docsUrl: "https://github.com/anthropics/salesforce-mcp",
+    iconDomain: "salesforce.com",
+  },
+  {
+    id: "databricks-mcp",
+    name: "Databricks",
+    description: "Execute SQL queries, manage clusters, list tables, and interact with Databricks workspaces. Supports Unity Catalog and Delta Lake.",
+    category: "database",
+    package: "databricks-mcp-server",
+    command: "npx",
+    args: ["-y", "databricks-mcp-server"],
+    envVars: { DATABRICKS_HOST: "https://your-workspace.cloud.databricks.com", DATABRICKS_TOKEN: "your-personal-access-token" },
+    tools: ["execute_sql", "list_catalogs", "list_schemas", "list_tables", "describe_table", "get_cluster_status"],
+    docsUrl: "https://github.com/databricks/databricks-mcp",
+    iconDomain: "databricks.com",
   },
 ];
 

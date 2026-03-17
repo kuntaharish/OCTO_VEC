@@ -510,6 +510,116 @@
         "escalation"
       ],
       "description": "Troubleshoots production issues, debugs application errors, and performs log analysis. Conducts root cause analysis, manages escalation procedures, and maintains support documentation."
+    },
+    "seospecialist": {
+      "role": "SEO Specialist",
+      "designation": "SEO Specialist",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["seo"],
+      "prompt_file": "seospecialist.md",
+      "default_skills": [
+        "technical-seo",
+        "keyword-research",
+        "on-page-optimization",
+        "competitor-analysis",
+        "site-audit"
+      ],
+      "description": "Runs technical SEO audits, analyses keyword opportunities, benchmarks against competitors, and produces actionable SEO improvement reports."
+    },
+    "contentwriter": {
+      "role": "Content Strategist",
+      "designation": "Content Strategist",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["seo"],
+      "prompt_file": "contentwriter.md",
+      "default_skills": [
+        "content-strategy",
+        "copywriting",
+        "blog-writing",
+        "seo-content",
+        "content-calendar"
+      ],
+      "description": "Creates SEO-optimised content — blog posts, landing pages, product descriptions. Plans content calendars and identifies content gaps for organic growth."
+    },
+    "socialmedia": {
+      "role": "Social Media Manager",
+      "designation": "Social Media Manager",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["social"],
+      "prompt_file": "socialmedia.md",
+      "default_skills": [
+        "social-strategy",
+        "community-engagement",
+        "content-creation",
+        "hashtag-strategy",
+        "platform-analytics"
+      ],
+      "description": "Manages social media presence across Twitter/X, Reddit, LinkedIn, and Hacker News. Drafts posts, plans publishing schedules, and analyses engagement."
+    },
+    "geospecialist": {
+      "role": "GEO Specialist",
+      "designation": "GEO & AI Visibility Specialist",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["geo"],
+      "prompt_file": "geospecialist.md",
+      "default_skills": [
+        "generative-engine-optimization",
+        "ai-search-visibility",
+        "brand-monitoring",
+        "citation-building",
+        "content-optimization"
+      ],
+      "description": "Tracks and optimises brand visibility in AI search engines (ChatGPT, Perplexity, Claude). Monitors brand mentions, scores GEO performance, and recommends citation strategies."
+    },
+    "growthmarketer": {
+      "role": "Growth Marketer",
+      "designation": "Growth Marketing Lead",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 2,
+      "reports_to": "EMP-001",
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["marketing"],
+      "prompt_file": "growthmarketer.md",
+      "default_skills": [
+        "growth-strategy",
+        "funnel-optimization",
+        "analytics",
+        "a-b-testing",
+        "user-acquisition"
+      ],
+      "description": "Leads digital marketing strategy and coordinates SEO, content, social, and GEO efforts. Analyses growth funnels, identifies acquisition channels, and drives user growth through data-driven campaigns."
     }
   },
   "agents": [
@@ -1156,6 +1266,146 @@
       "color": "#f59e0b",
       "initials": "TM",
       "enabled": false
+    },
+    {
+      "agent_id": "seospecialist",
+      "employee_id": "EMP-024",
+      "name": "Anika Verma",
+      "template": "seospecialist",
+      "role": "SEO Specialist",
+      "designation": "SEO Specialist",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "technical-seo",
+        "keyword-research",
+        "on-page-optimization",
+        "competitor-analysis",
+        "site-audit"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["seo"],
+      "prompt_file": "seospecialist.md",
+      "color": "#22c55e",
+      "initials": "AV",
+      "enabled": true
+    },
+    {
+      "agent_id": "contentwriter",
+      "employee_id": "EMP-025",
+      "name": "Ishaan Kapoor",
+      "template": "contentwriter",
+      "role": "Content Strategist",
+      "designation": "Content Strategist",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "content-strategy",
+        "copywriting",
+        "blog-writing",
+        "seo-content",
+        "content-calendar"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["seo"],
+      "prompt_file": "contentwriter.md",
+      "color": "#a855f7",
+      "initials": "IK",
+      "enabled": true
+    },
+    {
+      "agent_id": "socialmedia",
+      "employee_id": "EMP-026",
+      "name": "Tanya Bose",
+      "template": "socialmedia",
+      "role": "Social Media Manager",
+      "designation": "Social Media Manager",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "social-strategy",
+        "community-engagement",
+        "content-creation",
+        "hashtag-strategy",
+        "platform-analytics"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["social"],
+      "prompt_file": "socialmedia.md",
+      "color": "#ec4899",
+      "initials": "TB",
+      "enabled": true
+    },
+    {
+      "agent_id": "geospecialist",
+      "employee_id": "EMP-027",
+      "name": "Raghav Khanna",
+      "template": "geospecialist",
+      "role": "GEO Specialist",
+      "designation": "GEO & AI Visibility Specialist",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 3,
+      "reports_to": "EMP-001",
+      "skills": [
+        "generative-engine-optimization",
+        "ai-search-visibility",
+        "brand-monitoring",
+        "citation-building",
+        "content-optimization"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["geo"],
+      "prompt_file": "geospecialist.md",
+      "color": "#06b6d4",
+      "initials": "RK",
+      "enabled": true
+    },
+    {
+      "agent_id": "growthmarketer",
+      "employee_id": "EMP-028",
+      "name": "Diya Malhotra",
+      "template": "growthmarketer",
+      "role": "Growth Marketer",
+      "designation": "Growth Marketing Lead",
+      "department": "Marketing",
+      "category": "specialist",
+      "hierarchy_level": 2,
+      "reports_to": "EMP-001",
+      "skills": [
+        "growth-strategy",
+        "funnel-optimization",
+        "analytics",
+        "a-b-testing",
+        "user-acquisition"
+      ],
+      "tool_profile": "scoped_write",
+      "capabilities": {
+        "glob": true
+      },
+      "domain_tools": ["marketing"],
+      "prompt_file": "growthmarketer.md",
+      "color": "#f97316",
+      "initials": "DM",
+      "enabled": true
     }
   ]
 }

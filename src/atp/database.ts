@@ -283,6 +283,32 @@ class ATPDatabaseClass {
     if (existing) return this.getEmployeeByAgentId(opts.agent_id)!;
 
     const eid = opts.employee_id ?? this.getNextEmployeeId();
+
+    // Check if employee_id is already taken by a different agent (e.g. auto-generated during runtime hire)
+    const eidTaken = this.db
+      .prepare("SELECT agent_id FROM employees WHERE employee_id = ?")
+      .get(eid) as { agent_id: string } | undefined;
+    if (eidTaken) {
+      // employee_id conflict — generate a fresh one instead
+      const freshEid = this.getNextEmployeeId();
+      const now = new Date().toISOString();
+      this.db.prepare(`
+        INSERT INTO employees (employee_id, agent_id, name, designation, department, hierarchy_level, reports_to, status, skills, joined_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)
+      `).run(
+        freshEid,
+        opts.agent_id.trim().toLowerCase(),
+        opts.name,
+        opts.designation,
+        opts.department,
+        opts.hierarchy_level,
+        opts.reports_to ?? "",
+        opts.skills ?? "",
+        now
+      );
+      return this.getEmployee(freshEid)!;
+    }
+
     const now = new Date().toISOString();
     this.db.prepare(`
       INSERT INTO employees (employee_id, agent_id, name, designation, department, hierarchy_level, reports_to, status, skills, joined_at)
