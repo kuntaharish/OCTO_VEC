@@ -107,6 +107,15 @@ export interface AgentRuntimeEntry {
   enabled: boolean;
 }
 
+export interface Reminder {
+  reminder_id: string;
+  agent_id: string;
+  message: string;
+  scheduled_for: string;
+  created_at: string;
+  triggered_at: string;
+}
+
 export interface RoleTemplateSummary {
   id: string;
   role: string;

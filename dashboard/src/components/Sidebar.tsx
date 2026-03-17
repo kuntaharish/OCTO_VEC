@@ -12,6 +12,7 @@ import {
   Monitor,
   Settings,
   IndianRupee,
+  Bell,
 } from "lucide-react";
 import ThemeSwitcher from "./ThemeSwitcher";
 
@@ -24,6 +25,7 @@ export type View =
   | "chat"
   | "live"
   | "finance"
+  | "reminders"
   | "settings";
 
 interface NavItem { id: View; label: string; icon: React.ReactNode }
@@ -38,6 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "directory", label: "Directory", icon: <Users size={ICON} /> },
   { id: "chat",      label: "Chat",      icon: <MessageSquare size={ICON} /> },
   { id: "finance",   label: "Finance",   icon: <IndianRupee size={ICON} /> },
+  { id: "reminders", label: "Reminders", icon: <Bell size={ICON} /> },
   { id: "settings",  label: "Settings",  icon: <Settings size={ICON} /> },
 ];
 
@@ -53,9 +56,10 @@ const TR = `${DUR} ${EASE}`;
 interface Props {
   activeView: View;
   setActiveView: (v: View) => void;
+  chatBadge?: number;
 }
 
-export default function Sidebar({ activeView, setActiveView }: Props) {
+export default function Sidebar({ activeView, setActiveView, chatBadge = 0 }: Props) {
   const [showTheme, setShowTheme] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     localStorage.getItem("sidebar-collapsed") === "true"
@@ -177,14 +181,42 @@ export default function Sidebar({ activeView, setActiveView }: Props) {
                 onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-secondary)"; }}}
                 onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = isActive ? "var(--bg-hover)" : "transparent"; e.currentTarget.style.color = isActive ? "var(--text-primary)" : "var(--text-muted)"; }}}
               >
-                <span style={{ display: "flex", flexShrink: 0 }}>{item.icon}</span>
+                <span style={{ display: "flex", flexShrink: 0, position: "relative" }}>
+                  {item.icon}
+                  {/* Badge on icon — visible only when collapsed */}
+                  {item.id === "chat" && chatBadge > 0 && collapsed && (
+                    <span style={{
+                      position: "absolute", top: -4, right: -6,
+                      minWidth: 14, height: 14, borderRadius: 7,
+                      background: "var(--red, #ef4444)", color: "#fff",
+                      fontSize: 9, fontWeight: 700, lineHeight: "14px",
+                      textAlign: "center", padding: "0 3px",
+                      boxShadow: "0 0 4px rgba(239,68,68,0.5)",
+                    }}>
+                      {chatBadge > 99 ? "99+" : chatBadge}
+                    </span>
+                  )}
+                </span>
                 <span style={{
                   opacity: collapsed ? 0 : 1,
                   transition: `opacity ${TR}`,
                   overflow: "hidden",
+                  flex: 1,
                 }}>
                   {item.label}
                 </span>
+                {/* Badge inline — visible only when expanded */}
+                {item.id === "chat" && chatBadge > 0 && !collapsed && (
+                  <span style={{
+                    minWidth: 18, height: 18, borderRadius: 9,
+                    background: "var(--red, #ef4444)", color: "#fff",
+                    fontSize: 10, fontWeight: 700, lineHeight: "18px",
+                    textAlign: "center", padding: "0 4px",
+                    flexShrink: 0,
+                  }}>
+                    {chatBadge > 99 ? "99+" : chatBadge}
+                  </span>
+                )}
               </button>
             );
           })}

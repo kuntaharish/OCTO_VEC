@@ -15,6 +15,7 @@ import {
   EmployeeStatus,
   type Task,
   type Employee,
+  type Reminder,
 } from "./models.js";
 
 const DB_PATH = path.join(config.dataDir, "atp.db");
@@ -52,6 +53,14 @@ function initDb(db: Database.Database): void {
       skills          TEXT DEFAULT '',
       joined_at       TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS reminders (
+      reminder_id    TEXT PRIMARY KEY,
+      agent_id       TEXT NOT NULL,
+      message        TEXT NOT NULL,
+      scheduled_for  TEXT NOT NULL,
+      created_at     TEXT NOT NULL,
+      triggered_at   TEXT DEFAULT ''
+    );
   `);
 }
 
@@ -67,6 +76,17 @@ function rowToTask(row: Record<string, unknown>): Task {
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     result: (row.result as string) || "",
+  };
+}
+
+function rowToReminder(row: Record<string, unknown>): Reminder {
+  return {
+    reminder_id: row.reminder_id as string,
+    agent_id: row.agent_id as string,
+    message: row.message as string,
+    scheduled_for: row.scheduled_for as string,
+    created_at: row.created_at as string,
+    triggered_at: (row.triggered_at as string) || "",
   };
 }
 
@@ -355,6 +375,74 @@ class ATPDatabaseClass {
         `${e.department.padEnd(14)} ${String(e.hierarchy_level).padEnd(4)} ${e.status.padEnd(10)} ${e.skills.substring(0, 30)}`
     );
     return [header, separator, ...rows].join("\n");
+  }
+
+  // ── Reminders ────────────────────────────────────────────────────────────
+
+  getNextReminderId(): string {
+    const row = this.db
+      .prepare("SELECT reminder_id FROM reminders ORDER BY reminder_id DESC LIMIT 1")
+      .get() as { reminder_id: string } | undefined;
+    if (!row) return "REM-001";
+    const num = parseInt(row.reminder_id.split("-")[1], 10);
+    return `REM-${String(num + 1).padStart(3, "0")}`;
+  }
+
+  createReminder(agent_id: string, message: string, scheduled_for: string): Reminder {
+    const reminder_id = this.getNextReminderId();
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO reminders (reminder_id, agent_id, message, scheduled_for, created_at, triggered_at)
+      VALUES (?, ?, ?, ?, ?, '')
+    `).run(reminder_id, agent_id.trim().toLowerCase(), message, scheduled_for, now);
+    return this.getReminder(reminder_id)!;
+  }
+
+  getReminder(reminder_id: string): Reminder | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM reminders WHERE reminder_id = ?")
+      .get(reminder_id.trim().toUpperCase()) as Record<string, unknown> | undefined;
+    return row ? rowToReminder(row) : undefined;
+  }
+
+  getRemindersForAgent(agent_id: string, includeTriggered = false): Reminder[] {
+    const query = includeTriggered
+      ? "SELECT * FROM reminders WHERE agent_id = ? ORDER BY scheduled_for"
+      : "SELECT * FROM reminders WHERE agent_id = ? AND triggered_at = '' ORDER BY scheduled_for";
+    const rows = this.db.prepare(query).all(agent_id.trim().toLowerCase()) as Record<string, unknown>[];
+    return rows.map(rowToReminder);
+  }
+
+  getAllReminders(includeTriggered = false): Reminder[] {
+    const query = includeTriggered
+      ? "SELECT * FROM reminders ORDER BY scheduled_for"
+      : "SELECT * FROM reminders WHERE triggered_at = '' ORDER BY scheduled_for";
+    const rows = this.db.prepare(query).all() as Record<string, unknown>[];
+    return rows.map(rowToReminder);
+  }
+
+  /** Return all untriggered reminders whose scheduled_for is now or in the past. */
+  getDueReminders(): Reminder[] {
+    const now = new Date().toISOString();
+    const rows = this.db
+      .prepare("SELECT * FROM reminders WHERE triggered_at = '' AND scheduled_for <= ? ORDER BY scheduled_for")
+      .all(now) as Record<string, unknown>[];
+    return rows.map(rowToReminder);
+  }
+
+  markReminderTriggered(reminder_id: string): Reminder | undefined {
+    const now = new Date().toISOString();
+    this.db
+      .prepare("UPDATE reminders SET triggered_at = ? WHERE reminder_id = ?")
+      .run(now, reminder_id.trim().toUpperCase());
+    return this.getReminder(reminder_id);
+  }
+
+  deleteReminder(reminder_id: string): boolean {
+    const result = this.db
+      .prepare("DELETE FROM reminders WHERE reminder_id = ?")
+      .run(reminder_id.trim().toUpperCase());
+    return result.changes > 0;
   }
 
   private seedEmployees(): void {

@@ -11,15 +11,18 @@ import ChatView from "./views/ChatView";
 
 import LiveView from "./views/LiveView";
 import FinanceView from "./views/FinanceView";
+import RemindersView from "./views/RemindersView";
 import SettingsView from "./views/SettingsView";
 import OnboardingView from "./views/OnboardingView";
 import WelcomeTour, { WelcomeSplash, markTourDone } from "./components/WelcomeTour";
 import { apiUrl } from "./hooks/useApi";
+import { useChatNotifications } from "./hooks/useChatNotifications";
+import ChatToasts from "./components/ChatToasts";
 
 export default function App() {
   const [activeView, setActiveViewRaw] = useState<View>(() => {
     const saved = localStorage.getItem("active-view");
-    return saved && ["overview","kanban","events","snoop","directory","chat","live","finance","settings"].includes(saved)
+    return saved && ["overview","kanban","events","snoop","directory","chat","live","finance","reminders","settings"].includes(saved)
       ? (saved as View)
       : "kanban";
   });
@@ -81,29 +84,49 @@ export default function App() {
   return (
     <ThemeProvider>
     <EmployeesProvider>
-      <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-primary)" }}>
-        <Sidebar activeView={activeView} setActiveView={setActiveView} />
-        <main style={{
-          flex: 1, overflow: "hidden", display: "flex", flexDirection: "column",
-          background: "var(--bg-card)",
-          borderRadius: 14,
-          margin: 8,
-          boxShadow: "var(--shadow-lg)",
-          border: "1px solid var(--border)",
-        }}>
-          {activeView === "overview" && <OverviewView />}
-          {activeView === "kanban" && <KanbanView />}
-          {activeView === "events" && <EventsView />}
-          {activeView === "snoop" && <SnoopView />}
-          {activeView === "directory" && <DirectoryView />}
-          {activeView === "chat" && <ChatView />}
-          {activeView === "live" && <LiveView />}
-          {activeView === "finance" && <FinanceView />}
-          {activeView === "settings" && <SettingsView />}
-        </main>
-        {tourPhase === "walkthrough" && <WelcomeTour onDone={() => setTourPhase(null)} setActiveView={setActiveView} />}
-      </div>
+      <DashboardShell activeView={activeView} setActiveView={setActiveView} tourPhase={tourPhase} setTourPhase={setTourPhase} />
     </EmployeesProvider>
     </ThemeProvider>
+  );
+}
+
+function DashboardShell({ activeView, setActiveView, tourPhase, setTourPhase }: {
+  activeView: View; setActiveView: (v: View) => void;
+  tourPhase: "splash" | "walkthrough" | null; setTourPhase: (v: "splash" | "walkthrough" | null) => void;
+}) {
+  const { unreadCount, perAgentUnread, toasts, markAgentRead, dismissToast } = useChatNotifications(activeView);
+
+  // Click toast → navigate to that agent's chat
+  function handleToastClick(agentId: string) {
+    sessionStorage.setItem("chat_selected_agent", agentId);
+    setActiveView("chat");
+    markAgentRead(agentId);
+  }
+
+  return (
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-primary)" }}>
+      <Sidebar activeView={activeView} setActiveView={setActiveView} chatBadge={unreadCount} />
+      <main style={{
+        flex: 1, overflow: "hidden", display: "flex", flexDirection: "column",
+        background: "var(--bg-card)",
+        borderRadius: 14,
+        margin: 8,
+        boxShadow: "var(--shadow-lg)",
+        border: "1px solid var(--border)",
+      }}>
+        {activeView === "overview" && <OverviewView />}
+        {activeView === "kanban" && <KanbanView />}
+        {activeView === "events" && <EventsView />}
+        {activeView === "snoop" && <SnoopView />}
+        {activeView === "directory" && <DirectoryView />}
+        {activeView === "chat" && <ChatView perAgentUnread={perAgentUnread} onAgentRead={markAgentRead} />}
+        {activeView === "live" && <LiveView />}
+        {activeView === "finance" && <FinanceView />}
+        {activeView === "reminders" && <RemindersView />}
+        {activeView === "settings" && <SettingsView />}
+      </main>
+      {tourPhase === "walkthrough" && <WelcomeTour onDone={() => setTourPhase(null)} setActiveView={setActiveView} />}
+      <ChatToasts toasts={toasts} onDismiss={dismissToast} onClickToast={handleToastClick} />
+    </div>
   );
 }

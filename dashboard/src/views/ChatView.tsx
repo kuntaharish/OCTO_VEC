@@ -36,7 +36,10 @@ function timeLabel(ts: string): string {
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export default function ChatView() {
+export default function ChatView({ perAgentUnread = {}, onAgentRead }: {
+  perAgentUnread?: Record<string, number>;
+  onAgentRead?: (agentId: string) => void;
+}) {
   const [selectedAgent, _setSelectedAgent] = useState<string>(
     () => sessionStorage.getItem("chat_selected_agent") ?? ""
   );
@@ -98,6 +101,11 @@ export default function ChatView() {
     }
   }, [filteredAgents, selectedAgent]);
 
+  // Mark selected agent as read when viewing their chat
+  useEffect(() => {
+    if (selectedAgent) onAgentRead?.(selectedAgent);
+  }, [selectedAgent, onAgentRead]);
+
   // ── Selection helpers ──────────────────────────────────────────────────────
 
   const groupList = groups ?? [];
@@ -107,6 +115,7 @@ export default function ChatView() {
   function selectAgent(key: string) {
     setSelectedAgent(key);
     setSelectedGroupId(null);
+    onAgentRead?.(key);
   }
   function selectGroup(id: string) {
     setSelectedGroupId(id);
@@ -295,6 +304,7 @@ export default function ChatView() {
                   const typing = activeAgents[ag.agent_key] ?? false;
                   const color = ag.color || "var(--text-muted)";
                   const initials = ag.initials || getInitials(ag.name);
+                  const unread = perAgentUnread[ag.agent_key] ?? 0;
 
                   return (
                     <button
@@ -323,11 +333,23 @@ export default function ChatView() {
                           <span style={{ fontSize: 13, fontWeight: sel ? 600 : 500, color: "var(--text-primary)" }}>
                             {ag.name.split(" ")[0]}
                           </span>
-                          {last && (
-                            <span style={{ fontSize: 10, color: "var(--text-muted)", flexShrink: 0 }}>
-                              {timeLabel(last.timestamp)}
-                            </span>
-                          )}
+                          <span style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                            {last && (
+                              <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                                {timeLabel(last.timestamp)}
+                              </span>
+                            )}
+                            {unread > 0 && (
+                              <span style={{
+                                minWidth: 16, height: 16, borderRadius: 8,
+                                background: color, color: "#fff",
+                                fontSize: 9, fontWeight: 700, lineHeight: "16px",
+                                textAlign: "center", padding: "0 4px",
+                              }}>
+                                {unread > 99 ? "99+" : unread}
+                              </span>
+                            )}
+                          </span>
                         </div>
                         <div style={{
                           fontSize: 12, color: typing ? "var(--green)" : "var(--text-muted)",

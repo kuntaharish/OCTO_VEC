@@ -89,6 +89,9 @@ const SPECIALIST_TASK_TOOLS: ToolDef[] = [
   { id: "update_my_task",     name: "Update My Task",     description: "Update task status & result",                group: "Task Management" },
   { id: "read_task_messages", name: "Read Task Messages", description: "Read PM messages for a specific task",       group: "Task Management" },
   { id: "todo",               name: "Todo",               description: "Personal checklist to track work progress",  group: "Task Management" },
+  { id: "set_reminder",        name: "Set Reminder",       description: "Schedule a future reminder for yourself",     group: "Task Management" },
+  { id: "list_reminders",      name: "List Reminders",     description: "View all active reminders",                   group: "Task Management" },
+  { id: "cancel_reminder",     name: "Cancel Reminder",    description: "Cancel an active reminder by ID",             group: "Task Management" },
 ];
 
 // ── Tool profile to ToolDef[] mapping ─────────────────────────────────────────

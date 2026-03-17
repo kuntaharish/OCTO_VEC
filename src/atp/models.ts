@@ -94,3 +94,12 @@ export interface Event {
   message: string;
   details: string;
 }
+
+export interface Reminder {
+  reminder_id: string;
+  agent_id: string;
+  message: string;
+  scheduled_for: string; // ISO datetime string
+  created_at: string;    // ISO string
+  triggered_at: string;  // ISO string or "" if not yet triggered
+}

@@ -38,7 +38,8 @@ import { injectIntegrationEnv } from "./integrations/integrationConfig.js";
 import { UserChatLog } from "./atp/chatLog.js";
 import { clearAgentHistory } from "./memory/messageHistory.js";
 import { shouldRunSunset } from "./memory/sessionLifecycle.js";
-import { publishAgentStream } from "./atp/agentStreamBus.js";
+import { publishAgentStream, agentStreamBus } from "./atp/agentStreamBus.js";
+import type { StreamToken } from "./atp/agentStreamBus.js";
 import { initMCP, shutdownMCP } from "./mcp/mcpBridge.js";
 
 import os from "os";
@@ -440,6 +441,49 @@ async function startServer(doStartupReset: boolean): Promise<void> {
   releaseDueTasks(schedulerDeps); // run immediately on startup
   const schedulerHandle = setInterval(() => releaseDueTasks(schedulerDeps), 60 * 60_000);
   allHandles.push(schedulerHandle);
+
+  // 7d. Reminder scheduler — checks every 30s for due reminders and delivers
+  //     them as follow-up messages to the owning agent.
+  const reminderHandle = setInterval(() => {
+    const dueReminders = ATPDatabase.getDueReminders();
+    for (const rem of dueReminders) {
+      const agent = sharedAgentsMap.get(rem.agent_id);
+      if (agent) {
+        const reminderMsg =
+          `⏰ REMINDER [${rem.reminder_id}]: ${rem.message}\n` +
+          `(Scheduled for ${new Date(rem.scheduled_for).toLocaleString()})`;
+        // Broadcast to live dashboard stream
+        const tok: StreamToken = {
+          agentId: rem.agent_id,
+          type: "text",
+          content: `⏰ REMINDER [${rem.reminder_id}]: ${rem.message}\n`,
+        };
+        agentStreamBus.emit("token", tok);
+
+        // If agent is actively running, steer it. Otherwise prompt it fresh.
+        if (agent.isRunning) {
+          if (agent.steer) {
+            agent.steer(reminderMsg);
+          } else if (agent.followUp) {
+            agent.followUp(reminderMsg);
+          }
+        } else {
+          agent.prompt(reminderMsg).catch((err) => {
+            EventLog.log(
+              EventType.AGENT_THINKING, rem.agent_id, "",
+              `Reminder prompt failed: ${err}`
+            );
+          });
+        }
+        EventLog.log(
+          EventType.AGENT_THINKING, rem.agent_id, "",
+          `Reminder ${rem.reminder_id} triggered: ${rem.message}`
+        );
+      }
+      ATPDatabase.markReminderTriggered(rem.reminder_id);
+    }
+  }, 30_000);
+  allHandles.push(reminderHandle);
 
   // 8. Start live queue monitor (CLI mode only)
   let monitor: ReturnType<typeof startLiveMonitor> | null = null;

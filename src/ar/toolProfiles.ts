@@ -7,6 +7,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { RosterEntry } from "./roster.js";
 import { getSpecialistTaskTools } from "../tools/domain/baseSpecialistTools.js";
 import { getTodoTool } from "../tools/shared/todoTools.js";
+import { getReminderTools } from "../tools/shared/reminderTools.js";
 import { getMemoryToolsSlim } from "../tools/shared/memoryTools.js";
 import { getMessagingTools } from "../tools/shared/messagingTools.js";
 import { getDateTool } from "../tools/shared/dateTools.js";
@@ -57,6 +58,9 @@ export function buildToolset(
 
   // 2. Personal todo list
   tools.push(getTodoTool(agentId));
+
+  // 2b. Reminder tools
+  tools.push(...getReminderTools(agentId));
 
   // 3. Memory tools
   tools.push(...getMemoryToolsSlim(agentId));

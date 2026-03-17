@@ -435,3 +435,9 @@ input:focus, textarea:focus, select:focus {
 }
 .iso-steam   { animation: iso-steam-1 2s ease-out infinite; }
 .iso-steam-2 { animation: iso-steam-2 2.5s ease-out infinite 0.5s; }
+
+/* Chat toast slide-in */
+@keyframes toast-slide-in {
+  0%   { transform: translateX(100%); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
+}

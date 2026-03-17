@@ -2510,6 +2510,23 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     res.json(getAgentTodos(req.params.agentId));
   });
 
+  // ── Reminders ──────────────────────────────────────────────────────────────
+
+  app.get("/api/reminders", (req, res) => {
+    const includeTriggered = req.query.all === "true";
+    res.json(ATPDatabase.getAllReminders(includeTriggered));
+  });
+
+  app.get("/api/reminders/:agentId", (req, res) => {
+    const includeTriggered = req.query.all === "true";
+    res.json(ATPDatabase.getRemindersForAgent(req.params.agentId, includeTriggered));
+  });
+
+  app.delete("/api/reminders/:reminderId", (req, res) => {
+    const deleted = ATPDatabase.deleteReminder(req.params.reminderId);
+    res.json({ ok: deleted });
+  });
+
   app.get("/api/employees", (_req, res) => {
     // Map DB field names → React-friendly names (agent_id→agent_key, designation→role)
     const employees = ATPDatabase.listEmployees().map((e) => {
