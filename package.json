@@ -61,6 +61,7 @@
     "grammy": "^1.40.0",
     "helmet": "^8.1.0",
     "irc-framework": "^4.14.0",
+    "jsforce": "^3.10.14",
     "matrix-bot-sdk": "^0.8.0",
     "nostr-tools": "^2.23.3",
     "tmi.js": "^1.8.5"
