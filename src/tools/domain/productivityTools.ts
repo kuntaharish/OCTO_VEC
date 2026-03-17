@@ -10,6 +10,7 @@ import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { join } from "path";
 import { mkdirSync, writeFileSync } from "fs";
+import { config } from "../../config.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -144,7 +145,7 @@ const create_spreadsheet: AgentTool = {
       }
 
       // ─ Save ─
-      const outDir = join(ctx.workspaceRoot ?? ".", params.output_path);
+      const outDir = join(config.workspace, params.output_path);
       const filePath = resolveOutputPath(outDir, params.filename.endsWith(".xlsx") ? params.filename : `${params.filename}.xlsx`);
       await workbook.xlsx.writeFile(filePath);
 
@@ -374,7 +375,7 @@ const create_presentation: AgentTool = {
       }
 
       // ─ Save ─
-      const outDir = join(ctx.workspaceRoot ?? ".", params.output_path);
+      const outDir = join(config.workspace, params.output_path);
       mkdirSync(outDir, { recursive: true });
       const fname = params.filename.endsWith(".pptx") ? params.filename : `${params.filename}.pptx`;
       const filePath = join(outDir, fname);
@@ -567,7 +568,7 @@ const create_document: AgentTool = {
       });
 
       // ─ Save ─
-      const outDir = join(ctx.workspaceRoot ?? ".", params.output_path);
+      const outDir = join(config.workspace, params.output_path);
       mkdirSync(outDir, { recursive: true });
       const fname = params.filename.endsWith(".docx") ? params.filename : `${params.filename}.docx`;
       const filePath = join(outDir, fname);
@@ -616,7 +617,7 @@ const create_pdf: AgentTool = {
   execute: async (ctx: any, params: any) => {
     try {
       const PDFDocument = (await import("pdfkit")).default;
-      const outDir = join(ctx.workspaceRoot ?? ".", params.output_path);
+      const outDir = join(config.workspace, params.output_path);
       mkdirSync(outDir, { recursive: true });
       const fname = params.filename.endsWith(".pdf") ? params.filename : `${params.filename}.pdf`;
       const filePath = join(outDir, fname);
