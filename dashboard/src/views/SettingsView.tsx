@@ -116,14 +116,17 @@ function LogoIcon({ src, fallback, size = 20, colored }: { src: string; fallback
 
 // ── MCP Server Icon — loads colored brand SVG from /icons/mcp/ ───────────────
 
-function McpServerIcon({ id, size = 20 }: { id: string; category?: string; size?: number }) {
+function McpServerIcon({ id, iconDomain, size = 20 }: { id: string; iconDomain?: string; size?: number }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <Package size={size} />;
+  const src = iconDomain
+    ? `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${iconDomain}&size=32`
+    : `/icons/mcp/${id}.svg`;
   return (
     <img
-      src={`/icons/mcp/${id}.svg`}
+      src={src}
       alt=""
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, borderRadius: 3 }}
       onError={() => setFailed(true)}
     />
   );
@@ -2367,7 +2370,7 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
                       background: "var(--bg-tertiary)",
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}>
-                      <McpServerIcon id={entry.id} category={entry.category} size={22} />
+                      <McpServerIcon id={entry.id} iconDomain={entry.iconDomain} size={22} />
                     </div>
 
                     {/* Name + one-line description */}

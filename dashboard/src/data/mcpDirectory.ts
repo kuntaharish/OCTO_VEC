@@ -24,6 +24,8 @@ export interface MCPDirectoryEntry {
   tools: string[];
   /** Optional URL to docs / GitHub */
   docsUrl?: string;
+  /** Domain for favicon via Google t2.gstatic.com (e.g. "github.com") */
+  iconDomain?: string;
 }
 
 export type MCPCategory =
@@ -71,6 +73,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["read_text_file", "write_file", "edit_file", "list_directory", "search_files", "directory_tree", "move_file"],
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+    iconDomain: "github.com",
   },
   {
     id: "google-drive",
@@ -83,6 +86,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { GOOGLE_CLIENT_ID: "your-client-id", GOOGLE_CLIENT_SECRET: "your-client-secret" },
     tools: ["search_files", "read_file", "list_files", "get_file_metadata"],
     docsUrl: "https://github.com/anthropics/google-drive-mcp",
+    iconDomain: "drive.google.com",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -99,6 +103,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_xxxxxxxxxxxx" },
     tools: ["get_file_contents", "create_or_update_file", "create_issue", "create_pull_request", "search_code", "list_commits"],
     docsUrl: "https://github.com/github/github-mcp-server",
+    iconDomain: "github.com",
   },
   {
     id: "gitlab",
@@ -111,6 +116,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { GITLAB_PERSONAL_ACCESS_TOKEN: "glpat-xxxxxxxxxxxx", GITLAB_API_URL: "https://gitlab.com/api/v4" },
     tools: ["create_or_update_file", "search_repositories", "create_issue", "create_merge_request", "get_file_contents"],
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab",
+    iconDomain: "gitlab.com",
   },
   {
     id: "git",
@@ -123,6 +129,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["git_status", "git_diff_unstaged", "git_diff_staged", "git_commit", "git_add", "git_log", "git_create_branch"],
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
+    iconDomain: "git-scm.com",
   },
   {
     id: "docker",
@@ -135,6 +142,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["list_containers", "create_container", "start_container", "stop_container", "container_logs", "list_images", "pull_image"],
     docsUrl: "https://www.npmjs.com/package/@thelord/mcp-server-docker-npx",
+    iconDomain: "docker.com",
   },
   {
     id: "sentry",
@@ -147,6 +155,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["list_projects", "get_issue_details", "get_event", "search_errors"],
     docsUrl: "https://github.com/getsentry/sentry-mcp-stdio",
+    iconDomain: "sentry.io",
   },
   {
     id: "vercel",
@@ -159,6 +168,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { VERCEL_TOKEN: "your-vercel-token" },
     tools: ["list_projects", "get_deployments", "create_deployment", "get_domains", "set_env_var"],
     docsUrl: "https://vercel.com/docs/mcp",
+    iconDomain: "vercel.com",
   },
   {
     id: "e2b",
@@ -171,6 +181,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { E2B_API_KEY: "e2b_xxxxxxxxxxxx" },
     tools: ["run_code", "install_packages", "read_file", "write_file", "list_files"],
     docsUrl: "https://github.com/e2b-dev/mcp-server",
+    iconDomain: "e2b.dev",
   },
   {
     id: "kubernetes",
@@ -183,6 +194,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["get_pods", "get_deployments", "get_services", "get_logs", "apply_manifest", "delete_resource"],
     docsUrl: "https://github.com/Flux159/mcp-server-kubernetes",
+    iconDomain: "kubernetes.io",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -199,6 +211,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["browser_navigate", "browser_click", "browser_type", "browser_snapshot", "browser_take_screenshot", "browser_evaluate"],
     docsUrl: "https://github.com/microsoft/playwright-mcp",
+    iconDomain: "playwright.dev",
   },
   {
     id: "fetch",
@@ -211,6 +224,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["fetch"],
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+    iconDomain: "github.com",
   },
   {
     id: "puppeteer",
@@ -223,6 +237,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["puppeteer_navigate", "puppeteer_screenshot", "puppeteer_click", "puppeteer_fill", "puppeteer_evaluate"],
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/puppeteer",
+    iconDomain: "pptr.dev",
   },
   {
     id: "browserbase",
@@ -235,6 +250,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { BROWSERBASE_API_KEY: "bb_xxxxxxxxxxxx", BROWSERBASE_PROJECT_ID: "your-project-id" },
     tools: ["create_session", "navigate", "screenshot", "get_content", "click", "type"],
     docsUrl: "https://github.com/browserbase/mcp-server-browserbase",
+    iconDomain: "browserbase.com",
   },
   {
     id: "firecrawl",
@@ -247,6 +263,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { FIRECRAWL_API_KEY: "fc-xxxxxxxxxxxx" },
     tools: ["scrape_url", "crawl_url", "search", "extract"],
     docsUrl: "https://github.com/mendableai/firecrawl-mcp-server",
+    iconDomain: "firecrawl.dev",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -263,6 +280,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { BRAVE_API_KEY: "BSA_xxxxxxxxxxxx" },
     tools: ["brave_web_search", "brave_local_search", "brave_image_search", "brave_news_search"],
     docsUrl: "https://github.com/brave/brave-search-mcp-server",
+    iconDomain: "brave.com",
   },
   {
     id: "exa",
@@ -275,6 +293,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { EXA_API_KEY: "exa-xxxxxxxxxxxx" },
     tools: ["web_search_exa", "get_code_context_exa", "company_research", "crawling"],
     docsUrl: "https://github.com/exa-labs/exa-mcp-server",
+    iconDomain: "exa.ai",
   },
   {
     id: "tavily",
@@ -287,6 +306,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { TAVILY_API_KEY: "tvly-xxxxxxxxxxxx" },
     tools: ["search", "extract", "get_search_context"],
     docsUrl: "https://github.com/tavily-ai/tavily-mcp",
+    iconDomain: "tavily.com",
   },
   {
     id: "perplexity",
@@ -299,6 +319,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { PERPLEXITY_API_KEY: "pplx-xxxxxxxxxxxx" },
     tools: ["perplexity_search", "perplexity_ask"],
     docsUrl: "https://github.com/ppl-ai/perplexity-mcp",
+    iconDomain: "perplexity.ai",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -315,6 +336,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["query"],
     docsUrl: "https://github.com/modelcontextprotocol/servers",
+    iconDomain: "postgresql.org",
   },
   {
     id: "sqlite",
@@ -327,6 +349,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["sqlite_get_catalog", "sqlite_execute"],
     docsUrl: "https://github.com/johnnyoshika/mcp-server-sqlite-npx",
+    iconDomain: "sqlite.org",
   },
   {
     id: "mysql",
@@ -339,6 +362,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { MYSQL_HOST: "localhost", MYSQL_PORT: "3306", MYSQL_USER: "root", MYSQL_PASSWORD: "password", MYSQL_DATABASE: "mydb" },
     tools: ["query", "list_tables", "describe_table"],
     docsUrl: "https://www.npmjs.com/package/@benborla29/mcp-server-mysql",
+    iconDomain: "mysql.com",
   },
   {
     id: "mongodb",
@@ -351,6 +375,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { MONGO_URI: "mongodb://localhost:27017/mydb" },
     tools: ["find", "aggregate", "insert", "update", "delete", "list_collections"],
     docsUrl: "https://github.com/kiliczsh/mcp-mongo-server",
+    iconDomain: "mongodb.com",
   },
   {
     id: "redis",
@@ -363,6 +388,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { UPSTASH_REDIS_REST_URL: "https://...", UPSTASH_REDIS_REST_TOKEN: "AX..." },
     tools: ["redis_get", "redis_set", "redis_del", "redis_keys", "redis_hgetall", "redis_lpush"],
     docsUrl: "https://github.com/upstash/mcp-server",
+    iconDomain: "redis.io",
   },
   {
     id: "neon",
@@ -375,6 +401,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { NEON_API_KEY: "neon-xxxxxxxxxxxx" },
     tools: ["create_project", "create_branch", "run_sql", "list_databases", "get_connection_string"],
     docsUrl: "https://github.com/neondatabase/mcp-server-neon",
+    iconDomain: "neon.tech",
   },
   {
     id: "supabase",
@@ -387,6 +414,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["execute_sql", "list_tables", "get_schema", "manage_storage", "list_functions"],
     docsUrl: "https://github.com/supabase/mcp-server",
+    iconDomain: "supabase.com",
   },
   {
     id: "qdrant",
@@ -399,6 +427,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { QDRANT_URL: "http://localhost:6333", QDRANT_API_KEY: "your-api-key" },
     tools: ["store_memory", "find_similar", "list_collections", "create_collection"],
     docsUrl: "https://github.com/qdrant/mcp-server-qdrant",
+    iconDomain: "qdrant.tech",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -415,6 +444,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { NOTION_API_KEY: "ntn_xxxxxxxxxxxx" },
     tools: ["notion_search", "notion_get_page", "notion_query_database", "notion_create_page", "notion_update_page"],
     docsUrl: "https://github.com/makenotion/notion-mcp-server",
+    iconDomain: "notion.so",
   },
   {
     id: "linear",
@@ -427,6 +457,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["search_issues", "create_issue", "update_issue", "get_teams", "get_my_issues"],
     docsUrl: "https://linear.app/docs/mcp",
+    iconDomain: "linear.app",
   },
   {
     id: "todoist",
@@ -439,6 +470,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { TODOIST_API_TOKEN: "your-api-token" },
     tools: ["get_tasks", "create_task", "complete_task", "get_projects", "create_project"],
     docsUrl: "https://www.npmjs.com/package/todoist-mcp-server",
+    iconDomain: "todoist.com",
   },
   {
     id: "google-calendar",
@@ -451,6 +483,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { GOOGLE_CLIENT_ID: "your-client-id", GOOGLE_CLIENT_SECRET: "your-client-secret" },
     tools: ["list_events", "create_event", "update_event", "delete_event", "list_calendars"],
     docsUrl: "https://github.com/anthropics/google-calendar-mcp",
+    iconDomain: "calendar.google.com",
   },
   {
     id: "obsidian",
@@ -463,6 +496,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["read_note", "write_note", "search_notes", "list_notes", "get_backlinks"],
     docsUrl: "https://github.com/smithery-ai/obsidian-mcp",
+    iconDomain: "obsidian.md",
   },
   {
     id: "jira",
@@ -475,6 +509,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { JIRA_URL: "https://your-domain.atlassian.net", JIRA_EMAIL: "you@example.com", JIRA_API_TOKEN: "your-api-token" },
     tools: ["search_issues", "get_issue", "create_issue", "update_issue", "list_projects", "get_sprint"],
     docsUrl: "https://www.npmjs.com/package/mcp-server-atlassian",
+    iconDomain: "atlassian.com",
   },
   {
     id: "airtable",
@@ -487,6 +522,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { AIRTABLE_API_KEY: "pat_xxxxxxxxxxxx" },
     tools: ["list_bases", "list_records", "create_record", "update_record", "search_records"],
     docsUrl: "https://github.com/Airtable/mcp-server",
+    iconDomain: "airtable.com",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -503,6 +539,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { SLACK_BOT_TOKEN: "xoxb-xxxxxxxxxxxx", SLACK_TEAM_ID: "T00000000" },
     tools: ["list_channels", "post_message", "reply_to_thread", "get_channel_history", "search_messages"],
     docsUrl: "https://github.com/modelcontextprotocol/servers",
+    iconDomain: "slack.com",
   },
   {
     id: "discord-mcp",
@@ -515,6 +552,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { DISCORD_TOKEN: "your-bot-token" },
     tools: ["send_message", "read_messages", "list_channels", "list_guilds", "create_thread"],
     docsUrl: "https://www.npmjs.com/package/mcp-server-discord",
+    iconDomain: "discord.com",
   },
   {
     id: "email-resend",
@@ -527,6 +565,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { RESEND_API_KEY: "re_xxxxxxxxxxxx" },
     tools: ["send_email", "list_emails", "get_email"],
     docsUrl: "https://github.com/resendlabs/mcp-server-resend",
+    iconDomain: "resend.com",
   },
   {
     id: "twilio",
@@ -539,6 +578,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { TWILIO_ACCOUNT_SID: "AC...", TWILIO_AUTH_TOKEN: "your-auth-token", TWILIO_PHONE_NUMBER: "+1234567890" },
     tools: ["send_sms", "make_call", "list_messages", "get_phone_numbers"],
     docsUrl: "https://www.npmjs.com/package/twilio-mcp-server",
+    iconDomain: "twilio.com",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -555,6 +595,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["search", "execute"],
     docsUrl: "https://github.com/cloudflare/mcp-server-cloudflare",
+    iconDomain: "cloudflare.com",
   },
   {
     id: "stripe",
@@ -567,6 +608,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["customers.create", "customers.read", "products.create", "invoices.create", "payment_intents.create"],
     docsUrl: "https://docs.stripe.com/mcp",
+    iconDomain: "stripe.com",
   },
   {
     id: "google-maps",
@@ -579,6 +621,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { GOOGLE_MAPS_API_KEY: "AIza_xxxxxxxxxxxx" },
     tools: ["maps_geocode", "maps_search_places", "maps_directions", "maps_distance_matrix", "maps_elevation"],
     docsUrl: "https://github.com/modelcontextprotocol/servers",
+    iconDomain: "maps.google.com",
   },
   {
     id: "aws",
@@ -591,6 +634,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { AWS_ACCESS_KEY_ID: "AKIA...", AWS_SECRET_ACCESS_KEY: "your-secret", AWS_REGION: "us-east-1" },
     tools: ["invoke_lambda", "list_s3_buckets", "describe_instances", "get_cloudwatch_metrics", "query_dynamodb"],
     docsUrl: "https://www.npmjs.com/package/mcp-server-aws",
+    iconDomain: "aws.amazon.com",
   },
   {
     id: "shopify",
@@ -603,6 +647,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["search_products", "get_orders", "manage_inventory", "get_customers", "get_analytics"],
     docsUrl: "https://github.com/Shopify/dev-mcp",
+    iconDomain: "shopify.com",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -619,6 +664,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { GRAFANA_URL: "http://localhost:3000", GRAFANA_API_KEY: "your-api-key" },
     tools: ["search_dashboards", "query_prometheus", "query_loki", "list_datasources", "get_alerts"],
     docsUrl: "https://github.com/grafana/mcp-grafana",
+    iconDomain: "grafana.com",
   },
   {
     id: "axiom",
@@ -631,6 +677,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { AXIOM_TOKEN: "xaat-xxxxxxxxxxxx", AXIOM_ORG_ID: "your-org-id" },
     tools: ["query_apl", "list_datasets", "ingest_events"],
     docsUrl: "https://github.com/axiomhq/mcp-server-axiom",
+    iconDomain: "axiom.co",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -647,6 +694,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { FIGMA_API_KEY: "figd_xxxxxxxxxxxx" },
     tools: ["get_file", "get_file_nodes", "get_image", "get_component", "get_styles"],
     docsUrl: "https://help.figma.com/hc/en-us/articles/32132100833559",
+    iconDomain: "figma.com",
   },
   {
     id: "magic-mcp",
@@ -659,6 +707,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: { TWENTYFIRST_API_KEY: "your-api-key" },
     tools: ["generate_component", "search_components", "get_component_code"],
     docsUrl: "https://github.com/21st-dev/magic-mcp",
+    iconDomain: "21st.dev",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -675,6 +724,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["create_entities", "create_relations", "add_observations", "read_graph", "search_nodes", "open_nodes"],
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+    iconDomain: "github.com",
   },
   {
     id: "sequential-thinking",
@@ -687,6 +737,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["sequentialthinking"],
     docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+    iconDomain: "github.com",
   },
   {
     id: "context7",
@@ -699,6 +750,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     envVars: {},
     tools: ["resolve-library-id", "query-docs"],
     docsUrl: "https://github.com/upstash/context7",
+    iconDomain: "context7.com",
   },
 ];
 
