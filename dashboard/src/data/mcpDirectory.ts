@@ -1,5 +1,5 @@
 /**
- * MCP Server Directory — curated registry of 55 best MCP servers.
+ * MCP Server Directory — curated registry of 59 best MCP servers.
  *
  * Each entry has enough info to:
  *   1) display a card (name, description, tools, category, icon)
@@ -796,6 +796,62 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
     tools: ["create_post", "get_profile", "search_people", "get_feed", "send_message"],
     docsUrl: "https://github.com/felipfr/linkedin-mcpserver",
     iconDomain: "linkedin.com",
+  },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PRODUCTIVITY & DOCUMENTS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    id: "excel-mcp",
+    name: "Excel",
+    description: "Create, read, and modify Excel workbooks without MS Excel installed — formulas, formatting, charts, pivot tables, and Excel tables.",
+    category: "productivity",
+    package: "excel-mcp-server",
+    command: "uvx",
+    args: ["excel-mcp-server"],
+    envVars: {},
+    tools: ["create_workbook", "read_sheet", "write_cells", "add_chart", "format_range", "add_pivot_table", "create_table"],
+    docsUrl: "https://github.com/haris-musa/excel-mcp-server",
+    iconDomain: "microsoft.com",
+  },
+  {
+    id: "powerpoint-mcp",
+    name: "PowerPoint",
+    description: "Create and edit presentations with 32 tools and 25 professional slide templates — charts, tables, shapes, and rich text formatting.",
+    category: "productivity",
+    package: "office-powerpoint-mcp-server",
+    command: "uvx",
+    args: ["office-powerpoint-mcp-server"],
+    envVars: {},
+    tools: ["create_presentation", "add_slide", "add_chart", "add_table", "add_shape", "add_text", "set_background", "add_image"],
+    docsUrl: "https://github.com/GongRzhe/Office-PowerPoint-MCP-Server",
+    iconDomain: "microsoft.com",
+  },
+  {
+    id: "word-mcp",
+    name: "Word",
+    description: "Create, read, and manipulate Microsoft Word documents — rich formatting, tables, headers, footers, and structured content.",
+    category: "productivity",
+    package: "office-word-mcp-server",
+    command: "uvx",
+    args: ["office-word-mcp-server"],
+    envVars: {},
+    tools: ["create_document", "add_paragraph", "add_table", "add_heading", "set_header", "set_footer", "add_image"],
+    docsUrl: "https://github.com/GongRzhe/Office-Word-MCP-Server",
+    iconDomain: "microsoft.com",
+  },
+  {
+    id: "google-workspace-mcp",
+    name: "Google Workspace",
+    description: "Full Google Docs, Sheets, Slides, Drive, and Calendar integration — create, edit, and manage documents in Google Workspace.",
+    category: "productivity",
+    package: "google-drive-mcp",
+    command: "npx",
+    args: ["-y", "google-drive-mcp"],
+    envVars: { GOOGLE_CLIENT_ID: "your-client-id", GOOGLE_CLIENT_SECRET: "your-client-secret", GOOGLE_REDIRECT_URI: "http://localhost:3000/oauth2callback" },
+    tools: ["create_doc", "edit_doc", "create_sheet", "read_sheet", "create_slide", "list_files", "upload_file"],
+    docsUrl: "https://github.com/piotr-agier/google-drive-mcp",
+    iconDomain: "google.com",
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

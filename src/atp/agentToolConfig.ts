@@ -140,6 +140,13 @@ const GEO_DOMAIN_TOOLS: ToolDef[] = [
   { id: "content_gap_analysis", name: "Content Gap Analysis", description: "Identify content gaps and opportunities for a topic", group: "Marketing" },
 ];
 
+const PRODUCTIVITY_DOMAIN_TOOLS: ToolDef[] = [
+  { id: "create_spreadsheet",  name: "Create Spreadsheet",  description: "Create professional Excel (.xlsx) with formatting, charts, formulas",   group: "Productivity" },
+  { id: "create_presentation", name: "Create Presentation", description: "Create PowerPoint (.pptx) with branded slides, charts, tables",          group: "Productivity" },
+  { id: "create_document",     name: "Create Document",     description: "Create Word (.docx) with cover page, styled headings, tables",           group: "Productivity" },
+  { id: "create_pdf",          name: "Create PDF",          description: "Create professional PDF with formatted text, tables, page numbers",      group: "Productivity" },
+];
+
 /** Build ToolDef[] for a specialist based on their roster entry. */
 function buildToolDefs(entry: RosterEntry): ToolDef[] {
   const tools: ToolDef[] = [...SPECIALIST_TASK_TOOLS];
@@ -179,6 +186,20 @@ function buildToolDefs(entry: RosterEntry): ToolDef[] {
   if (entry.domain_tools?.includes("social")) tools.push(...SOCIAL_DOMAIN_TOOLS);
   if (entry.domain_tools?.includes("geo")) tools.push(...GEO_DOMAIN_TOOLS);
   if (entry.domain_tools?.includes("marketing")) tools.push(...SEO_DOMAIN_TOOLS, ...SOCIAL_DOMAIN_TOOLS, ...GEO_DOMAIN_TOOLS);
+  if (entry.domain_tools?.includes("productivity")) tools.push(...PRODUCTIVITY_DOMAIN_TOOLS);
+  if (entry.domain_tools?.includes("excel")) tools.push(PRODUCTIVITY_DOMAIN_TOOLS[0]);
+  if (entry.domain_tools?.includes("presentation")) tools.push(PRODUCTIVITY_DOMAIN_TOOLS[1]);
+  if (entry.domain_tools?.includes("document")) tools.push(PRODUCTIVITY_DOMAIN_TOOLS[2]);
+  if (entry.domain_tools?.includes("pdf")) tools.push(PRODUCTIVITY_DOMAIN_TOOLS[3]);
+
+  // Productivity tools — available to all agents with write access (ba, scoped_write, coding*)
+  const writableProfiles = ["ba", "scoped_write", "coding", "coding_extended"];
+  if (writableProfiles.includes(entry.tool_profile)) {
+    // Add productivity tools if not already added via domain_tools
+    const hasProductivity = entry.domain_tools?.some((d: string) =>
+      ["productivity", "excel", "presentation", "document", "pdf"].includes(d));
+    if (!hasProductivity) tools.push(...PRODUCTIVITY_DOMAIN_TOOLS);
+  }
 
   tools.push(...MEMORY_TOOLS, ...AGENT_MESSAGING_TOOLS, DATE_TOOL, ...WEB_TOOLS);
   return tools;

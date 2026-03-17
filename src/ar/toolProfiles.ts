@@ -25,6 +25,10 @@ import { getGitReadTools, getGitWriteTools, getGitAdminTools } from "../tools/do
 import { qaTools } from "../tools/domain/qaTools.js";
 import { securityFlowTools } from "../tools/domain/securityFlowTools.js";
 import { getSEOTools, getSocialTools, getGEOTools, getAllMarketingTools } from "../tools/domain/marketingTools.js";
+import {
+  getExcelTools, getPresentationTools, getDocumentTools,
+  getPdfTools, getAllProductivityTools,
+} from "../tools/domain/productivityTools.js";
 import type { AgentInbox } from "../atp/agentMessageQueue.js";
 
 // ── Domain tool bundles keyed by roster.json "domain_tools" strings ───────────
@@ -36,6 +40,11 @@ const DOMAIN_TOOL_BUNDLES: Record<string, AgentTool[]> = {
   social: getSocialTools(),
   geo: getGEOTools(),
   marketing: getAllMarketingTools(),
+  excel: getExcelTools(),
+  presentation: getPresentationTools(),
+  document: getDocumentTools(),
+  pdf: getPdfTools(),
+  productivity: getAllProductivityTools(),
 };
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -95,6 +104,14 @@ export function buildToolset(
   for (const bundleName of entry.domain_tools) {
     const bundle = DOMAIN_TOOL_BUNDLES[bundleName];
     if (bundle) tools.push(...bundle);
+  }
+
+  // 6b. Productivity tools — all agents with write access get doc creation
+  const writableProfiles = ["ba", "scoped_write", "coding", "coding_extended"];
+  if (writableProfiles.includes(entry.tool_profile)) {
+    const hasProductivity = entry.domain_tools.some((d: string) =>
+      ["productivity", "excel", "presentation", "document", "pdf"].includes(d));
+    if (!hasProductivity) tools.push(...getAllProductivityTools());
   }
 
   // 7. Messaging (filter out broadcast — PM-only)
