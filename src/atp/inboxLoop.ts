@@ -239,7 +239,7 @@ export function startInboxLoop(
         `1. GREETING / CASUAL CHAT from ${founder.name}: call message_agent(to_agent='${founder.agentKey}', message='...') immediately. Done.\n` +
         `2. ACTION REQUEST from PM/Architect/any agent (build/fix/verify/re-run/check/do X): execute first using tools; send message_agent only after execution with evidence. Never send ack-only replies.\n` +
         `3. QUESTION or STATUS REQUEST from any agent (pm, ba, dev, etc.): call message_agent(to_agent='<sender_key>', message='...') with a direct reply. Done.\n` +
-        `4. BUILD / CREATE request with NO existing task: call self_assign_task(description='...') then STOP.\n` +
+        `4. BUILD / CREATE request with NO existing task: use todo() to plan your steps, then execute them.\n` +
         `5. WORK on existing TASK-XXX: call read_task_details('TASK-XXX'), do the work, call update_my_task.\n` +
         `6. If a PM/Architect message is only policy/process guidance (no direct question), apply it silently and continue working. NO_ACTION_REQUIRED.\n` +
         `7. INFORMATIONAL only (genuinely no reply needed): respond with exactly 'NO_ACTION_REQUIRED' and nothing else.\n\n` +
