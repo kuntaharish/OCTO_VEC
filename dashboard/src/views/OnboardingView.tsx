@@ -7,9 +7,10 @@ import { postApi } from "../hooks/useApi";
  *
  * Step 0  "Hello."                   (typewriter, blinking cursor, auto-advance)
  * Step 1  "Meet your AI workforce."  (feature showcase cards float in)
- * Step 2  Name input                 (big centered, minimal)
- * Step 3  Role picker                (pill chips + input)
- * Step 4  "Welcome, {name}."         (launch with scale-up exit)
+ * Step 2  "Secure your dashboard."   (auth — enter dashboard key)
+ * Step 3  Name input                 (big centered, minimal)
+ * Step 4  Role picker                (pill chips + input)
+ * Step 5  "Welcome, {name}."         (launch with scale-up exit)
  */
 
 // ── Transition wrapper ──────────────────────────────────────────────────────
@@ -126,7 +127,11 @@ function FeatureCard({ icon, title, desc, color, delay }: {
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
-export default function OnboardingView({ onComplete }: { onComplete: () => void }) {
+export default function OnboardingView({ needsAuth, onAuthSuccess, onComplete }: {
+  needsAuth?: boolean;
+  onAuthSuccess?: () => void;
+  onComplete: () => void;
+}) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
@@ -134,16 +139,57 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
   const [exiting, setExiting] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const roleRef = useRef<HTMLInputElement>(null);
+  const keyRef = useRef<HTMLInputElement>(null);
+
+  // Auth state
+  const [dashKey, setDashKey] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [showKey, setShowKey] = useState(false);
 
   // Auto-focus
   useEffect(() => {
-    if (step === 2) setTimeout(() => nameRef.current?.focus(), 800);
-    if (step === 3) setTimeout(() => roleRef.current?.focus(), 800);
+    if (step === 2) setTimeout(() => keyRef.current?.focus(), 800);
+    if (step === 3) setTimeout(() => nameRef.current?.focus(), 800);
+    if (step === 4) setTimeout(() => roleRef.current?.focus(), 800);
   }, [step]);
 
   const advance = useCallback(() => setStep(s => s + 1), []);
   const back = useCallback(() => setStep(s => s - 1), []);
 
+  // If auth not needed, skip step 2 automatically
+  const handleStep2Advance = useCallback(() => {
+    if (!needsAuth) {
+      advance();
+      return;
+    }
+    // Otherwise handled by auth button
+  }, [needsAuth, advance]);
+
+  async function handleAuth() {
+    if (!dashKey.trim()) return;
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ key: dashKey.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        onAuthSuccess?.();
+        advance();
+      } else {
+        setAuthError(data.error ?? "Invalid key");
+      }
+    } catch {
+      setAuthError("Connection failed");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
 
   async function finish() {
     setSaving(true);
@@ -182,6 +228,10 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
     transition: "background 0.15s",
   };
 
+  // Total visual steps (for progress dots) — auth step is hidden from dots if skipped
+  const totalSteps = needsAuth ? 5 : 4; // steps 1-5 or 1-4 shown
+  const visualStep = needsAuth ? step : (step <= 1 ? step : step - 1);
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999,
@@ -191,7 +241,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
       transition: "opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1)",
     }}>
 
-      {/* ── Step 0: cycling typewriter — click anywhere to continue ────────── */}
+      {/* ── Step 0: cycling typewriter ────────────────────────────────────── */}
       <Slide visible={step === 0}>
         <div
           onClick={advance}
@@ -213,7 +263,6 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
             <CyclingTypewriter />
           </h1>
 
-          {/* Subtle hint — fades in after 3s */}
           <div style={{
             fontSize: 13, fontWeight: 500, color: "var(--text-muted)",
             letterSpacing: "0.04em",
@@ -235,7 +284,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
         </div>
       </Slide>
 
-      {/* ── Step 1: Feature showcase ───────────────────────────────────────── */}
+      {/* ── Step 1: Feature showcase ─────────────────────────────────────── */}
       <Slide visible={step === 1}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 48, padding: "0 24px" }}>
           <div style={{ textAlign: "center", maxWidth: 500 }}>
@@ -288,8 +337,149 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
         </div>
       </Slide>
 
-      {/* ── Step 2: Name ───────────────────────────────────────────────────── */}
+      {/* ── Step 2: Auth — "Secure your dashboard" ───────────────────────── */}
       <Slide visible={step === 2}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 44, padding: "0 24px" }}>
+          <div style={{ textAlign: "center" }}>
+            {/* Lock icon */}
+            <div style={{
+              width: 64, height: 64, borderRadius: 20, margin: "0 auto 24px",
+              background: "color-mix(in srgb, var(--accent) 10%, transparent)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+            <h2 style={{
+              fontSize: "clamp(28px, 5vw, 44px)", fontWeight: 700,
+              color: "var(--text-primary)", letterSpacing: "-0.03em",
+              lineHeight: 1.15, margin: 0,
+            }}>
+              Secure your<br />
+              <span style={{ color: "var(--accent)" }}>dashboard.</span>
+            </h2>
+            <p style={{
+              fontSize: 15, color: "var(--text-muted)", marginTop: 14, lineHeight: 1.7,
+              maxWidth: 380, marginLeft: "auto", marginRight: "auto",
+            }}>
+              Enter the dashboard key from your terminal to authenticate this session.
+            </p>
+          </div>
+
+          {needsAuth ? (
+            <div style={{ width: "100%", maxWidth: 440, display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Key input */}
+              <div style={{ position: "relative" }}>
+                <input
+                  ref={keyRef}
+                  type={showKey ? "text" : "password"}
+                  placeholder="Paste your dashboard key"
+                  value={dashKey}
+                  onChange={e => { setDashKey(e.target.value); setAuthError(""); }}
+                  onKeyDown={e => { if (e.key === "Enter" && dashKey.trim()) handleAuth(); }}
+                  onFocus={e => { e.currentTarget.style.borderBottomColor = "var(--accent)"; }}
+                  onBlur={e => { e.currentTarget.style.borderBottomColor = authError ? "var(--red)" : "var(--border)"; }}
+                  style={{
+                    ...inputStyle,
+                    fontSize: 18,
+                    fontFamily: showKey ? "monospace" : "inherit",
+                    borderBottomColor: authError ? "var(--red)" : "var(--border)",
+                    letterSpacing: showKey ? "0" : "0.1em",
+                  }}
+                />
+                <button
+                  onClick={() => setShowKey(s => !s)}
+                  style={{
+                    position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", cursor: "pointer", padding: 8,
+                    color: showKey ? "var(--accent)" : "var(--text-muted)",
+                    transition: "color 0.15s",
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    {showKey ? (
+                      <>
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                      </>
+                    )}
+                  </svg>
+                </button>
+              </div>
+
+              {/* Error message */}
+              {authError && (
+                <div style={{
+                  fontSize: 13, color: "var(--red)", textAlign: "center",
+                  animation: "ob-fade-up 0.3s ease-out",
+                }}>
+                  {authError}
+                </div>
+              )}
+
+              {/* Hint */}
+              <div style={{
+                fontSize: 12, color: "var(--text-muted)", textAlign: "center",
+                lineHeight: 1.6, opacity: 0.7,
+              }}>
+                Find this key in your server terminal output at startup.
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: "center" }}>
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "10px 20px", borderRadius: 12,
+                background: "color-mix(in srgb, var(--green) 10%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--green) 20%, transparent)",
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "var(--green)" }}>Session authenticated</span>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            <button onClick={back} style={ghostBtn}
+              onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            >Back</button>
+            {needsAuth ? (
+              <button
+                onClick={handleAuth}
+                disabled={authLoading || !dashKey.trim()}
+                style={{
+                  ...pillBtn(!!dashKey.trim()),
+                  opacity: authLoading ? 0.6 : (dashKey.trim() ? 1 : 0.5),
+                  cursor: authLoading ? "wait" : "pointer",
+                }}
+                onMouseEnter={e => { if (dashKey.trim()) e.currentTarget.style.transform = "scale(1.04)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; }}
+              >
+                {authLoading ? "Authenticating..." : "Authenticate"}
+              </button>
+            ) : (
+              <button onClick={advance} style={pillBtn(true)}
+                onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.04)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; }}
+              >Continue</button>
+            )}
+          </div>
+        </div>
+      </Slide>
+
+      {/* ── Step 3: Name ─────────────────────────────────────────────────── */}
+      <Slide visible={step === 3}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 48, padding: "0 24px" }}>
           <div style={{ textAlign: "center" }}>
             <p style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
@@ -336,8 +526,8 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
         </div>
       </Slide>
 
-      {/* ── Step 3: Role ───────────────────────────────────────────────────── */}
-      <Slide visible={step === 3}>
+      {/* ── Step 4: Role ─────────────────────────────────────────────────── */}
+      <Slide visible={step === 4}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 40, padding: "0 24px" }}>
           <div style={{ textAlign: "center" }}>
             <p style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
@@ -353,7 +543,6 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
             </h2>
           </div>
 
-          {/* Role pills */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", maxWidth: 480 }}>
             {["Founder & CEO", "CTO", "Engineering Lead", "Product Manager", "Developer", "Designer", "Data Scientist", "Student"].map(r => (
               <button
@@ -403,8 +592,8 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
         </div>
       </Slide>
 
-      {/* ── Step 4: Welcome / Launch ───────────────────────────────────────── */}
-      <Slide visible={step === 4}>
+      {/* ── Step 5: Welcome / Launch ─────────────────────────────────────── */}
+      <Slide visible={step === 5}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 48, padding: "0 24px" }}>
           <div style={{ textAlign: "center" }}>
             <h2 style={{
@@ -449,7 +638,6 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                 </div>
               );
             })}
-            {/* Center logo */}
             <div style={{
               position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
               width: 52, height: 52, borderRadius: 16,
@@ -482,17 +670,17 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
         </div>
       </Slide>
 
-      {/* ── Progress bar (steps 1-4 only) ──────────────────────────────────── */}
+      {/* ── Progress bar (steps 1-5) ──────────────────────────────────────── */}
       {step > 0 && (
         <div style={{
           position: "absolute", bottom: 40, left: "50%", transform: "translateX(-50%)",
           display: "flex", gap: 6,
         }}>
-          {[1, 2, 3, 4].map(i => (
+          {Array.from({ length: totalSteps }, (_, i) => i + 1).map(i => (
             <div key={i} style={{
-              width: step === i ? 28 : 6, height: 6, borderRadius: 3,
-              background: i <= step ? "var(--accent)" : "var(--border)",
-              opacity: i <= step ? 1 : 0.4,
+              width: visualStep === i ? 28 : 6, height: 6, borderRadius: 3,
+              background: i <= visualStep ? "var(--accent)" : "var(--border)",
+              opacity: i <= visualStep ? 1 : 0.4,
               transition: "all 0.5s cubic-bezier(0.16,1,0.3,1)",
             }} />
           ))}

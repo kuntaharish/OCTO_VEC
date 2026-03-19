@@ -13,27 +13,48 @@ import LiveView from "./views/LiveView";
 import FinanceView from "./views/FinanceView";
 import RemindersView from "./views/RemindersView";
 import SettingsView from "./views/SettingsView";
+import WorkspaceView from "./views/WorkspaceView";
 import OnboardingView from "./views/OnboardingView";
 import WelcomeTour, { WelcomeSplash, markTourDone } from "./components/WelcomeTour";
-import { apiUrl } from "./hooks/useApi";
+import { apiUrl, startTokenRefresh, stopTokenRefresh } from "./hooks/useApi";
 import { useChatNotifications } from "./hooks/useChatNotifications";
 import ChatToasts from "./components/ChatToasts";
 
 export default function App() {
   const [activeView, setActiveViewRaw] = useState<View>(() => {
     const saved = localStorage.getItem("active-view");
-    return saved && ["overview","kanban","events","snoop","directory","chat","live","finance","reminders","settings"].includes(saved)
+    return saved && ["overview","kanban","events","snoop","directory","chat","live","finance","reminders","workspace","settings"].includes(saved)
       ? (saved as View)
       : "kanban";
   });
 
+  // Auth state: null = loading, true = authed, false = needs login
+  const [authed, setAuthed] = useState<boolean | null>(null);
   // Onboarding state: null = loading, true = show onboarding, false = done
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
-  // Tour phases: "splash" = full-screen welcome, "walkthrough" = overlay on dashboard, null = done
+  // Tour phases
   const [tourPhase, setTourPhase] = useState<"splash" | "walkthrough" | null>(null);
 
+  // Check auth status on mount
   useEffect(() => {
-    fetch(apiUrl("/api/onboarding"))
+    fetch("/api/auth/status", { credentials: "include" })
+      .then(r => r.json())
+      .then(data => setAuthed(data.authenticated === true))
+      .catch(() => setAuthed(false));
+  }, []);
+
+  // Listen for session expiry from authFetch
+  useEffect(() => {
+    const handler = () => { setAuthed(false); stopTokenRefresh(); };
+    window.addEventListener("vec:auth-expired", handler);
+    return () => window.removeEventListener("vec:auth-expired", handler);
+  }, []);
+
+  // Once authed, check onboarding + start token refresh
+  useEffect(() => {
+    if (!authed) return;
+    startTokenRefresh();
+    fetch("/api/onboarding", { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) { setShowOnboarding(false); return; }
@@ -42,14 +63,45 @@ export default function App() {
         if (!needsOnboarding && !data.tourDone) setTourPhase("splash");
       })
       .catch(() => setShowOnboarding(false));
-  }, []);
+  }, [authed]);
 
   function setActiveView(v: View) {
     localStorage.setItem("active-view", v);
     setActiveViewRaw(v);
   }
 
-  // Show nothing while checking onboarding status
+  function handleAuthSuccess() {
+    setAuthed(true);
+    startTokenRefresh();
+  }
+
+  // Loading
+  if (authed === null) {
+    return (
+      <ThemeProvider>
+        <div style={{
+          height: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+          background: "var(--bg-primary)",
+        }} />
+      </ThemeProvider>
+    );
+  }
+
+  // Not authed OR needs onboarding — both go through OnboardingView
+  // OnboardingView handles the auth step internally when needsAuth=true
+  if (!authed || showOnboarding) {
+    return (
+      <ThemeProvider>
+        <OnboardingView
+          needsAuth={!authed}
+          onAuthSuccess={handleAuthSuccess}
+          onComplete={() => { setShowOnboarding(false); setTourPhase("splash"); }}
+        />
+      </ThemeProvider>
+    );
+  }
+
+  // Still loading onboarding check
   if (showOnboarding === null) {
     return (
       <ThemeProvider>
@@ -61,15 +113,7 @@ export default function App() {
     );
   }
 
-  if (showOnboarding) {
-    return (
-      <ThemeProvider>
-        <OnboardingView onComplete={() => { setShowOnboarding(false); setTourPhase("splash"); }} />
-      </ThemeProvider>
-    );
-  }
-
-  // Full-screen welcome splash — shown BEFORE the dashboard
+  // Welcome splash
   if (tourPhase === "splash") {
     return (
       <ThemeProvider>
@@ -96,7 +140,6 @@ function DashboardShell({ activeView, setActiveView, tourPhase, setTourPhase }: 
 }) {
   const { unreadCount, perAgentUnread, toasts, markAgentRead, dismissToast } = useChatNotifications(activeView);
 
-  // Click toast → navigate to that agent's chat
   function handleToastClick(agentId: string) {
     sessionStorage.setItem("chat_selected_agent", agentId);
     setActiveView("chat");
@@ -123,9 +166,17 @@ function DashboardShell({ activeView, setActiveView, tourPhase, setTourPhase }: 
         {activeView === "live" && <LiveView />}
         {activeView === "finance" && <FinanceView />}
         {activeView === "reminders" && <RemindersView />}
+        {activeView === "workspace" && <WorkspaceView />}
         {activeView === "settings" && <SettingsView />}
       </main>
-      {tourPhase === "walkthrough" && <WelcomeTour onDone={() => setTourPhase(null)} setActiveView={setActiveView} />}
+
+      {tourPhase === "walkthrough" && (
+        <WelcomeTour
+          setActiveView={setActiveView}
+          onDone={() => { markTourDone(); setTourPhase(null); }}
+        />
+      )}
+
       <ChatToasts toasts={toasts} onDismiss={dismissToast} onClickToast={handleToastClick} />
     </div>
   );

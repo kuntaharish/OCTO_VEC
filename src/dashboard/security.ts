@@ -1,19 +1,15 @@
 /**
  * Dashboard security middleware — auth, CORS, headers, rate limiting.
  *
- * API Key Auth:
- *   - On first run, generates a random 32-byte hex key → data/dashboard-secret.key
- *   - All /api/* routes require X-API-Key header or ?key= query param
- *   - SSE stream endpoint also requires auth
- *   - Static file serving (React dashboard) is NOT auth-gated
- *
- * The key is printed once at startup so the user can configure the dashboard frontend.
+ * Dual auth: JWT httpOnly cookies (primary) + legacy API key (fallback for SSE).
+ * On first run, generates a random 32-byte hex key → data/dashboard-secret.key.
  */
 
 import { randomBytes, existsSync, readFileSync, writeFileSync, mkdirSync } from "./securityHelpers.js";
 import { join } from "path";
 import { config } from "../config.js";
 import type { Request, Response, NextFunction } from "express";
+import { verifyAccessToken, ACCESS_COOKIE } from "./auth.js";
 
 // ── API Key Management ────────────────────────────────────────────────────
 
@@ -41,20 +37,24 @@ export function getDashboardApiKey(): string {
 }
 
 /**
- * Express middleware: require valid API key on /api/* routes only.
- * - API routes without key → 401 JSON
- * - Everything else (SPA HTML, static assets) → allowed through
- *   (the SPA uses sessionStorage to persist the key across reloads,
- *    and shows its own error UI if API calls return 401)
- * Checks X-API-Key header first, then ?key= / ?KEY= query param.
+ * Express middleware: dual authentication.
+ * 1. JWT cookie (primary) — set by /api/auth/login
+ * 2. Legacy API key via X-API-Key header or ?key= query param (fallback for SSE)
+ *
+ * Auth endpoints (/api/auth/*) are exempt.
  */
-export function apiKeyAuth(req: Request, res: Response, next: NextFunction): void {
-  // Only gate /api/ routes — let SPA and static assets through
-  if (!req.path.startsWith("/api/")) {
-    next();
-    return;
-  }
+export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+  // Let SPA and static assets through
+  if (!req.path.startsWith("/api/")) { next(); return; }
 
+  // Auth endpoints don't need auth
+  if (req.path.startsWith("/api/auth/")) { next(); return; }
+
+  // 1. Try JWT cookie
+  const token = req.cookies?.[ACCESS_COOKIE];
+  if (token && verifyAccessToken(token)) { next(); return; }
+
+  // 2. Fallback: legacy API key (for SSE EventSource + backward compat)
   const key = getDashboardApiKey();
   const provided =
     (req.headers["x-api-key"] as string) ??
@@ -62,27 +62,20 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction): voi
     (req.query.KEY as string) ??
     "";
 
-  if (provided === key) {
-    next();
-    return;
-  }
+  if (provided === key) { next(); return; }
 
-  res.status(401).json({ error: "Unauthorized — provide X-API-Key header or ?key= query param" });
+  res.status(401).json({ error: "Unauthorized" });
 }
 
 // ── CORS Configuration ───────────────────────────────────────────────────
 
-/**
- * Build CORS options: only allow same-origin by default.
- * Override with VEC_CORS_ORIGIN env var (e.g., "http://localhost:5173" for Vite dev).
- */
 export function getCorsOptions() {
   const allowedOrigin = process.env.VEC_CORS_ORIGIN ?? `http://localhost:${config.dashboardPort}`;
   return {
     origin: allowedOrigin,
-    methods: ["GET", "POST", "DELETE"],
+    methods: ["GET", "POST", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "X-API-Key"],
-    credentials: false,
+    credentials: true, // required for httpOnly cookies
   };
 }
 
@@ -93,52 +86,62 @@ export function getHelmetOptions() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"], // inline HTML dashboard needs this
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:"],
+        scriptSrcElem: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:"],
+        workerSrc: ["'self'", "blob:"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         styleSrcElem: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "blob:", "https://t2.gstatic.com"],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", "ws:", "wss:"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        frameSrc: ["'self'", "data:", "blob:"],
         objectSrc: ["'none'"],
-        frameAncestors: ["'none'"], // prevent clickjacking
+        frameAncestors: ["'none'"],
       },
     },
-    crossOriginEmbedderPolicy: false, // breaks SSE in some browsers
+    crossOriginEmbedderPolicy: false,
   };
 }
 
 // ── Rate Limiting ────────────────────────────────────────────────────────
 
-/** Rate limit config for mutation endpoints (POST/DELETE). */
 export function getMutationRateLimitOptions() {
   return {
-    windowMs: 60 * 1000, // 1 minute
-    max: 60, // 60 requests per minute
+    windowMs: 60 * 1000,
+    max: 60,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many requests — slow down" },
   };
 }
 
+/** Strict rate limit for auth login attempts — 5 per minute. */
+export function getLoginRateLimitOptions() {
+  return {
+    windowMs: 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many login attempts — try again in a minute" },
+  };
+}
+
 // ── Dashboard Host ───────────────────────────────────────────────────────
 
-/** Get the host to bind the dashboard to. Default: 127.0.0.1 (localhost only). */
 export function getDashboardHost(): string {
   return process.env.VEC_DASHBOARD_HOST ?? "127.0.0.1";
 }
 
 // ── MCP Config Validation ────────────────────────────────────────────────
 
-/** Allowed commands for MCP servers. Rejects anything not in this list. */
 const MCP_ALLOWED_COMMANDS = new Set([
   "npx", "node", "python", "python3", "docker", "deno", "bun", "uvx",
 ]);
 
-/** Dangerous argument patterns that should never appear in MCP args. */
 const MCP_BLOCKED_ARG_PATTERNS = [
-  /[;&|`$]/, // shell metacharacters
-  />\s*\//, // redirect to absolute path
-  /\.\.[/\\]/, // directory traversal
+  /[;&|`$]/,
+  />\s*\//,
+  /\.\.[/\\]/,
 ];
 
 export interface MCPValidationResult {
@@ -146,7 +149,6 @@ export interface MCPValidationResult {
   error?: string;
 }
 
-/** Validate an MCP config object before writing to disk. */
 export function validateMCPConfig(body: any): MCPValidationResult {
   if (!body || typeof body !== "object" || !body.mcpServers) {
     return { valid: false, error: "Missing mcpServers object" };
@@ -168,9 +170,7 @@ export function validateMCPConfig(body: any): MCPValidationResult {
     }
 
     const cmd = cfg.command.trim().toLowerCase();
-    // Extract just the binary name (strip path)
     const cmdBase = cmd.split(/[/\\]/).pop() ?? cmd;
-    // Strip .exe/.cmd suffix on Windows
     const cmdClean = cmdBase.replace(/\.(exe|cmd|bat)$/i, "");
 
     if (!MCP_ALLOWED_COMMANDS.has(cmdClean)) {
@@ -190,10 +190,7 @@ export function validateMCPConfig(body: any): MCPValidationResult {
         }
         for (const pattern of MCP_BLOCKED_ARG_PATTERNS) {
           if (pattern.test(arg)) {
-            return {
-              valid: false,
-              error: `Server "${name}": blocked argument pattern detected in "${arg}"`,
-            };
+            return { valid: false, error: `Server "${name}": blocked argument pattern detected in "${arg}"` };
           }
         }
       }

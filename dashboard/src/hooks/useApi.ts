@@ -1,20 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
 
-// ── API Key management ────────────────────────────────────────────────────
+// ── API Key management (legacy — kept for SSE EventSource) ───────────────
 // The dashboard API key is passed via ?key= in the dashboard URL.
 // Once loaded, it's cached in sessionStorage for the tab lifetime.
 
 function getApiKey(): string {
-  // 1. Check sessionStorage (persists across SPA navigation)
   const cached = sessionStorage.getItem("vec-api-key");
   if (cached) return cached;
 
-  // 2. Check URL query param (first load) — accept both ?key= and ?KEY=
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get("key") ?? params.get("KEY") ?? "";
   if (fromUrl) {
     sessionStorage.setItem("vec-api-key", fromUrl);
-    // Clean the key from the URL bar (avoid leaking in bookmarks/history)
     const cleanUrl = window.location.pathname + window.location.hash;
     window.history.replaceState({}, "", cleanUrl);
     return fromUrl;
@@ -23,13 +20,7 @@ function getApiKey(): string {
   return "";
 }
 
-function authHeaders(): Record<string, string> {
-  const key = getApiKey();
-  if (!key) return {};
-  return { "X-API-Key": key };
-}
-
-/** Build a URL with the API key as query param (for non-fetch uses like EventSource). */
+/** Build a URL with the API key as query param (for SSE EventSource only). */
 export function apiUrl(path: string): string {
   const key = getApiKey();
   if (!key) return path;
@@ -37,9 +28,47 @@ export function apiUrl(path: string): string {
   return `${path}${sep}key=${encodeURIComponent(key)}`;
 }
 
-/** Check if we have an API key configured. */
+/** Check if we have a legacy API key configured. */
 export function hasApiKey(): boolean {
   return getApiKey().length > 0;
+}
+
+// ── Cookie-based auth fetch with auto-refresh ────────────────────────────
+
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const res = await fetch(url, { ...options, credentials: "include" });
+
+  if (res.status === 401) {
+    // Try refreshing the access token
+    const refreshRes = await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+    });
+
+    if (refreshRes.ok) {
+      // Retry with the new cookie
+      return fetch(url, { ...options, credentials: "include" });
+    }
+
+    // Refresh failed — session expired
+    window.dispatchEvent(new CustomEvent("vec:auth-expired"));
+    throw new Error("Session expired");
+  }
+
+  return res;
+}
+
+// Proactive token refresh — every 50 min (before 1h expiry)
+let _refreshTimer: ReturnType<typeof setInterval> | null = null;
+export function startTokenRefresh() {
+  if (_refreshTimer) return;
+  _refreshTimer = setInterval(() => {
+    fetch("/api/auth/refresh", { method: "POST", credentials: "include" }).catch(() => {});
+  }, 50 * 60 * 1000);
+}
+
+export function stopTokenRefresh() {
+  if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
 }
 
 // ── Polling hook ──────────────────────────────────────────────────────────
@@ -52,11 +81,7 @@ export function usePolling<T>(url: string, interval = 3000) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(url, { headers: authHeaders() });
-      if (res.status === 401) {
-        setError("Unauthorized — add ?key=YOUR_API_KEY to the dashboard URL");
-        return;
-      }
+      const res = await authFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setData(json);
@@ -81,9 +106,9 @@ export function usePolling<T>(url: string, interval = 3000) {
 // ── Fetch helpers ─────────────────────────────────────────────────────────
 
 export async function postApi(url: string, body: unknown) {
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -91,9 +116,9 @@ export async function postApi(url: string, body: unknown) {
 }
 
 export async function patchApi(url: string, body: unknown) {
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -101,10 +126,7 @@ export async function patchApi(url: string, body: unknown) {
 }
 
 export async function deleteApi(url: string) {
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: authHeaders(),
-  });
+  const res = await authFetch(url, { method: "DELETE" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
