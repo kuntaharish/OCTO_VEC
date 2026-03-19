@@ -13,6 +13,7 @@ import { join } from "path";
 import { config } from "../config.js";
 
 const USAGE_PATH = join(config.dataDir, "token-usage.json");
+const BUDGET_PATH = join(config.dataDir, "budget-config.json");
 
 // ── Fallback pricing (USD per 1M tokens) ─────────────────────────────────────
 // Used only when real per-model cost data isn't available from the provider.
@@ -171,4 +172,193 @@ export function getTotals(): {
 export function resetUsage(): void {
   store = { agents: {}, sessionStart: new Date().toISOString() };
   saveStore();
+}
+
+// ── Budget System ────────────────────────────────────────────────────────────
+
+export interface LimitConfig {
+  dailyLimit?: number;   // USD
+  monthlyLimit?: number; // USD
+  enabled: boolean;
+}
+
+export interface BudgetConfig {
+  org: LimitConfig & { alertThreshold: number };
+  departments: Record<string, LimitConfig>;
+  agents: Record<string, LimitConfig>;
+}
+
+interface DailySpend {
+  date: string; // YYYY-MM-DD
+  org: number;
+  agents: Record<string, number>;
+}
+
+let budgetConfig: BudgetConfig = loadBudgetConfig();
+
+// Track daily/monthly spend from usage data
+function loadBudgetConfig(): BudgetConfig {
+  try {
+    if (existsSync(BUDGET_PATH)) {
+      return JSON.parse(readFileSync(BUDGET_PATH, "utf-8"));
+    }
+  } catch { /* ignore */ }
+  return {
+    org: { enabled: false, alertThreshold: 0.8 },
+    departments: {},
+    agents: {},
+  };
+}
+
+function saveBudgetConfig(): void {
+  try {
+    mkdirSync(config.dataDir, { recursive: true });
+    writeFileSync(BUDGET_PATH, JSON.stringify(budgetConfig, null, 2));
+  } catch { /* best-effort */ }
+}
+
+export function getBudgetConfig(): BudgetConfig {
+  return budgetConfig;
+}
+
+export function setBudgetConfig(cfg: BudgetConfig): void {
+  budgetConfig = cfg;
+  saveBudgetConfig();
+}
+
+/** Compute daily spend from usage store for today. */
+function getDailySpend(): DailySpend {
+  const today = new Date().toISOString().slice(0, 10);
+  // We estimate daily spend from per-agent totals proportionally
+  // For precise daily tracking we'd need per-turn timestamps, so we track
+  // cost accumulated since last reset as a proxy
+  const agents: Record<string, number> = {};
+  let org = 0;
+  for (const a of Object.values(store.agents)) {
+    // If lastActivity is today, count all cost (simplification)
+    // In production you'd track per-day buckets
+    const lastDate = a.lastActivity?.slice(0, 10);
+    if (lastDate === today) {
+      agents[a.agentId] = a.costUsd;
+      org += a.costUsd;
+    }
+  }
+  return { date: today, org, agents };
+}
+
+/** Get monthly spend (sum of all cost since session, capped to current month). */
+function getMonthlySpend(): { org: number; agents: Record<string, number> } {
+  const thisMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const agents: Record<string, number> = {};
+  let org = 0;
+  for (const a of Object.values(store.agents)) {
+    const lastMonth = a.lastActivity?.slice(0, 7);
+    if (lastMonth === thisMonth) {
+      agents[a.agentId] = a.costUsd;
+      org += a.costUsd;
+    }
+  }
+  return { org, agents };
+}
+
+export interface LimitStatus {
+  dailySpend: number;
+  monthlySpend: number;
+  dailyLimit?: number;
+  monthlyLimit?: number;
+  dailyPct: number;
+  monthlyPct: number;
+  exceeded: boolean;
+  warning: boolean;
+  enabled: boolean;
+}
+
+export interface BudgetStatus {
+  org: LimitStatus & { alertThreshold: number };
+  departments: Record<string, LimitStatus>;
+  agents: Record<string, LimitStatus>;
+}
+
+// Helper to compute a department → agent mapping from an external roster
+// The server will pass this in; tokenTracker doesn't know about employees
+let _deptMap: Record<string, string> = {}; // agentId → department
+export function setDepartmentMap(map: Record<string, string>) { _deptMap = map; }
+
+function computeLimitStatus(spend: { daily: number; monthly: number }, lCfg: LimitConfig, threshold: number): LimitStatus {
+  const dPct = lCfg.dailyLimit ? spend.daily / lCfg.dailyLimit : 0;
+  const mPct = lCfg.monthlyLimit ? spend.monthly / lCfg.monthlyLimit : 0;
+  const exceeded = lCfg.enabled && (
+    (lCfg.dailyLimit != null && spend.daily >= lCfg.dailyLimit) ||
+    (lCfg.monthlyLimit != null && spend.monthly >= lCfg.monthlyLimit)
+  );
+  const warning = lCfg.enabled && !exceeded && (dPct >= threshold || mPct >= threshold);
+  return {
+    dailySpend: spend.daily, monthlySpend: spend.monthly,
+    dailyLimit: lCfg.dailyLimit, monthlyLimit: lCfg.monthlyLimit,
+    dailyPct: dPct, monthlyPct: mPct,
+    exceeded, warning, enabled: lCfg.enabled,
+  };
+}
+
+/** Get current budget status with spend vs limits. */
+export function getBudgetStatus(): BudgetStatus {
+  const daily = getDailySpend();
+  const monthly = getMonthlySpend();
+  const cfg = budgetConfig;
+  const threshold = cfg.org.alertThreshold || 0.8;
+
+  // Org
+  const orgStatus = {
+    ...computeLimitStatus({ daily: daily.org, monthly: monthly.org }, cfg.org, threshold),
+    alertThreshold: threshold,
+  };
+
+  // Departments — aggregate spend by department
+  const deptDaily: Record<string, number> = {};
+  const deptMonthly: Record<string, number> = {};
+  for (const a of Object.values(store.agents)) {
+    const dept = _deptMap[a.agentId] ?? "Other";
+    deptDaily[dept] = (deptDaily[dept] ?? 0) + (daily.agents[a.agentId] ?? 0);
+    deptMonthly[dept] = (deptMonthly[dept] ?? 0) + (monthly.agents[a.agentId] ?? 0);
+  }
+  const deptStatuses: Record<string, LimitStatus> = {};
+  const allDepts = new Set([...Object.keys(cfg.departments ?? {}), ...Object.keys(deptDaily)]);
+  for (const dept of allDepts) {
+    const dCfg = cfg.departments?.[dept] ?? { enabled: false };
+    deptStatuses[dept] = computeLimitStatus({
+      daily: deptDaily[dept] ?? 0,
+      monthly: deptMonthly[dept] ?? 0,
+    }, dCfg, threshold);
+  }
+
+  // Agents
+  const agentStatuses: Record<string, LimitStatus> = {};
+  const allAgentIds = new Set([...Object.keys(cfg.agents), ...Object.keys(store.agents)]);
+  for (const id of allAgentIds) {
+    const aCfg = cfg.agents[id] ?? { enabled: false };
+    agentStatuses[id] = computeLimitStatus({
+      daily: daily.agents[id] ?? 0,
+      monthly: monthly.agents[id] ?? 0,
+    }, aCfg, threshold);
+  }
+
+  return { org: orgStatus, departments: deptStatuses, agents: agentStatuses };
+}
+
+/** Check if an agent is allowed to proceed (not over budget). */
+export function isAgentOverBudget(agentId: string): { blocked: boolean; reason?: string } {
+  const status = getBudgetStatus();
+
+  // Check org level
+  if (status.org.exceeded) {
+    return { blocked: true, reason: "Organization budget limit exceeded" };
+  }
+
+  // Check agent level
+  const agentStatus = status.agents[agentId];
+  if (agentStatus?.exceeded) {
+    return { blocked: true, reason: `Agent "${agentId}" budget limit exceeded` };
+  }
+
+  return { blocked: false };
 }
