@@ -87,7 +87,8 @@ export default function RemindersView() {
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px" }}>
         {items.length === 0 ? (
           <div style={{
-            textAlign: "center", padding: "60px 20px",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            height: "100%", textAlign: "center", padding: "20px",
             color: "var(--text-muted)", fontSize: 13,
           }}>
             <Bell size={32} style={{ opacity: 0.3, marginBottom: 12 }} />
