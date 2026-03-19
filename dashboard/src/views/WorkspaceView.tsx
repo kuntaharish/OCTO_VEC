@@ -835,21 +835,11 @@ function ProjectCard({
     >
       {/* Card body */}
       <div style={{ padding: "16px 16px 12px", cursor: "pointer", position: "relative" }} onClick={onExpand}>
-        {/* Open buttons — overlay, top-right, only on hover */}
+        {/* Open with external editor — overlay, top-right, only on hover */}
         <div style={{
           position: "absolute", top: 10, right: 10, zIndex: 2,
           opacity: hovered ? 1 : 0, transition: "opacity 0.12s",
-          display: "flex", gap: 4,
         }} onClick={(e) => e.stopPropagation()}>
-          <button onClick={onOctoEdit} style={{
-            display: "flex", alignItems: "center", gap: 4,
-            padding: "3px 8px", borderRadius: 6,
-            border: "1px solid var(--accent)", background: "var(--accent-subtle)",
-            color: "var(--accent)", fontSize: 11, fontWeight: 600,
-            cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
-          }}>
-            <FileCode size={11} /> OCTO-EDIT
-          </button>
           <OpenWithDropdown editors={editors} onOpen={onOpen} triggerSize="sm" />
         </div>
 
@@ -911,6 +901,20 @@ function ProjectCard({
             {git.lastCommit}
           </div>
         )}
+      </div>
+
+      {/* OCTO-EDIT button — always visible */}
+      <div style={{ padding: "0 16px 12px" }} onClick={(e) => e.stopPropagation()}>
+        <button onClick={onOctoEdit} style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          padding: "7px 0", borderRadius: 8,
+          border: "1px solid var(--accent)", background: hovered ? "var(--accent)" : "var(--accent-subtle, transparent)",
+          color: hovered ? "#fff" : "var(--accent)", fontSize: 12, fontWeight: 600,
+          cursor: "pointer", fontFamily: "inherit",
+          transition: "background 0.15s, color 0.15s",
+        }}>
+          <FileCode size={13} /> Open in OCTO-EDIT
+        </button>
       </div>
 
       {/* Expanded file list */}
