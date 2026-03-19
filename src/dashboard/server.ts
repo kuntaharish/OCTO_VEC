@@ -18,8 +18,10 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import cookieParser from "cookie-parser";
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from "fs";
+import { join, resolve, sep } from "path";
+import { execFileSync, execSync, exec } from "child_process";
 import { config, PACKAGE_ROOT, USER_DATA_DIR, setWorkspace } from "../config.js";
 import { getMaskedIntegrationConfig, saveIntegrationConfig } from "../integrations/integrationConfig.js";
 
@@ -39,21 +41,40 @@ import { getAllGroups, getGroup, addGroup, deleteGroup, markActiveGroupConversat
 import { getRosterEntry, getRoleTemplates } from "../ar/roster.js";
 import { AgentRuntime } from "../atp/agentRuntime.js";
 import { getMCPTools, reloadMCP } from "../mcp/mcpBridge.js";
-import { ActiveChannelState } from "../channels/activeChannel.js";
+import { ActiveChannelState, EditorChannelState } from "../channels/activeChannel.js";
 import type { VECAgent } from "../atp/inboxLoop.js";
-import { getAllUsage as getFinanceAllUsage, getTotals as getFinanceTotals, resetUsage as resetFinanceUsage } from "../atp/tokenTracker.js";
+import { getAllUsage as getFinanceAllUsage, getTotals as getFinanceTotals, resetUsage as resetFinanceUsage, getBudgetConfig, setBudgetConfig, getBudgetStatus, setDepartmentMap } from "../atp/tokenTracker.js";
 import { getProviders, getModelConfig, setModelConfig, setAgentModel, getEffectiveModel, setProviderApiKey } from "../atp/modelConfig.js";
 import { saveChannelCredentials, getChannelConfigMasked, ALL_CHANNEL_IDS, isValidChannel, CHANNEL_LABELS, type ChannelId } from "../channels/channelConfig.js";
 import { channelManager } from "../channels/channelManager.js";
 import {
-  apiKeyAuth,
+  authMiddleware,
   getDashboardApiKey,
   getDashboardHost,
   getCorsOptions,
   getHelmetOptions,
   getMutationRateLimitOptions,
+  getLoginRateLimitOptions,
   validateMCPConfig,
 } from "./security.js";
+import {
+  validateMasterKey,
+  setAuthCookies,
+  clearAuthCookies,
+  verifyRefreshToken,
+  verifyAccessToken,
+  signAccessToken,
+  ACCESS_COOKIE,
+} from "./auth.js";
+import {
+  loadGitConfig,
+  saveGitConfig,
+  getMaskedGitConfig,
+  getGitCredentials,
+  runMemoryBackup,
+  startBackupSchedule,
+  stopBackupSchedule,
+} from "./gitConfig.js";
 
 // â"€â"€ Error classification (server-side) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -2488,10 +2509,59 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   // ── Security middleware ──────────────────────────────────────────────────
   app.use(helmet(getHelmetOptions()));
   app.use(cors(getCorsOptions()));
-  app.use(apiKeyAuth);
-  // Rate-limit mutation endpoints (POST/DELETE) — 60 req/min
-  app.use("/api/", rateLimit(getMutationRateLimitOptions()));
+  app.use(cookieParser());
+  app.use(authMiddleware);
+  // Rate-limit mutation endpoints (POST/DELETE) only — 60 req/min
+  const mutationLimiter = rateLimit(getMutationRateLimitOptions());
+  app.use("/api/", (req, res, next) => {
+    if (req.method === "GET") return next();
+    mutationLimiter(req, res, next);
+  });
   app.use(express.json());
+
+  // ── Auth endpoints ─────────────────────────────────────────────────────
+  const loginLimiter = rateLimit(getLoginRateLimitOptions());
+
+  app.post("/api/auth/login", loginLimiter, (req, res) => {
+    const { key } = req.body ?? {};
+    if (!key || typeof key !== "string") {
+      res.status(400).json({ error: "Missing key" });
+      return;
+    }
+    const masterKey = getDashboardApiKey();
+    if (!validateMasterKey(key.trim(), masterKey)) {
+      res.status(401).json({ error: "Invalid dashboard key" });
+      return;
+    }
+    setAuthCookies(res);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/auth/refresh", (req, res) => {
+    const refreshToken = req.cookies?.vec_refresh;
+    if (!refreshToken || !verifyRefreshToken(refreshToken)) {
+      clearAuthCookies(res);
+      res.status(401).json({ error: "Invalid refresh token" });
+      return;
+    }
+    // Issue new access token only (refresh stays valid)
+    const access = signAccessToken();
+    res.cookie(ACCESS_COOKIE, access, {
+      httpOnly: true, sameSite: "strict", secure: false, path: "/",
+      maxAge: 60 * 60 * 1000,
+    });
+    res.json({ ok: true });
+  });
+
+  app.post("/api/auth/logout", (_req, res) => {
+    clearAuthCookies(res);
+    res.json({ ok: true });
+  });
+
+  app.get("/api/auth/status", (req, res) => {
+    const token = req.cookies?.[ACCESS_COOKIE];
+    res.json({ authenticated: !!(token && verifyAccessToken(token)) });
+  });
 
   app.get("/api/tasks", (_req, res) => {
     // Map "pending" → "todo" so React status types align
@@ -2609,6 +2679,49 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     // Clear any active group conversation when user sends individual DM
     clearActiveGroup(agentKey);
     res.json({ ok: true, to: agentKey });
+  });
+
+  // ── OCTO-EDIT Editor Chat ──────────────────────────────────────────────
+
+  /** Send message from Editor view — tagged with editor channel + project path. */
+  app.post("/api/editor-send", (req, res) => {
+    const { to, message, project } = req.body ?? {};
+    if (!to || typeof to !== "string" || !message || typeof message !== "string") {
+      res.status(400).json({ error: "to and message are required strings" }); return;
+    }
+    const agentKey = to.trim().toLowerCase();
+    if (!AGENT_DISPLAY_NAMES[agentKey] || agentKey === "user") {
+      res.status(400).json({ error: `Unknown agent: ${agentKey}` }); return;
+    }
+    const projectPath = typeof project === "string" ? project.trim() : "";
+    // Set channel to editor so replies route back here
+    ActiveChannelState.set("editor");
+    EditorChannelState.set(projectPath || null);
+    // Prefix message with project context so agent knows the workspace
+    const contextMsg = projectPath
+      ? `[OCTO-EDIT: ${projectPath}] ${message.trim()}`
+      : message.trim();
+    AgentMessageQueue.push("user", agentKey, "", contextMsg, "normal");
+    UserChatLog.log({
+      from: "user", to: agentKey, message: message.trim(),
+      channel: "editor", editor_project: projectPath || undefined,
+    });
+    clearActiveGroup(agentKey);
+    res.json({ ok: true, to: agentKey });
+  });
+
+  /** Poll editor chat messages — returns only editor-channel messages for a project. */
+  app.get("/api/editor-chat", (req, res) => {
+    const project = (req.query.project as string) ?? "";
+    const since = (req.query.since as string) ?? "";
+    const all = UserChatLog.getRecent(100);
+    let filtered = all.filter(e =>
+      e.channel === "editor" && e.editor_project === project
+    );
+    if (since) {
+      filtered = filtered.filter(e => e.timestamp > since);
+    }
+    res.json(filtered);
   });
 
   // ── Agent Groups ────────────────────────────────────────────────────────
@@ -2928,20 +3041,60 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     }
   });
 
+  // ── Installed editors detection ────────────────────────────────────────────
+  app.get("/api/editors", (_req, res) => {
+    const EDITORS: { id: string; name: string; cmd: string }[] = [
+      { id: "vscode",       name: "VS Code",        cmd: "code" },
+      { id: "cursor",       name: "Cursor",          cmd: "cursor" },
+      { id: "windsurf",     name: "Windsurf",        cmd: "windsurf" },
+      { id: "antigravity",  name: "Antigravity",     cmd: "antigravity" },
+      { id: "zed",          name: "Zed",             cmd: "zed" },
+      { id: "sublime",      name: "Sublime Text",    cmd: "subl" },
+      { id: "webstorm",     name: "WebStorm",        cmd: "webstorm" },
+      { id: "intellij",     name: "IntelliJ IDEA",   cmd: "idea" },
+      { id: "fleet",        name: "Fleet",            cmd: "fleet" },
+      { id: "atom",         name: "Atom",             cmd: "atom" },
+      { id: "notepadpp",    name: "Notepad++",        cmd: "notepad++" },
+      { id: "vim",          name: "Vim",              cmd: "vim" },
+      { id: "nvim",         name: "Neovim",           cmd: "nvim" },
+      { id: "emacs",        name: "Emacs",            cmd: "emacs" },
+    ];
+
+    const which = process.platform === "win32" ? "where" : "which";
+    const detected: { id: string; name: string; cmd: string }[] = [];
+
+    for (const editor of EDITORS) {
+      try {
+        execSync(`${which} ${editor.cmd}`, { timeout: 3000, stdio: "pipe" } as any);
+        detected.push({ id: editor.id, name: editor.name, cmd: editor.cmd });
+      } catch { /* not installed */ }
+    }
+
+    res.json({ editors: detected });
+  });
+
   // ── Docker availability check ──────────────────────────────────────────────
   app.get("/api/docker-status", (_req, res) => {
     try {
-      const { execSync } = require("child_process");
-      const version = execSync("docker --version", { timeout: 5000, encoding: "utf-8" }).trim();
-      // Also check if daemon is running
+      const execOpts: any = { timeout: 5000, encoding: "utf-8", shell: true, stdio: "pipe" };
+      const version = (execSync("docker --version", execOpts) as string).trim();
+      // Also check if daemon is running (docker info fails/hangs when daemon is stopped)
       try {
-        execSync("docker info", { timeout: 10000, stdio: "pipe" });
+        execSync("docker info", { ...execOpts, timeout: 10000 });
         res.json({ installed: true, running: true, version });
       } catch {
         res.json({ installed: true, running: false, version, error: "Docker is installed but the daemon is not running. Start Docker Desktop." });
       }
-    } catch {
-      res.json({ installed: false, running: false, version: null });
+    } catch (err: any) {
+      // On Windows, docker CLI may exist but fail — check if the binary is findable
+      try {
+        const which = process.platform === "win32" ? "where docker" : "which docker";
+        execSync(which, { timeout: 3000, stdio: "pipe", shell: true } as any);
+        // Binary exists but docker --version failed (daemon dependency on some setups)
+        res.json({ installed: true, running: false, version: null, error: "Docker is installed but may not be running." });
+      } catch {
+        res.json({ installed: false, running: false, version: null });
+      }
     }
   });
 
@@ -2982,13 +3135,276 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
       return;
     }
     try {
-      const resolved = require("path").resolve(wsPath.trim());
-      require("fs").mkdirSync(resolved, { recursive: true });
+      const resolved = resolve(wsPath.trim());
+      mkdirSync(resolved, { recursive: true });
       setWorkspace(resolved);
       res.json({ ok: true, workspace: resolved });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to update workspace" });
     }
+  });
+
+  // ── Workspace browser ─────────────────────────────────────────────────
+  app.get("/api/workspace-tree", (_req, res) => {
+    const ws = config.workspace;
+    const rootParam = (_req.query.root as string) ?? "";
+    const maxDepth = rootParam ? 8 : 3; // deeper for editor view
+
+    interface TreeEntry {
+      name: string;
+      path: string;       // relative to workspace
+      type: "folder" | "file";
+      size?: number;
+      modified?: string;
+      children?: TreeEntry[];
+      gitStatus?: { isRepo: boolean; branch?: string; dirty?: boolean; commitCount?: number; lastCommit?: string };
+    }
+
+    function readDir(absPath: string, relPath: string, depth: number): TreeEntry[] {
+      if (depth > maxDepth) return []; // prevent deep recursion
+      try {
+        const entries = readdirSync(absPath, { withFileTypes: true });
+        const result: TreeEntry[] = [];
+        for (const entry of entries) {
+          if (entry.name.startsWith(".") && entry.name !== ".gitignore") continue;
+          if (entry.name === "node_modules" || entry.name === ".git") continue;
+          const entryRel = relPath ? `${relPath}/${entry.name}` : entry.name;
+          const entryAbs = join(absPath, entry.name);
+          if (entry.isDirectory()) {
+            const item: TreeEntry = { name: entry.name, path: entryRel, type: "folder" };
+            // Check git status for top-level project folders
+            if (depth <= 1) {
+              const gitDir = join(entryAbs, ".git");
+              if (existsSync(gitDir)) {
+                try {
+                  const gitOpts = { cwd: entryAbs, encoding: "utf-8" as const, timeout: 5000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } };
+                  const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], gitOpts).trim();
+                  const porcelain = execFileSync("git", ["status", "--porcelain"], gitOpts).trim();
+                  let commitCount = 0;
+                  let lastCommit = "";
+                  try {
+                    commitCount = parseInt(execFileSync("git", ["rev-list", "--count", "HEAD"], gitOpts).trim(), 10);
+                    lastCommit = execFileSync("git", ["log", "-1", "--format=%s (%ar)"], gitOpts).trim();
+                  } catch { /* no commits yet */ }
+                  item.gitStatus = { isRepo: true, branch, dirty: !!porcelain, commitCount, lastCommit };
+                } catch {
+                  item.gitStatus = { isRepo: true };
+                }
+              }
+            }
+            item.children = readDir(entryAbs, entryRel, depth + 1);
+            result.push(item);
+          } else {
+            try {
+              const st = statSync(entryAbs);
+              result.push({
+                name: entry.name,
+                path: entryRel,
+                type: "file",
+                size: st.size,
+                modified: st.mtime.toISOString(),
+              });
+            } catch {
+              result.push({ name: entry.name, path: entryRel, type: "file" });
+            }
+          }
+        }
+        // Sort: folders first, then alphabetical
+        result.sort((a, b) => {
+          if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+        return result;
+      } catch { return []; }
+    }
+
+    // If root param specified, return deep tree for that specific path
+    if (rootParam) {
+      const absRoot = resolve(ws, rootParam);
+      if (!absRoot.startsWith(resolve(ws))) {
+        res.status(403).json({ error: "Access denied" }); return;
+      }
+      if (!existsSync(absRoot)) {
+        res.status(404).json({ error: "Path not found" }); return;
+      }
+      const entries = readDir(absRoot, rootParam, 0);
+      const tree: Record<string, { label: string; absPath: string; entries: TreeEntry[] }> = {
+        root: { label: rootParam.split("/").pop() ?? rootParam, absPath: absRoot, entries },
+      };
+      res.json({ workspace: ws, tree });
+      return;
+    }
+
+    // Build tree for each workspace section
+    const sections = [
+      { id: "projects", label: "Projects", path: join(ws, "projects") },
+      { id: "shared", label: "Shared", path: join(ws, "shared") },
+      { id: "agents", label: "Agents", path: join(ws, "agents") },
+    ];
+
+    const tree: Record<string, { label: string; absPath: string; entries: TreeEntry[] }> = {};
+    for (const s of sections) {
+      if (existsSync(s.path)) {
+        tree[s.id] = { label: s.label, absPath: s.path, entries: readDir(s.path, s.id, 0) };
+      } else {
+        tree[s.id] = { label: s.label, absPath: s.path, entries: [] };
+      }
+    }
+
+    res.json({ workspace: ws, tree });
+  });
+
+  app.get("/api/workspace-file", (req, res) => {
+    const relPath = req.query.path as string;
+    if (!relPath) { res.status(400).json({ error: "path query param required" }); return; }
+
+    // Security: resolve and ensure within workspace
+    const absPath = resolve(config.workspace, relPath);
+    if (!absPath.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied — path outside workspace" });
+      return;
+    }
+
+    const ext = relPath.split(".").pop()?.toLowerCase() ?? "";
+    const BINARY_EXTS = new Set(["pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp",
+      "docx", "xlsx", "pptx", "doc", "xls", "ppt", "zip", "tar", "gz", "mp3", "mp4", "wav"]);
+    const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp"]);
+    const MIME: Record<string, string> = {
+      pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+      gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", ico: "image/x-icon", bmp: "image/bmp",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    };
+
+    try {
+      const st = statSync(absPath);
+
+      // Binary files: return base64 data URI
+      if (BINARY_EXTS.has(ext)) {
+        const maxBinary = 10 * 1024 * 1024; // 10MB for binary
+        if (st.size > maxBinary) {
+          res.json({ path: relPath, kind: "binary", content: "", size: st.size, truncated: true,
+            message: `File too large to preview (${(st.size / (1024 * 1024)).toFixed(1)} MB)` });
+          return;
+        }
+        const buf = readFileSync(absPath);
+        const base64 = buf.toString("base64");
+        const mime = MIME[ext] ?? "application/octet-stream";
+        const kind = IMAGE_EXTS.has(ext) ? "image" : ext === "pdf" ? "pdf" : "binary";
+        res.json({
+          path: relPath, kind, size: st.size, modified: st.mtime.toISOString(),
+          mime, dataUri: `data:${mime};base64,${base64}`,
+        });
+        return;
+      }
+
+      // Text files
+      if (st.size > 512 * 1024) {
+        res.json({ path: relPath, kind: "text", truncated: true,
+          content: "(file too large to preview — " + (st.size / 1024).toFixed(0) + " KB)", size: st.size });
+        return;
+      }
+      const content = readFileSync(absPath, "utf-8");
+      res.json({ path: relPath, kind: "text", content, size: st.size, modified: st.mtime.toISOString() });
+    } catch (err: any) {
+      res.status(404).json({ error: "File not found" });
+    }
+  });
+
+  // ── Save file from OCTO-EDIT ───────────────────────────────────────────
+  app.post("/api/workspace-save", (req, res) => {
+    const { path: relPath, content } = req.body ?? {};
+    if (!relPath || typeof content !== "string") {
+      res.status(400).json({ error: "path and content required" }); return;
+    }
+    const absPath = resolve(config.workspace, relPath);
+    if (!absPath.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied — path outside workspace" }); return;
+    }
+    try {
+      writeFileSync(absPath, content, "utf-8");
+      const st = statSync(absPath);
+      res.json({ ok: true, path: relPath, size: st.size, modified: st.mtime.toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to save" });
+    }
+  });
+
+  // ── Available terminal shells ────────────────────────────────────────────
+  app.get("/api/terminal-shells", (_req, res) => {
+    const shells: { id: string; name: string; available: boolean }[] = [];
+    const check = (id: string, name: string, cmd: string) => {
+      try { execSync(`${process.platform === "win32" ? "where" : "which"} ${cmd}`, { timeout: 2000, stdio: "pipe" }); shells.push({ id, name, available: true }); }
+      catch { shells.push({ id, name, available: false }); }
+    };
+    if (process.platform === "win32") {
+      check("cmd", "Command Prompt", "cmd.exe");
+      check("powershell", "PowerShell", "powershell.exe");
+      check("pwsh", "PowerShell Core", "pwsh");
+      check("bash", "Git Bash", "bash.exe");
+    } else {
+      check("bash", "Bash", "bash");
+      check("zsh", "Zsh", "zsh");
+      check("fish", "Fish", "fish");
+      check("sh", "Shell", "sh");
+    }
+    res.json(shells.filter(s => s.available));
+  });
+
+  // ── Git status for a project folder ──────────────────────────────────────
+  app.get("/api/workspace-git-status", (req, res) => {
+    const root = (req.query.root as string) ?? "";
+    if (!root) { res.status(400).json({ error: "root param required" }); return; }
+    const absRoot = resolve(config.workspace, root);
+    if (!absRoot.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    try {
+      const gitOpts = { cwd: absRoot, timeout: 5000, stdio: ["pipe", "pipe", "pipe"] as any, maxBuffer: 1024 * 1024 };
+      // Current branch
+      let branch = "";
+      try { branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], gitOpts).toString().trim(); } catch { /* not a git repo */ }
+      if (!branch) { res.json({ isGitRepo: false }); return; }
+      // Porcelain status
+      const raw = execFileSync("git", ["status", "--porcelain", "-uall"], gitOpts).toString().trim();
+      const files = raw ? raw.split("\n").map(line => {
+        const status = line.slice(0, 2).trim();
+        const path = line.slice(3);
+        return { status, path };
+      }) : [];
+      res.json({ isGitRepo: true, branch, files });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "git status failed" });
+    }
+  });
+
+  app.post("/api/workspace-open", (req, res) => {
+    const { path: relPath, editor } = req.body ?? {};
+    if (!relPath) { res.status(400).json({ error: "path required" }); return; }
+
+    const absPath = resolve(config.workspace, relPath);
+    if (!absPath.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+
+    // Whitelist: only allow known editor commands to prevent command injection
+    const ALLOWED_CMDS: Record<string, string> = {
+      vscode: "code", cursor: "cursor", windsurf: "windsurf", antigravity: "antigravity",
+      zed: "zed", sublime: "subl", webstorm: "webstorm", intellij: "idea", fleet: "fleet",
+      atom: "atom", notepadpp: "notepad++", vim: "vim", nvim: "nvim", emacs: "emacs",
+    };
+    const editorCmd = ALLOWED_CMDS[editor] ?? "code";
+    const cmd = `${editorCmd} "${absPath}"`;
+
+    exec(cmd, { timeout: 10_000 }, (err: any) => {
+      if (err) {
+        res.json({ ok: false, message: `Failed to open: ${err.message?.slice(0, 100)}` });
+      } else {
+        res.json({ ok: true });
+      }
+    });
   });
 
   // ── Model Config: per-agent model overrides + provider priority ────────
@@ -3288,6 +3704,68 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     res.json({ ok: true });
   });
 
+  // ── Git Config & Backup ─────────────────────────────────────────────────
+  app.get("/api/git-config", (_req, res) => {
+    res.json(getMaskedGitConfig());
+  });
+
+  app.post("/api/git-config", (req, res) => {
+    const { username, email, token, provider, remoteUrl, backupEnabled, backupIntervalHours } = req.body ?? {};
+    const updates: Record<string, any> = {};
+    if (username !== undefined) updates.username = String(username).trim();
+    if (email !== undefined) updates.email = String(email).trim();
+    if (token !== undefined && token !== "••••" + token.slice(-4)) updates.token = String(token).trim();
+    if (provider !== undefined) updates.provider = provider;
+    if (remoteUrl !== undefined) updates.remoteUrl = String(remoteUrl).trim();
+    if (backupEnabled !== undefined) updates.backupEnabled = !!backupEnabled;
+    if (backupIntervalHours !== undefined) updates.backupIntervalHours = Math.max(0, Number(backupIntervalHours) || 24);
+
+    const saved = saveGitConfig(updates);
+    // Restart backup schedule if config changed
+    stopBackupSchedule();
+    if (saved.backupEnabled) startBackupSchedule();
+
+    res.json({ ok: true, config: getMaskedGitConfig() });
+  });
+
+  app.post("/api/git-backup", async (_req, res) => {
+    try {
+      const result = await runMemoryBackup();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err.message ?? "Backup failed" });
+    }
+  });
+
+  app.post("/api/git-test", async (req, res) => {
+    const cfg = loadGitConfig();
+    if (!cfg.username || !cfg.token) {
+      res.json({ ok: false, message: "Git credentials not configured" });
+      return;
+    }
+    try {
+      // Test by listing remote refs
+      const { execFileSync } = await import("child_process");
+      const authUrl = (() => {
+        try {
+          const u = new URL(cfg.remoteUrl);
+          u.username = cfg.username || "oauth2";
+          u.password = cfg.token;
+          return u.toString();
+        } catch { return cfg.remoteUrl; }
+      })();
+      execFileSync("git", ["ls-remote", "--heads", authUrl], {
+        encoding: "utf-8",
+        timeout: 15_000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      res.json({ ok: true, message: "Connection successful — credentials valid" });
+    } catch (err: any) {
+      const msg = String(err.message || err).replace(cfg.token, "***").slice(0, 200);
+      res.json({ ok: false, message: `Connection failed: ${msg}` });
+    }
+  });
+
   // ── Finance: token usage & cost tracking ────────────────────────────────
   app.get("/api/finance", (_req, res) => {
     res.json({ totals: getFinanceTotals(), agents: getFinanceAllUsage() });
@@ -3295,6 +3773,36 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   app.post("/api/finance/reset", (_req, res) => {
     resetFinanceUsage();
     res.json({ ok: true });
+  });
+
+  // Budget limits
+  function syncDeptMap() {
+    try {
+      const rosterPath = join(config.dataDir, "roster.json");
+      if (existsSync(rosterPath)) {
+        const roster = JSON.parse(readFileSync(rosterPath, "utf-8"));
+        const employees = roster.employees ?? roster ?? [];
+        const map: Record<string, string> = {};
+        for (const e of employees) {
+          if (e.agent_key && e.department) map[e.agent_key] = e.department;
+        }
+        setDepartmentMap(map);
+      }
+    } catch { /* silent */ }
+  }
+  app.get("/api/finance/budgets", (_req, res) => {
+    syncDeptMap();
+    res.json({ config: getBudgetConfig(), status: getBudgetStatus() });
+  });
+  app.post("/api/finance/budgets", (req, res) => {
+    const cfg = req.body;
+    if (!cfg || typeof cfg !== "object" || !cfg.org) {
+      res.status(400).json({ error: "Invalid budget config" });
+      return;
+    }
+    setBudgetConfig(cfg);
+    syncDeptMap();
+    res.json({ ok: true, status: getBudgetStatus() });
   });
 
   // â"€â"€ SSE: real-time agent streaming â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -3366,6 +3874,102 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
       console.error("[Dashboard] Server error:", err.message);
     }
   });
+
+  // ── WebSocket Terminal (node-pty + ws) ────────────────────────────────
+  (async () => { try {
+    const { WebSocketServer } = await import("ws");
+    const pty = await import("node-pty");
+
+    const wss = new WebSocketServer({ noServer: true });
+
+    server.on("upgrade", (req, socket, head) => {
+      const url = new URL(req.url ?? "", `http://${req.headers.host}`);
+      if (url.pathname !== "/ws/terminal") { socket.destroy(); return; }
+
+      // Auth check: JWT cookie OR legacy API key
+      let authed = false;
+
+      // 1. Try JWT cookie
+      const cookieHeader = req.headers.cookie ?? "";
+      const cookieMap: Record<string, string> = {};
+      for (const part of cookieHeader.split(";")) {
+        const [k, ...v] = part.trim().split("=");
+        if (k) cookieMap[k.trim()] = v.join("=").trim();
+      }
+      const accessToken = cookieMap[ACCESS_COOKIE];
+      if (accessToken && verifyAccessToken(accessToken)) authed = true;
+
+      // 2. Fallback: API key in query param
+      if (!authed) {
+        const key = url.searchParams.get("key") ?? "";
+        const apiKey = getDashboardApiKey();
+        if (key === apiKey) authed = true;
+      }
+
+      if (!authed) { socket.destroy(); return; }
+
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit("connection", ws, req);
+      });
+    });
+
+    wss.on("connection", (ws, req) => {
+      const url = new URL(req.url ?? "", `http://${req.headers.host}`);
+      const cwd = url.searchParams.get("cwd") ?? config.workspace;
+      const absCwd = resolve(config.workspace, cwd);
+      // Security: must be within workspace
+      const safeCwd = absCwd.startsWith(resolve(config.workspace)) && existsSync(absCwd) ? absCwd : config.workspace;
+
+      // Allow client to request a shell; whitelist for security
+      // On Windows, Git Bash needs explicit path — plain "bash.exe" resolves to WSL
+      const gitBashPath = process.platform === "win32"
+        ? (existsSync("C:\\Program Files\\Git\\bin\\bash.exe") ? "C:\\Program Files\\Git\\bin\\bash.exe"
+          : existsSync("C:\\Program Files (x86)\\Git\\bin\\bash.exe") ? "C:\\Program Files (x86)\\Git\\bin\\bash.exe"
+          : "bash.exe")
+        : "bash";
+      const ALLOWED_SHELLS: Record<string, string> = {
+        bash: gitBashPath,
+        powershell: "powershell.exe",
+        pwsh: "pwsh",
+        cmd: "cmd.exe",
+        zsh: "zsh",
+        fish: "fish",
+        sh: "sh",
+      };
+      const requestedShell = (url.searchParams.get("shell") ?? "").toLowerCase();
+      const defaultShell = process.env.COMSPEC ?? process.env.SHELL ?? (process.platform === "win32" ? "cmd.exe" : "bash");
+      const shell = ALLOWED_SHELLS[requestedShell] ?? defaultShell;
+      const ptyProcess = pty.spawn(shell, [], {
+        name: "xterm-256color",
+        cols: 120,
+        rows: 30,
+        cwd: safeCwd,
+        env: { ...process.env } as Record<string, string>,
+      });
+
+      ptyProcess.onData((data: string) => {
+        try { ws.send(data); } catch { /* client gone */ }
+      });
+
+      ws.on("message", (msg: Buffer | string) => {
+        const str = typeof msg === "string" ? msg : msg.toString("utf-8");
+        // Handle resize messages: \x01{cols,rows}
+        if (str.startsWith("\x01")) {
+          try {
+            const { cols, rows } = JSON.parse(str.slice(1));
+            if (cols > 0 && rows > 0) ptyProcess.resize(cols, rows);
+          } catch { /* ignore bad resize */ }
+          return;
+        }
+        ptyProcess.write(str);
+      });
+
+      ws.on("close", () => { ptyProcess.kill(); });
+      ptyProcess.onExit(() => { try { ws.close(); } catch { /* */ } });
+    });
+  } catch (err) {
+    console.warn("[Dashboard] Terminal WebSocket disabled:", (err as Error).message);
+  } })();
 }
 
 
