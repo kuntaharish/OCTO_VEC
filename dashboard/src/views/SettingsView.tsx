@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Plus, Trash2, Save, RefreshCw, Server, ChevronDown, ChevronRight,
   Shield, Search, MessageSquare, Cpu, Box, ExternalLink, Palette, RotateCcw,
@@ -483,6 +484,7 @@ export default function SettingsView() {
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [customMCPTrigger, setCustomMCPTrigger] = useState(0);
 
   // Channel config (editable) — generic interface matching server's MaskedChannelInfo
   interface ChannelInfo { configured: boolean; connected: boolean; fields: Record<string, string | null> }
@@ -1694,6 +1696,9 @@ export default function SettingsView() {
           display: "flex", alignItems: "center", gap: 8,
         }}>
           <div style={{ flex: 1 }} />
+          <button onClick={() => setCustomMCPTrigger(t => t + 1)} style={btnSecondary} title="Add a custom MCP server">
+            <Plus size={12} /> Add Custom MCP
+          </button>
           <button onClick={fetchMCP} style={btnSecondary} title="Refresh status">
             <RefreshCw size={12} /> Refresh
           </button>
@@ -1749,6 +1754,7 @@ export default function SettingsView() {
           onAddCustomEnv={(name) => { addEnvVar(name); }}
           expanded={expanded}
           onToggleExpand={(name) => { setExpanded(p => ({ ...p, [name]: !p[name] })); }}
+          showCustomTrigger={customMCPTrigger}
         />
       </div>
     );
@@ -2826,7 +2832,7 @@ const DIRECTORY_IDS = new Set(MCP_DIRECTORY.map(e => e.id));
 /** Categories that have at least one entry in the directory */
 const USED_CATEGORIES = Array.from(new Set(MCP_DIRECTORY.map(e => e.category)));
 
-function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onRemove, onAddCustom, onUpdateCustom, onRemoveCustomEnv, onAddCustomEnv, expanded, onToggleExpand }: {
+function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onRemove, onAddCustom, onUpdateCustom, onRemoveCustomEnv, onAddCustomEnv, expanded, onToggleExpand, showCustomTrigger }: {
   activeServerNames: string[];
   mcpConfig: MCPConfig;
   mcpStatus: MCPStatus;
@@ -2838,13 +2844,17 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
   onAddCustomEnv: (name: string) => void;
   expanded: Record<string, boolean>;
   onToggleExpand: (name: string) => void;
+  showCustomTrigger?: number; // increment to open custom form
 }) {
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState<MCPCategory | "all">("all");
-  const [showDirectory, setShowDirectory] = useState(false);
+  const [showDirectory, setShowDirectory] = useState(true);
   const [setupEntry, setSetupEntry] = useState<MCPDirectoryEntry | null>(null);
   const [envInputs, setEnvInputs] = useState<Record<string, string>>({});
   const [showCustom, setShowCustom] = useState(false);
+  useEffect(() => { if (showCustomTrigger && showCustomTrigger > 0) setShowCustom(true); }, [showCustomTrigger]);
+  const customRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (showCustom) customRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }, [showCustom]);
   const [customName, setCustomName] = useState("");
   const [customCmd, setCustomCmd] = useState("npx");
   const [customArgs, setCustomArgs] = useState("");
@@ -2918,7 +2928,6 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
         <div>
           <SectionLabel title="Active Servers" count={activeServerNames.length} />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {/* Directory-based active servers — compact row style */}
             {activeDirectoryEntries.map(entry => {
               const live = mcpStatus.servers.find(s => s.name === entry.id);
               const catMeta = CATEGORY_META[entry.category];
@@ -2946,22 +2955,16 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
                       {live.tools.length} tool{live.tools.length !== 1 ? "s" : ""}
                     </span>
                   )}
-                  <button
-                    onClick={() => onRemove(entry.id)}
-                    style={{
-                      display: "flex", padding: 4, border: "none", borderRadius: 4,
-                      background: "transparent", color: "var(--text-muted)", cursor: "pointer",
-                      transition: "color 0.08s",
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.color = "var(--red)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; }}
-                    title="Remove"
+                  <button onClick={() => onRemove(entry.id)} style={{
+                    display: "flex", padding: 4, border: "none", borderRadius: 4,
+                    background: "transparent", color: "var(--text-muted)", cursor: "pointer", transition: "color 0.08s",
+                  }} onMouseEnter={e => { e.currentTarget.style.color = "var(--red)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; }} title="Remove"
                   ><Trash2 size={12} /></button>
                 </div>
               );
             })}
 
-            {/* Custom servers — collapsible */}
             {customServerNames.map(name => {
               const srv = mcpConfig.mcpServers[name];
               if (!srv) return null;
@@ -2972,14 +2975,11 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
                   borderRadius: 8, overflow: "hidden",
                   background: "var(--bg-card)", border: "1px solid var(--border)",
                 }}>
-                  <div
-                    onClick={() => onToggleExpand(name)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 12,
-                      padding: "10px 14px", cursor: "pointer",
-                      borderBottom: isOpen ? "1px solid var(--border)" : "none",
-                    }}
-                  >
+                  <div onClick={() => onToggleExpand(name)} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "10px 14px", cursor: "pointer",
+                    borderBottom: isOpen ? "1px solid var(--border)" : "none",
+                  }}>
                     {isOpen ? <ChevronDown size={12} style={{ color: "var(--text-muted)" }} />
                       : <ChevronRight size={12} style={{ color: "var(--text-muted)" }} />}
                     <div style={{
@@ -2997,15 +2997,10 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
                         {live.tools.length} tool{live.tools.length !== 1 ? "s" : ""}
                       </span>
                     )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onRemove(name); }}
-                      title="Remove"
-                      style={{
-                        display: "flex", padding: 4, border: "none", borderRadius: 4,
-                        background: "transparent", color: "var(--text-muted)", cursor: "pointer",
-                        transition: "color 0.08s",
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.color = "var(--red)"; }}
+                    <button onClick={(e) => { e.stopPropagation(); onRemove(name); }} title="Remove" style={{
+                      display: "flex", padding: 4, border: "none", borderRadius: 4,
+                      background: "transparent", color: "var(--text-muted)", cursor: "pointer", transition: "color 0.08s",
+                    }} onMouseEnter={e => { e.currentTarget.style.color = "var(--red)"; }}
                       onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; }}
                     ><Trash2 size={12} /></button>
                   </div>
@@ -3015,13 +3010,9 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
                         <input value={srv.command} onChange={e => onUpdateCustom(name, { command: e.target.value })} placeholder="npx" style={inputStyle} />
                       </Field>
                       <Field label="Arguments" hint="One per line">
-                        <textarea
-                          value={(srv.args ?? []).join("\n")}
-                          onChange={e => onUpdateCustom(name, { args: e.target.value.split("\n") })}
-                          placeholder={"-y\n@your/mcp-package\n--flag"}
-                          rows={3}
-                          style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12, lineHeight: 1.6 }}
-                        />
+                        <textarea value={(srv.args ?? []).join("\n")} onChange={e => onUpdateCustom(name, { args: e.target.value.split("\n") })}
+                          placeholder={"-y\n@your/mcp-package\n--flag"} rows={3}
+                          style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12, lineHeight: 1.6 }} />
                       </Field>
                       <div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -3037,8 +3028,7 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
                                 <span style={{ fontSize: 12, fontFamily: "monospace", color: "var(--text-secondary)", minWidth: 100, flexShrink: 0 }}>{k}</span>
                                 <input value={v} onChange={e => onUpdateCustom(name, { env: { ...srv.env, [k]: e.target.value } })} placeholder="value" style={{ ...inputStyle, flex: 1 }} />
                                 <button onClick={() => onRemoveCustomEnv(name, k)} style={{
-                                  display: "flex", padding: 4, border: "none", background: "transparent", color: "var(--text-muted)", cursor: "pointer", borderRadius: 4,
-                                  transition: "color 0.08s",
+                                  display: "flex", padding: 4, border: "none", background: "transparent", color: "var(--text-muted)", cursor: "pointer", borderRadius: 4, transition: "color 0.08s",
                                 }} onMouseEnter={e => { e.currentTarget.style.color = "var(--red)"; }} onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; }}>
                                   <Trash2 size={13} />
                                 </button>
@@ -3052,11 +3042,7 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
                           <label style={labelStyle}>Discovered Tools</label>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                             {live.tools.map(t => (
-                              <span key={t} style={{
-                                fontSize: 11, padding: "2px 8px", borderRadius: 4,
-                                background: "var(--bg-tertiary)", color: "var(--text-secondary)",
-                                fontFamily: "monospace",
-                              }}>{t}</span>
+                              <span key={t} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "var(--bg-tertiary)", color: "var(--text-secondary)", fontFamily: "monospace" }}>{t}</span>
                             ))}
                           </div>
                         </div>
@@ -3070,265 +3056,201 @@ function MCPDirectoryPanel({ activeServerNames, mcpConfig, mcpStatus, onAdd, onR
         </div>
       )}
 
-      {/* ── Browse Directory (collapsible) ── */}
-      <div>
-        <button
-          onClick={() => setShowDirectory(d => !d)}
-          style={{
-            display: "flex", alignItems: "center", gap: 8, width: "100%",
-            padding: "10px 14px", borderRadius: 8,
-            border: "1px solid var(--border)",
-            background: showDirectory ? "var(--bg-card)" : "transparent",
-            color: "var(--text-primary)", cursor: "pointer",
-            fontSize: 13, fontWeight: 500, fontFamily: "inherit",
-            transition: "background 0.1s, border-color 0.1s",
-          }}
-        >
-          {showDirectory ? <ChevronDown size={14} style={{ color: "var(--text-muted)" }} /> : <ChevronRight size={14} style={{ color: "var(--text-muted)" }} />}
-          <Package size={14} style={{ color: "var(--green)" }} />
-          <span style={{ flex: 1, textAlign: "left" }}>Browse Server Directory</span>
-          <span style={{
-            fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
-            background: "var(--bg-tertiary)", color: "var(--text-muted)",
-            fontVariantNumeric: "tabular-nums",
-          }}>{MCP_DIRECTORY.length} available</span>
-        </button>
-
-        {showDirectory && (
-          <div style={{ marginTop: 10, animation: "fade-in 0.12s ease-out" }}>
-            {/* Search + Category — single compact row */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
-              <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
-                <Search size={13} style={{
-                  position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
-                  color: "var(--text-muted)", pointerEvents: "none",
-                }} />
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search servers..."
-                  style={{ ...inputStyle, paddingLeft: 30 }}
-                />
-              </div>
-              <div style={{ width: 160, flexShrink: 0 }}>
-                <Dropdown
-                  value={catFilter}
-                  onChange={v => setCatFilter(v as MCPCategory | "all")}
-                  options={categoryOptions}
-                  placeholder="Category"
-                  alignRight
-                />
-              </div>
-            </div>
-
-            {/* Setup panel (env var input for a server being added) */}
-            {setupEntry && (
-              <div style={{
-                background: "var(--bg-card)", border: "1px solid var(--accent)",
-                borderRadius: 8, padding: 14, marginBottom: 12,
-                animation: "fade-in 0.12s ease-out",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <Package size={14} style={{ color: "var(--accent)" }} />
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-                      {setupEntry.name}
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 8 }}>
-                      Set environment variables
-                    </span>
-                  </div>
-                  <button onClick={() => { setSetupEntry(null); setEnvInputs({}); }} style={{
-                    display: "flex", padding: 4, border: "none", borderRadius: 4,
-                    background: "transparent", color: "var(--text-muted)", cursor: "pointer",
-                  }}>
-                    <X size={14} />
-                  </button>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {Object.entries(setupEntry.envVars).map(([varName, hint]) => (
-                    <div key={varName} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <span style={{
-                        fontSize: 11, fontFamily: "monospace", color: "var(--text-secondary)",
-                        minWidth: 130, flexShrink: 0,
-                      }}>{varName}</span>
-                      <input
-                        value={envInputs[varName] ?? ""}
-                        onChange={e => setEnvInputs(p => ({ ...p, [varName]: e.target.value }))}
-                        placeholder={hint}
-                        type="password"
-                        style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: 12 }}
-                        onKeyDown={e => e.key === "Enter" && confirmSetup()}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
-                  <button onClick={() => { setSetupEntry(null); setEnvInputs({}); }} style={btnSecondary}>Cancel</button>
-                  <button onClick={confirmSetup} style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "6px 14px", borderRadius: 7, border: "none",
-                    background: "var(--accent)", color: "#fff",
-                    cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
-                  }}>
-                    <Plus size={12} /> Add
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Directory grid — clean 2-column Connectors-style layout */}
-            <div style={{
-              display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-              gap: 10,
-            }}>
-              {filtered.map(entry => {
-                const catMeta = CATEGORY_META[entry.category];
-                return (
-                  <div key={entry.id} style={{
-                    display: "flex", alignItems: "center", gap: 14,
-                    padding: "14px 16px", borderRadius: 12,
-                    background: "var(--bg-card)", border: "1px solid var(--border)",
-                    transition: "border-color 0.15s, box-shadow 0.15s",
-                    minWidth: 0, overflow: "hidden",
-                  }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--text-muted) 40%, transparent)"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.1)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
-                  >
-                    {/* Icon — rounded square with brand SVG */}
-                    <div style={{
-                      width: 42, height: 42, borderRadius: 10, flexShrink: 0,
-                      background: "var(--bg-tertiary)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      <McpServerIcon id={entry.id} iconDomain={entry.iconDomain} size={22} />
-                    </div>
-
-                    {/* Name + one-line description */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                        <span style={{
-                          fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
-                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                        }}>
-                          {entry.name}
-                        </span>
-                      </div>
-                      <div style={{
-                        fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.4, marginTop: 2,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>{entry.description}</div>
-                    </div>
-
-                    {/* + button */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleAddClick(entry); }}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        width: 30, height: 30, borderRadius: 8, border: "1px solid var(--border)",
-                        background: "transparent", color: "var(--text-muted)",
-                        cursor: "pointer", flexShrink: 0,
-                        transition: "background 0.12s, color 0.12s, border-color 0.12s",
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.background = "var(--accent)"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = "var(--accent)"; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
-                      title={`Add ${entry.name}`}
-                    ><Plus size={14} /></button>
-                  </div>
-                );
-              })}
-            </div>
-
-            {filtered.length === 0 && (
-              <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)", fontSize: 12 }}>
-                No servers match your search.
-              </div>
-            )}
-          </div>
-        )}
+      {/* ── Search + Category filter ── */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
+          <Search size={13} style={{
+            position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+            color: "var(--text-muted)", pointerEvents: "none",
+          }} />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search servers..." style={{ ...inputStyle, paddingLeft: 30 }} />
+        </div>
+        <div style={{ width: 160, flexShrink: 0 }}>
+          <Dropdown value={catFilter} onChange={v => setCatFilter(v as MCPCategory | "all")}
+            options={categoryOptions} placeholder="Category" alignRight />
+        </div>
       </div>
 
-      {/* ── Add Custom Server ── */}
-      {!showCustom ? (
-        <button
-          onClick={() => setShowCustom(true)}
-          style={{
-            display: "flex", alignItems: "center", gap: 6, width: "100%",
-            padding: "10px 14px", borderRadius: 8,
-            border: "1px dashed var(--border)", background: "transparent",
-            color: "var(--text-muted)", cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-            transition: "border-color 0.12s, color 0.12s",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--text-primary)"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-muted)"; }}
-        ><Plus size={14} /> Add Custom Server</button>
-      ) : (
+      {/* Setup panel (env var input for a directory server being added) */}
+      {setupEntry && (
         <div style={{
           background: "var(--bg-card)", border: "1px solid var(--accent)",
-          borderRadius: 8, padding: 14,
-          animation: "fade-in 0.12s ease-out",
+          borderRadius: 8, padding: 14, animation: "fade-in 0.12s ease-out",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <Server size={14} style={{ color: "var(--accent)" }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1 }}>Custom Server</span>
-            <button onClick={() => setShowCustom(false)} style={{
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <Package size={14} style={{ color: "var(--accent)" }} />
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{setupEntry.name}</span>
+              <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 8 }}>Set environment variables</span>
+            </div>
+            <button onClick={() => { setSetupEntry(null); setEnvInputs({}); }} style={{
               display: "flex", padding: 4, border: "none", borderRadius: 4,
               background: "transparent", color: "var(--text-muted)", cursor: "pointer",
             }}><X size={14} /></button>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                <Field label="Name" hint="e.g. my-server">
-                  <input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="my-custom-server" style={inputStyle} />
-                </Field>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {Object.entries(setupEntry.envVars).map(([varName, hint]) => (
+              <div key={varName} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 11, fontFamily: "monospace", color: "var(--text-secondary)", minWidth: 130, flexShrink: 0 }}>{varName}</span>
+                <input value={envInputs[varName] ?? ""} onChange={e => setEnvInputs(p => ({ ...p, [varName]: e.target.value }))}
+                  placeholder={hint} type="password"
+                  style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: 12 }}
+                  onKeyDown={e => e.key === "Enter" && confirmSetup()} />
               </div>
-              <div style={{ flex: 1 }}>
-                <Field label="Command" hint="e.g. npx, node">
-                  <input value={customCmd} onChange={e => setCustomCmd(e.target.value)} placeholder="npx" style={inputStyle} />
-                </Field>
-              </div>
-            </div>
-            <Field label="Arguments" hint="One per line">
-              <textarea value={customArgs} onChange={e => setCustomArgs(e.target.value)} placeholder={"-y\n@your/mcp-package"}
-                rows={2} style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12, lineHeight: 1.6 }} />
-            </Field>
-            <div>
-              <label style={labelStyle}>Environment Variables</label>
-              {Object.keys(customEnv).length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-                  {Object.entries(customEnv).map(([k, v]) => (
-                    <div key={k} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ fontSize: 11, fontFamily: "monospace", color: "var(--text-secondary)", minWidth: 100, flexShrink: 0 }}>{k}</span>
-                      <input value={v} onChange={e => setCustomEnv(p => ({ ...p, [k]: e.target.value }))} placeholder="value" style={{ ...inputStyle, flex: 1 }} />
-                      <button onClick={() => setCustomEnv(p => { const n = { ...p }; delete n[k]; return n; })}
-                        style={{ display: "flex", padding: 4, border: "none", background: "transparent", color: "var(--text-muted)", cursor: "pointer", borderRadius: 4 }}
-                      ><Trash2 size={12} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input value={customEnvKey} onChange={e => setCustomEnvKey(e.target.value)} placeholder="VAR_NAME" style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: 12 }} />
-                <input value={customEnvVal} onChange={e => setCustomEnvVal(e.target.value)} placeholder="value" style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
-                <button onClick={() => {
-                  if (customEnvKey.trim()) { setCustomEnv(p => ({ ...p, [customEnvKey.trim()]: customEnvVal })); setCustomEnvKey(""); setCustomEnvVal(""); }
-                }} style={btnSecondary}><Plus size={12} /></button>
-              </div>
-            </div>
+            ))}
           </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-            <button onClick={() => setShowCustom(false)} style={btnSecondary}>Cancel</button>
-            <button onClick={handleAddCustom} disabled={!customName.trim() || !customCmd.trim()} style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "6px 14px", borderRadius: 7, border: "none",
-              background: customName.trim() && customCmd.trim() ? "var(--accent)" : "var(--bg-tertiary)",
-              color: customName.trim() && customCmd.trim() ? "#fff" : "var(--text-muted)",
-              cursor: customName.trim() && customCmd.trim() ? "pointer" : "default",
-              fontSize: 11, fontWeight: 600, fontFamily: "inherit",
-            }}><Plus size={12} /> Add Server</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
+            <button onClick={() => { setSetupEntry(null); setEnvInputs({}); }} style={btnSecondary}>Cancel</button>
+            <button onClick={confirmSetup} style={{
+              display: "flex", alignItems: "center", gap: 5, padding: "6px 14px", borderRadius: 7, border: "none",
+              background: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+            }}><Plus size={12} /> Add</button>
           </div>
         </div>
+      )}
+
+      {/* ── Directory grid — shown directly ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+        {filtered.map(entry => {
+          const catMeta = CATEGORY_META[entry.category];
+          return (
+            <div key={entry.id} style={{
+              display: "flex", alignItems: "center", gap: 14,
+              padding: "14px 16px", borderRadius: 12,
+              background: "var(--bg-card)", border: "1px solid var(--border)",
+              transition: "border-color 0.15s, box-shadow 0.15s",
+              minWidth: 0, overflow: "hidden",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--text-muted) 40%, transparent)"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.1)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
+            >
+              <div style={{
+                width: 42, height: 42, borderRadius: 10, flexShrink: 0,
+                background: "var(--bg-tertiary)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <McpServerIcon id={entry.id} iconDomain={entry.iconDomain} size={22} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "block",
+                }}>{entry.name}</span>
+                <div style={{
+                  fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.4, marginTop: 2,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>{entry.description}</div>
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); handleAddClick(entry); }} style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 30, height: 30, borderRadius: 8, border: "1px solid var(--border)",
+                background: "transparent", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0,
+                transition: "background 0.12s, color 0.12s, border-color 0.12s",
+              }}
+                onMouseEnter={e => { e.currentTarget.style.background = "var(--accent)"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = "var(--accent)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
+                title={`Add ${entry.name}`}
+              ><Plus size={14} /></button>
+            </div>
+          );
+        })}
+      </div>
+
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-muted)", fontSize: 12 }}>
+          No servers match your search.
+        </div>
+      )}
+
+      {/* ── Add Custom MCP Modal ── */}
+      {showCustom && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 10000,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
+        }} onClick={() => setShowCustom(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: 520, maxWidth: "90vw", maxHeight: "80vh", overflowY: "auto",
+            background: "var(--bg-card)", border: "1px solid var(--border)",
+            borderRadius: 14, padding: 24, boxShadow: "0 16px 48px rgba(0,0,0,0.3)",
+            animation: "fade-in 0.15s ease-out",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10, background: "var(--accent-subtle, var(--bg-tertiary))",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Server size={18} style={{ color: "var(--accent)" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>Add Custom MCP Server</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Configure a custom MCP server with command, args, and environment</div>
+              </div>
+              <button onClick={() => setShowCustom(false)} style={{
+                display: "flex", padding: 6, border: "none", borderRadius: 6,
+                background: "var(--bg-tertiary)", color: "var(--text-muted)", cursor: "pointer",
+              }} onMouseEnter={e => { e.currentTarget.style.color = "var(--text-primary)"; }}
+                onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; }}
+              ><X size={16} /></button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <Field label="Server Name" hint="e.g. my-server">
+                    <input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="my-custom-server" style={inputStyle} autoFocus />
+                  </Field>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Field label="Command" hint="e.g. npx, node, python">
+                    <input value={customCmd} onChange={e => setCustomCmd(e.target.value)} placeholder="npx" style={inputStyle} />
+                  </Field>
+                </div>
+              </div>
+              <Field label="Arguments" hint="One per line">
+                <textarea value={customArgs} onChange={e => setCustomArgs(e.target.value)} placeholder={"-y\n@your/mcp-package"}
+                  rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 12, lineHeight: 1.6 }} />
+              </Field>
+              <div>
+                <label style={labelStyle}>Environment Variables</label>
+                {Object.keys(customEnv).length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8, marginTop: 6 }}>
+                    {Object.entries(customEnv).map(([k, v]) => (
+                      <div key={k} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 11, fontFamily: "monospace", color: "var(--text-secondary)", minWidth: 100, flexShrink: 0 }}>{k}</span>
+                        <input value={v} onChange={e => setCustomEnv(p => ({ ...p, [k]: e.target.value }))} placeholder="value" style={{ ...inputStyle, flex: 1 }} />
+                        <button onClick={() => setCustomEnv(p => { const n = { ...p }; delete n[k]; return n; })}
+                          style={{ display: "flex", padding: 4, border: "none", background: "transparent", color: "var(--text-muted)", cursor: "pointer", borderRadius: 4 }}
+                        ><Trash2 size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                  <input value={customEnvKey} onChange={e => setCustomEnvKey(e.target.value)} placeholder="VAR_NAME" style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: 12 }} />
+                  <input value={customEnvVal} onChange={e => setCustomEnvVal(e.target.value)} placeholder="value" style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                  <button onClick={() => {
+                    if (customEnvKey.trim()) { setCustomEnv(p => ({ ...p, [customEnvKey.trim()]: customEnvVal })); setCustomEnvKey(""); setCustomEnvVal(""); }
+                  }} style={btnSecondary}><Plus size={12} /></button>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowCustom(false)} style={btnSecondary}>Cancel</button>
+              <button onClick={handleAddCustom} disabled={!customName.trim() || !customCmd.trim()} style={{
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "8px 18px", borderRadius: 8, border: "none",
+                background: customName.trim() && customCmd.trim() ? "var(--accent)" : "var(--bg-tertiary)",
+                color: customName.trim() && customCmd.trim() ? "#fff" : "var(--text-muted)",
+                cursor: customName.trim() && customCmd.trim() ? "pointer" : "default",
+                fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+              }}><Plus size={13} /> Add Server</button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
