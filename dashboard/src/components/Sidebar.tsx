@@ -60,9 +60,10 @@ interface Props {
   activeView: View;
   setActiveView: (v: View) => void;
   chatBadge?: number;
+  reminderBadge?: number;
 }
 
-export default function Sidebar({ activeView, setActiveView, chatBadge = 0 }: Props) {
+export default function Sidebar({ activeView, setActiveView, chatBadge = 0, reminderBadge = 0 }: Props) {
   const [showTheme, setShowTheme] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     localStorage.getItem("sidebar-collapsed") === "true"
@@ -184,42 +185,48 @@ export default function Sidebar({ activeView, setActiveView, chatBadge = 0 }: Pr
                 onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-secondary)"; }}}
                 onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = isActive ? "var(--bg-hover)" : "transparent"; e.currentTarget.style.color = isActive ? "var(--text-primary)" : "var(--text-muted)"; }}}
               >
-                <span style={{ display: "flex", flexShrink: 0, position: "relative" }}>
-                  {item.icon}
-                  {/* Badge on icon — visible only when collapsed */}
-                  {item.id === "chat" && chatBadge > 0 && collapsed && (
-                    <span style={{
-                      position: "absolute", top: -4, right: -6,
-                      minWidth: 14, height: 14, borderRadius: 7,
-                      background: "var(--red, #ef4444)", color: "#fff",
-                      fontSize: 9, fontWeight: 700, lineHeight: "14px",
-                      textAlign: "center", padding: "0 3px",
-                      boxShadow: "0 0 4px rgba(239,68,68,0.5)",
-                    }}>
-                      {chatBadge > 99 ? "99+" : chatBadge}
+                {(() => {
+                  const badge = item.id === "chat" ? chatBadge
+                    : item.id === "reminders" ? reminderBadge : 0;
+                  const badgeColor = item.id === "reminders" ? "var(--orange, var(--yellow))" : "var(--red, #ef4444)";
+                  const badgeShadow = item.id === "reminders" ? "0 0 4px rgba(212,168,50,0.5)" : "0 0 4px rgba(239,68,68,0.5)";
+                  return (<>
+                    <span style={{ display: "flex", flexShrink: 0, position: "relative" }}>
+                      {item.icon}
+                      {badge > 0 && collapsed && (
+                        <span style={{
+                          position: "absolute", top: -4, right: -6,
+                          minWidth: 14, height: 14, borderRadius: 7,
+                          background: badgeColor, color: "#fff",
+                          fontSize: 9, fontWeight: 700, lineHeight: "14px",
+                          textAlign: "center", padding: "0 3px",
+                          boxShadow: badgeShadow,
+                        }}>
+                          {badge > 99 ? "99+" : badge}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
-                <span style={{
-                  opacity: collapsed ? 0 : 1,
-                  transition: `opacity ${TR}`,
-                  overflow: "hidden",
-                  flex: 1,
-                }}>
-                  {item.label}
-                </span>
-                {/* Badge inline — visible only when expanded */}
-                {item.id === "chat" && chatBadge > 0 && !collapsed && (
-                  <span style={{
-                    minWidth: 18, height: 18, borderRadius: 9,
-                    background: "var(--red, #ef4444)", color: "#fff",
-                    fontSize: 10, fontWeight: 700, lineHeight: "18px",
-                    textAlign: "center", padding: "0 4px",
-                    flexShrink: 0,
-                  }}>
-                    {chatBadge > 99 ? "99+" : chatBadge}
-                  </span>
-                )}
+                    <span style={{
+                      opacity: collapsed ? 0 : 1,
+                      transition: `opacity ${TR}`,
+                      overflow: "hidden",
+                      flex: 1,
+                    }}>
+                      {item.label}
+                    </span>
+                    {badge > 0 && !collapsed && (
+                      <span style={{
+                        minWidth: 18, height: 18, borderRadius: 9,
+                        background: badgeColor, color: "#fff",
+                        fontSize: 10, fontWeight: 700, lineHeight: "18px",
+                        textAlign: "center", padding: "0 4px",
+                        flexShrink: 0,
+                      }}>
+                        {badge > 99 ? "99+" : badge}
+                      </span>
+                    )}
+                  </>);
+                })()}
               </button>
             );
           })}

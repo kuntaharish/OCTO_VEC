@@ -16,7 +16,7 @@ import SettingsView from "./views/SettingsView";
 import WorkspaceView from "./views/WorkspaceView";
 import OnboardingView from "./views/OnboardingView";
 import WelcomeTour, { WelcomeSplash, markTourDone } from "./components/WelcomeTour";
-import { apiUrl, startTokenRefresh, stopTokenRefresh } from "./hooks/useApi";
+import { apiUrl, startTokenRefresh, stopTokenRefresh, usePolling } from "./hooks/useApi";
 import { useChatNotifications } from "./hooks/useChatNotifications";
 import ChatToasts from "./components/ChatToasts";
 
@@ -156,6 +156,10 @@ function DashboardShell({ activeView, setActiveView, tourPhase, setTourPhase }: 
 }) {
   const { unreadCount, perAgentUnread, toasts, markAgentRead, dismissToast } = useChatNotifications(activeView);
 
+  // Pending reminders count for badge
+  const { data: reminders } = usePolling<{ scheduled_for: string; triggered_at: string | null }[]>("/api/reminders?all=false", 10000);
+  const pendingReminders = (reminders ?? []).filter(r => !r.triggered_at).length;
+
   function handleToastClick(agentId: string) {
     sessionStorage.setItem("chat_selected_agent", agentId);
     setActiveView("chat");
@@ -164,7 +168,7 @@ function DashboardShell({ activeView, setActiveView, tourPhase, setTourPhase }: 
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-primary)" }}>
-      <Sidebar activeView={activeView} setActiveView={setActiveView} chatBadge={unreadCount} />
+      <Sidebar activeView={activeView} setActiveView={setActiveView} chatBadge={unreadCount} reminderBadge={pendingReminders} />
       <main style={{
         flex: 1, overflow: "hidden", display: "flex", flexDirection: "column",
         background: "var(--bg-card)",
