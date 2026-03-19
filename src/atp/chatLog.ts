@@ -21,9 +21,11 @@ export interface ChatEntry {
   to: string;
   message: string;
   /** Where the message originated */
-  channel: "cli" | "telegram" | "dashboard" | "agent";
+  channel: "cli" | "telegram" | "dashboard" | "agent" | "editor";
   /** If part of a group conversation */
   group_id?: string;
+  /** If sent from OCTO-EDIT, the project path */
+  editor_project?: string;
 }
 
 const LOG_PATH = path.join(config.dataDir, "chat-log.json");

@@ -7,7 +7,7 @@
  *   - cli       → reply goes to CLI + Dashboard Teams (default)
  */
 
-export type ActiveChannel = "cli" | "telegram" | "dashboard" | "slack" | "discord" | "whatsapp" | "teams" | "matrix" | "signal" | "googlechat" | "irc" | "line" | "mattermost" | "twitch" | "nostr" | "nextcloud" | "synology" | "feishu";
+export type ActiveChannel = "cli" | "telegram" | "dashboard" | "editor" | "slack" | "discord" | "whatsapp" | "teams" | "matrix" | "signal" | "googlechat" | "irc" | "line" | "mattermost" | "twitch" | "nostr" | "nextcloud" | "synology" | "feishu";
 
 let _current: ActiveChannel = "cli";
 
@@ -17,5 +17,17 @@ export const ActiveChannelState = {
   },
   get(): ActiveChannel {
     return _current;
+  },
+};
+
+// ── Editor context — tracks which project the editor chat is about ──────
+let _editorProject: string | null = null;
+
+export const EditorChannelState = {
+  set(projectPath: string | null): void {
+    _editorProject = projectPath;
+  },
+  get(): string | null {
+    return _editorProject;
   },
 };

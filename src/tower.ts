@@ -31,7 +31,7 @@ import { startDashboardServer } from "./dashboard/server.js";
 import { releaseDueTasks } from "./tools/pm/taskTools.js";
 import { AgentInterrupt } from "./atp/agentInterrupt.js";
 import { getActiveGroupForAgent, markActiveGroupConversation } from "./atp/agentGroups.js";
-import { ActiveChannelState } from "./channels/activeChannel.js";
+import { ActiveChannelState, EditorChannelState } from "./channels/activeChannel.js";
 import { channelManager } from "./channels/channelManager.js";
 import { injectChannelEnv } from "./channels/channelConfig.js";
 import { injectIntegrationEnv } from "./integrations/integrationConfig.js";
@@ -546,14 +546,22 @@ async function startServer(doStartupReset: boolean): Promise<void> {
         // Refresh active timestamp
         markActiveGroupConversation(activeGroup.id, activeGroup.members);
       } else {
-        // Normal individual reply — log only for CLI/dashboard (external channels handle their own logging)
+        // Normal individual reply — log for CLI/dashboard/editor (external channels handle their own logging)
         if (ch === "cli" || ch === "dashboard") {
           UserChatLog.log({ from: msg.from_agent, to: "user", message: msg.message, channel: "agent" });
+        } else if (ch === "editor") {
+          // Tag reply with editor channel + project so OCTO-EDIT can pick it up
+          const editorProject = EditorChannelState.get();
+          UserChatLog.log({
+            from: msg.from_agent, to: "user", message: msg.message,
+            channel: "editor",
+            editor_project: editorProject ?? undefined,
+          });
         }
       }
 
       // Route reply to origin channel (for both individual and group)
-      if (ch !== "cli" && ch !== "dashboard") {
+      if (ch !== "cli" && ch !== "dashboard" && ch !== "editor") {
         const target = channelManager.getChannel(ch as any);
         if (target) await target.sendToUser(line).catch(() => { });
       }

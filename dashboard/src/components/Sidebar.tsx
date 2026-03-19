@@ -13,6 +13,7 @@ import {
   Settings,
   IndianRupee,
   Bell,
+  FolderOpen,
 } from "lucide-react";
 import ThemeSwitcher from "./ThemeSwitcher";
 
@@ -26,6 +27,7 @@ export type View =
   | "live"
   | "finance"
   | "reminders"
+  | "workspace"
   | "settings";
 
 interface NavItem { id: View; label: string; icon: React.ReactNode }
@@ -41,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "chat",      label: "Chat",      icon: <MessageSquare size={ICON} /> },
   { id: "finance",   label: "Finance",   icon: <IndianRupee size={ICON} /> },
   { id: "reminders", label: "Reminders", icon: <Bell size={ICON} /> },
+  { id: "workspace", label: "Workspace", icon: <FolderOpen size={ICON} /> },
   { id: "settings",  label: "Settings",  icon: <Settings size={ICON} /> },
 ];
 
