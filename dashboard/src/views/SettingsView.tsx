@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Plus, Trash2, Save, RefreshCw, Server, ChevronDown, ChevronRight,
-  Shield, Search, MessageSquare, Cpu, Box, ExternalLink,
+  Shield, Search, MessageSquare, Cpu, Box, ExternalLink, Palette, RotateCcw,
   Zap, Settings2, Database, Eye, Star, Check, X, Package,
   Hash, Globe, Radio, Gamepad2, FolderOpen, Phone, Users, Grid3X3,
   GitBranch, Upload, Clock, CheckCircle, AlertCircle, EyeOff,
@@ -90,7 +90,7 @@ function deepClone<T>(obj: T): T { return JSON.parse(JSON.stringify(obj)); }
 
 // ── Settings section type ────────────────────────────────────────────────────
 
-type SettingsSection = "general" | "models" | "channels" | "integrations" | "mcp" | "versioning";
+type SettingsSection = "general" | "models" | "channels" | "integrations" | "mcp" | "versioning" | "chat";
 
 const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode; color: string }[] = [
   { key: "general", label: "General", icon: <Settings2 size={15} />, color: "var(--text-secondary)" },
@@ -99,6 +99,7 @@ const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode;
   { key: "integrations", label: "Integrations", icon: <Zap size={15} />, color: "var(--orange)" },
   { key: "mcp", label: "MCP Servers", icon: <Server size={15} />, color: "var(--green)" },
   { key: "versioning", label: "Versioning", icon: <GitBranch size={15} />, color: "var(--cyan, #06b6d4)" },
+  { key: "chat", label: "Chat", icon: <Palette size={15} />, color: "var(--accent)" },
 ];
 
 // ── Logo icon helper ─────────────────────────────────────────────────────────
@@ -527,6 +528,44 @@ export default function SettingsView() {
   }, []);
 
   useEffect(() => { fetchGitConfig(); }, [fetchGitConfig]);
+
+  // Chat appearance
+  interface ChatColors {
+    userBubble: string;
+    userText: string;
+    agentBubble: string;
+    agentText: string;
+    timestampUser: string;
+    timestampAgent: string;
+  }
+  const CHAT_DEFAULTS: ChatColors = {
+    userBubble: "", agentBubble: "", userText: "#ffffff",
+    agentText: "", timestampUser: "rgba(255,255,255,0.6)", timestampAgent: "",
+  };
+  const [chatColors, setChatColors] = useState<ChatColors>(() => {
+    try {
+      const saved = localStorage.getItem("vec-chat-colors");
+      return saved ? { ...CHAT_DEFAULTS, ...JSON.parse(saved) } : CHAT_DEFAULTS;
+    } catch { return CHAT_DEFAULTS; }
+  });
+
+  // Persist chat colors and apply as CSS vars
+  useEffect(() => {
+    const root = document.documentElement;
+    if (chatColors.userBubble) root.style.setProperty("--chat-user-bubble", chatColors.userBubble);
+    else root.style.removeProperty("--chat-user-bubble");
+    if (chatColors.userText) root.style.setProperty("--chat-user-text", chatColors.userText);
+    else root.style.removeProperty("--chat-user-text");
+    if (chatColors.agentBubble) root.style.setProperty("--chat-agent-bubble", chatColors.agentBubble);
+    else root.style.removeProperty("--chat-agent-bubble");
+    if (chatColors.agentText) root.style.setProperty("--chat-agent-text", chatColors.agentText);
+    else root.style.removeProperty("--chat-agent-text");
+    if (chatColors.timestampUser) root.style.setProperty("--chat-ts-user", chatColors.timestampUser);
+    else root.style.removeProperty("--chat-ts-user");
+    if (chatColors.timestampAgent) root.style.setProperty("--chat-ts-agent", chatColors.timestampAgent);
+    else root.style.removeProperty("--chat-ts-agent");
+    localStorage.setItem("vec-chat-colors", JSON.stringify(chatColors));
+  }, [chatColors]);
 
   const fetchChannels = useCallback(async () => {
     try {
@@ -2221,6 +2260,171 @@ export default function SettingsView() {
     );
   }
 
+  // ── Chat Appearance ──────────────────────────────────────────────────────
+
+  function renderChat() {
+    const presets: { label: string; colors: ChatColors }[] = [
+      { label: "Default", colors: CHAT_DEFAULTS },
+      { label: "Ocean", colors: { userBubble: "#0077b6", userText: "#ffffff", agentBubble: "#1b2838", agentText: "#cad2de", timestampUser: "rgba(255,255,255,0.5)", timestampAgent: "rgba(255,255,255,0.3)" } },
+      { label: "Forest", colors: { userBubble: "#2d6a4f", userText: "#ffffff", agentBubble: "#1b2e1b", agentText: "#c5dfc5", timestampUser: "rgba(255,255,255,0.5)", timestampAgent: "rgba(255,255,255,0.3)" } },
+      { label: "Sunset", colors: { userBubble: "#e85d04", userText: "#ffffff", agentBubble: "#2a1a0e", agentText: "#f0d5be", timestampUser: "rgba(255,255,255,0.5)", timestampAgent: "rgba(255,255,255,0.3)" } },
+      { label: "Lavender", colors: { userBubble: "#7b2cbf", userText: "#ffffff", agentBubble: "#1e1230", agentText: "#d4bfec", timestampUser: "rgba(255,255,255,0.5)", timestampAgent: "rgba(255,255,255,0.3)" } },
+      { label: "Rose", colors: { userBubble: "#e63971", userText: "#ffffff", agentBubble: "#2a1018", agentText: "#f0c0d0", timestampUser: "rgba(255,255,255,0.5)", timestampAgent: "rgba(255,255,255,0.3)" } },
+      { label: "Slate", colors: { userBubble: "#475569", userText: "#f8fafc", agentBubble: "#1e293b", agentText: "#cbd5e1", timestampUser: "rgba(255,255,255,0.5)", timestampAgent: "rgba(255,255,255,0.3)" } },
+    ];
+
+    function ColorField({ label, value, fallback, onChange }: { label: string; value: string; fallback: string; onChange: (v: string) => void }) {
+      const display = value || fallback;
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+          <label style={{
+            position: "relative", width: 32, height: 32, borderRadius: 8,
+            border: "2px solid var(--border)", cursor: "pointer", overflow: "hidden",
+            background: display, flexShrink: 0,
+          }}>
+            <input type="color" value={display} onChange={e => onChange(e.target.value)}
+              style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }}
+            />
+          </label>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>{label}</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "monospace" }}>{display}</div>
+          </div>
+          {value && (
+            <button onClick={() => onChange("")} title="Reset to default" style={{
+              background: "none", border: "none", color: "var(--text-muted)",
+              cursor: "pointer", padding: 4, display: "flex",
+            }}><RotateCcw size={12} /></button>
+          )}
+        </div>
+      );
+    }
+
+    // Resolve fallback values for preview
+    const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : null;
+    const accent = cs?.getPropertyValue("--accent").trim() || "#5b8def";
+    const bgTertiary = cs?.getPropertyValue("--bg-tertiary").trim() || "#2a2a2a";
+    const textPrimary = cs?.getPropertyValue("--text-primary").trim() || "#e0e0e0";
+    const textMuted = cs?.getPropertyValue("--text-muted").trim() || "#666";
+
+    const pUserBubble = chatColors.userBubble || accent;
+    const pUserText = chatColors.userText || "#ffffff";
+    const pAgentBubble = chatColors.agentBubble || bgTertiary;
+    const pAgentText = chatColors.agentText || textPrimary;
+    const pTsUser = chatColors.timestampUser || "rgba(255,255,255,0.6)";
+    const pTsAgent = chatColors.timestampAgent || textMuted;
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* Presets */}
+        <div style={{
+          background: "var(--bg-card)", borderRadius: 10,
+          border: "1px solid var(--border)", padding: 20,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>Color Presets</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 14 }}>Quick themes for your chat bubbles</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {presets.map(p => {
+              const active = chatColors.userBubble === p.colors.userBubble && chatColors.agentBubble === p.colors.agentBubble;
+              return (
+                <button key={p.label} onClick={() => setChatColors(p.colors)} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "8px 14px",
+                  borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+                  border: active ? "2px solid var(--accent)" : "1px solid var(--border)",
+                  background: active ? "var(--bg-hover)" : "var(--bg-secondary)",
+                  color: "var(--text-primary)", fontSize: 12, fontWeight: 500,
+                }}>
+                  <div style={{ display: "flex", gap: 3 }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 4, background: p.colors.userBubble || accent }} />
+                    <div style={{ width: 14, height: 14, borderRadius: 4, background: p.colors.agentBubble || bgTertiary }} />
+                  </div>
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Custom colors */}
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          {/* User bubble */}
+          <div style={{
+            flex: "1 1 240px", background: "var(--bg-card)", borderRadius: 10,
+            border: "1px solid var(--border)", padding: 20,
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", marginBottom: 12 }}>Your Messages</div>
+            <ColorField label="Bubble Color" value={chatColors.userBubble} fallback={accent}
+              onChange={v => setChatColors(c => ({ ...c, userBubble: v }))} />
+            <ColorField label="Text Color" value={chatColors.userText} fallback="#ffffff"
+              onChange={v => setChatColors(c => ({ ...c, userText: v }))} />
+            <ColorField label="Timestamp Color" value={chatColors.timestampUser} fallback="rgba(255,255,255,0.6)"
+              onChange={v => setChatColors(c => ({ ...c, timestampUser: v }))} />
+          </div>
+
+          {/* Agent bubble */}
+          <div style={{
+            flex: "1 1 240px", background: "var(--bg-card)", borderRadius: 10,
+            border: "1px solid var(--border)", padding: 20,
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", marginBottom: 12 }}>Agent Messages</div>
+            <ColorField label="Bubble Color" value={chatColors.agentBubble} fallback={bgTertiary}
+              onChange={v => setChatColors(c => ({ ...c, agentBubble: v }))} />
+            <ColorField label="Text Color" value={chatColors.agentText} fallback={textPrimary}
+              onChange={v => setChatColors(c => ({ ...c, agentText: v }))} />
+            <ColorField label="Timestamp Color" value={chatColors.timestampAgent} fallback={textMuted}
+              onChange={v => setChatColors(c => ({ ...c, timestampAgent: v }))} />
+          </div>
+        </div>
+
+        {/* Live preview */}
+        <div style={{
+          background: "var(--bg-card)", borderRadius: 10,
+          border: "1px solid var(--border)", padding: 20,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", marginBottom: 14 }}>Preview</div>
+          <div style={{
+            background: "var(--bg-primary)", borderRadius: 10, padding: 16,
+            display: "flex", flexDirection: "column", gap: 10, maxWidth: 420,
+          }}>
+            {/* User message */}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <div style={{
+                padding: "8px 14px 6px", borderRadius: "14px 14px 4px 14px",
+                background: pUserBubble, color: pUserText,
+                fontSize: 13, lineHeight: 1.55, maxWidth: "75%",
+              }}>
+                Hey, can you review the PR I just pushed?
+                <div style={{ fontSize: 10, textAlign: "right", marginTop: 4, color: pTsUser }}>2:34 PM</div>
+              </div>
+            </div>
+            {/* Agent message */}
+            <div style={{ display: "flex", justifyContent: "flex-start" }}>
+              <div style={{
+                padding: "8px 14px 6px", borderRadius: "14px 14px 14px 4px",
+                background: pAgentBubble, color: pAgentText,
+                fontSize: 13, lineHeight: 1.55, maxWidth: "75%",
+              }}>
+                Sure! I'll take a look at the changes and get back to you with feedback.
+                <div style={{ fontSize: 10, textAlign: "right", marginTop: 4, color: pTsAgent }}>2:35 PM</div>
+              </div>
+            </div>
+            {/* Another user message */}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <div style={{
+                padding: "8px 14px 6px", borderRadius: "14px 14px 4px 14px",
+                background: pUserBubble, color: pUserText,
+                fontSize: 13, lineHeight: 1.55, maxWidth: "75%",
+              }}>
+                Thanks!
+                <div style={{ fontSize: 10, textAlign: "right", marginTop: 4, color: pTsUser }}>2:35 PM</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const sectionRenderers: Record<SettingsSection, () => React.ReactNode> = {
@@ -2230,6 +2434,7 @@ export default function SettingsView() {
     integrations: renderIntegrations,
     mcp: renderMCP,
     versioning: renderVersioning,
+    chat: renderChat,
   };
 
   const sectionBadges: Record<SettingsSection, string | null> = {
@@ -2239,6 +2444,7 @@ export default function SettingsView() {
     integrations: integCount > 0 ? String(integCount) : null,
     mcp: serverNames.length > 0 ? String(serverNames.length) : null,
     versioning: gitCfg?.configured ? "✓" : null,
+    chat: chatColors.userBubble ? "✓" : null,
   };
 
   return (

@@ -20,6 +20,22 @@ import { apiUrl, startTokenRefresh, stopTokenRefresh } from "./hooks/useApi";
 import { useChatNotifications } from "./hooks/useChatNotifications";
 import ChatToasts from "./components/ChatToasts";
 
+// Restore chat colors from localStorage on startup
+(function restoreChatColors() {
+  try {
+    const saved = localStorage.getItem("vec-chat-colors");
+    if (!saved) return;
+    const c = JSON.parse(saved);
+    const root = document.documentElement;
+    if (c.userBubble) root.style.setProperty("--chat-user-bubble", c.userBubble);
+    if (c.userText) root.style.setProperty("--chat-user-text", c.userText);
+    if (c.agentBubble) root.style.setProperty("--chat-agent-bubble", c.agentBubble);
+    if (c.agentText) root.style.setProperty("--chat-agent-text", c.agentText);
+    if (c.timestampUser) root.style.setProperty("--chat-ts-user", c.timestampUser);
+    if (c.timestampAgent) root.style.setProperty("--chat-ts-agent", c.timestampAgent);
+  } catch { /* ignore */ }
+})();
+
 export default function App() {
   const [activeView, setActiveViewRaw] = useState<View>(() => {
     const saved = localStorage.getItem("active-view");

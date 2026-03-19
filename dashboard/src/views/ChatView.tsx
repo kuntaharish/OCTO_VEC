@@ -668,8 +668,8 @@ export default function ChatView({ perAgentUnread = {}, onAgentRead }: {
                           borderRadius: isUser
                             ? (sameSender ? "14px 14px 4px 14px" : "14px 14px 4px 14px")
                             : (sameSender ? "14px 14px 14px 4px" : "14px 14px 14px 4px"),
-                          background: isUser ? "var(--accent)" : "var(--bg-tertiary)",
-                          color: isUser ? "#fff" : "var(--text-primary)",
+                          background: isUser ? "var(--chat-user-bubble, var(--accent))" : "var(--chat-agent-bubble, var(--bg-tertiary))",
+                          color: isUser ? "var(--chat-user-text, #fff)" : "var(--chat-agent-text, var(--text-primary))",
                           fontSize: 13, lineHeight: 1.55,
                           wordBreak: "break-word",
                         }}>
@@ -677,7 +677,7 @@ export default function ChatView({ perAgentUnread = {}, onAgentRead }: {
                           {/* Inline timestamp like WhatsApp */}
                           <div style={{
                             fontSize: 10, lineHeight: 1,
-                            color: isUser ? "rgba(255,255,255,0.6)" : "var(--text-muted)",
+                            color: isUser ? "var(--chat-ts-user, rgba(255,255,255,0.6))" : "var(--chat-ts-agent, var(--text-muted))",
                             textAlign: "right", marginTop: 4,
                           }}>
                             {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
