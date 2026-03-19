@@ -64,7 +64,7 @@ export default function Dropdown({
         {selected?.iconUrl ? (
           <img src={selected.iconUrl} alt="" style={{
             width: 14, height: 14, flexShrink: 0, borderRadius: 2,
-            filter: "var(--icon-filter, none)",
+
           }} />
         ) : selected?.dot ? (
           <span style={{
@@ -131,7 +131,7 @@ export default function Dropdown({
                 {opt.iconUrl ? (
                   <img src={opt.iconUrl} alt="" style={{
                     width: 14, height: 14, flexShrink: 0, borderRadius: 2,
-                    filter: "var(--icon-filter, none)",
+        
                   }} />
                 ) : opt.dot ? (
                   <span style={{

@@ -652,7 +652,7 @@ function AgentModelSelector({ agentId }: { agentId: string }) {
               <img
                 src={ep.iconUrl}
                 alt={ep.name}
-                style={{ width: 20, height: 20, flexShrink: 0, borderRadius: 3, filter: "var(--icon-filter, none)" }}
+                style={{ width: 20, height: 20, flexShrink: 0, borderRadius: 3 }}
                 onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
               />
             ) : (

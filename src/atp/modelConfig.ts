@@ -69,31 +69,31 @@ const ENV_KEY_HINTS: Record<string, string> = {
   zai: "ZAI_API_KEY",
 };
 
-// ── Provider icons (local assets from lobe-icons) ───────────────────────────
+// ── Provider icon domains (gstatic colored favicon service) ─────────────────
 
-const PROVIDER_ICONS: Record<string, string> = {
-  "amazon-bedrock": "bedrock",
-  anthropic: "anthropic",
-  "azure-openai-responses": "azure",
-  cerebras: "cerebras",
-  "github-copilot": "githubcopilot",
-  google: "gemini",
-  "google-antigravity": "antigravity",
-  "google-gemini-cli": "gemini",
-  "google-vertex": "googlecloud",
-  groq: "groq",
-  huggingface: "huggingface",
-  "kimi-coding": "kimi",
-  minimax: "minimax",
-  "minimax-cn": "minimax",
-  mistral: "mistral",
-  openai: "openai",
-  "openai-codex": "codex",
-  opencode: "openai",
-  openrouter: "openrouter",
-  "vercel-ai-gateway": "vercel",
-  xai: "xai",
-  zai: "chatglm",
+const PROVIDER_ICON_DOMAINS: Record<string, string> = {
+  "amazon-bedrock": "aws.amazon.com",
+  anthropic: "anthropic.com",
+  "azure-openai-responses": "azure.microsoft.com",
+  cerebras: "cerebras.ai",
+  "github-copilot": "github.com",
+  google: "gemini.google.com",
+  "google-antigravity": "google.com",
+  "google-gemini-cli": "gemini.google.com",
+  "google-vertex": "cloud.google.com",
+  groq: "groq.com",
+  huggingface: "huggingface.co",
+  "kimi-coding": "kimi.moonshot.cn",
+  minimax: "minimaxi.com",
+  "minimax-cn": "minimaxi.com",
+  mistral: "mistral.ai",
+  openai: "openai.com",
+  "openai-codex": "openai.com",
+  opencode: "openai.com",
+  openrouter: "openrouter.ai",
+  "vercel-ai-gateway": "vercel.com",
+  xai: "x.ai",
+  zai: "zhipuai.cn",
 };
 
 // ── Provider detection ───────────────────────────────────────────────────────
@@ -114,14 +114,17 @@ export function getProviders(): ProviderInfo[] {
     const modelsMap = (MODELS as Record<string, Record<string, unknown>>)[id] ?? {};
     const modelIds = Object.keys(modelsMap);
     const configured = !!getEnvApiKey(id);
-    const slug = PROVIDER_ICONS[id] ?? id;
+    const domain = PROVIDER_ICON_DOMAINS[id];
+    const iconUrl = domain
+      ? `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=32`
+      : `/icons/providers/${id}.svg`;
     return {
       id,
       name: PROVIDER_LABELS[id] ?? id,
       configured,
       envKey: ENV_KEY_HINTS[id] ?? "",
       models: modelIds,
-      iconUrl: `/icons/providers/${slug}.svg`,
+      iconUrl,
     };
   });
 }
