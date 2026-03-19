@@ -4,6 +4,7 @@ import {
   Shield, Search, MessageSquare, Cpu, Box, ExternalLink,
   Zap, Settings2, Database, Eye, Star, Check, X, Package,
   Hash, Globe, Radio, Gamepad2, FolderOpen, Phone, Users, Grid3X3,
+  GitBranch, Upload, Clock, CheckCircle, AlertCircle, EyeOff,
 } from "lucide-react";
 import { postApi, apiUrl } from "../hooks/useApi";
 import { usePolling } from "../hooks/useApi";
@@ -89,7 +90,7 @@ function deepClone<T>(obj: T): T { return JSON.parse(JSON.stringify(obj)); }
 
 // ── Settings section type ────────────────────────────────────────────────────
 
-type SettingsSection = "general" | "models" | "channels" | "integrations" | "mcp";
+type SettingsSection = "general" | "models" | "channels" | "integrations" | "mcp" | "versioning";
 
 const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode; color: string }[] = [
   { key: "general", label: "General", icon: <Settings2 size={15} />, color: "var(--text-secondary)" },
@@ -97,6 +98,7 @@ const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode;
   { key: "channels", label: "Channels", icon: <Radio size={15} />, color: "var(--blue)" },
   { key: "integrations", label: "Integrations", icon: <Zap size={15} />, color: "var(--orange)" },
   { key: "mcp", label: "MCP Servers", icon: <Server size={15} />, color: "var(--green)" },
+  { key: "versioning", label: "Versioning", icon: <GitBranch size={15} />, color: "var(--cyan, #06b6d4)" },
 ];
 
 // ── Logo icon helper ─────────────────────────────────────────────────────────
@@ -108,7 +110,7 @@ function LogoIcon({ src, fallback, size = 20, colored }: { src: string; fallback
     <img
       src={src}
       alt=""
-      style={{ width: size, height: size, borderRadius: 3, filter: colored ? "none" : "var(--icon-filter, none)" }}
+      style={{ width: size, height: size, borderRadius: 3 }}
       onError={() => setFailed(true)}
     />
   );
@@ -499,6 +501,33 @@ export default function SettingsView() {
   // Docker status
   const { data: dockerStatus } = usePolling<{ installed: boolean; running: boolean; version: string | null; error?: string }>("/api/docker-status", 30000);
 
+  // Git config (versioning & backup)
+  interface GitConfigData {
+    username: string; email: string; token: string;
+    provider: "github" | "gitlab" | "bitbucket" | "custom";
+    remoteUrl: string; backupEnabled: boolean; backupIntervalHours: number;
+    lastBackup: string | null; lastBackupStatus: "success" | "error" | null;
+    lastBackupMessage: string | null; configured: boolean;
+  }
+  const [gitCfg, setGitCfg] = useState<GitConfigData | null>(null);
+  const [gitForm, setGitForm] = useState({ username: "", email: "", token: "", provider: "github", remoteUrl: "", backupEnabled: false, backupIntervalHours: 24 });
+  const [gitEditing, setGitEditing] = useState(false);
+  const [gitSaving, setGitSaving] = useState(false);
+  const [gitTesting, setGitTesting] = useState(false);
+  const [gitTestResult, setGitTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [gitBacking, setGitBacking] = useState(false);
+  const [gitBackupResult, setGitBackupResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [showGitToken, setShowGitToken] = useState(false);
+
+  const fetchGitConfig = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl("/api/git-config")).then(r => r.json());
+      setGitCfg(res);
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { fetchGitConfig(); }, [fetchGitConfig]);
+
   const fetchChannels = useCallback(async () => {
     try {
       const res = await fetch(apiUrl("/api/channel-config")).then(r => r.json());
@@ -866,40 +895,40 @@ export default function SettingsView() {
 
   // ── Channel field metadata for rendering forms ──────────────────────────
   const CHANNEL_FIELD_META: Record<string, { fields: { key: string; label: string; placeholder: string; secret?: boolean }[]; color: string; icon: string; note?: string }> = {
-    telegram:   { color: "#26A5E4", icon: "/icons/integrations/telegram.svg", fields: [
+    telegram:   { color: "#26A5E4", icon: "telegram.org", fields: [
       { key: "botToken", label: "Bot Token", placeholder: "Paste your bot token from @BotFather", secret: true },
       { key: "chatId", label: "Chat ID", placeholder: "Your authorized chat ID" },
     ]},
-    slack:      { color: "#4A154B", icon: "/icons/integrations/slack.svg", fields: [
+    slack:      { color: "#4A154B", icon: "slack.com", fields: [
       { key: "botToken", label: "Bot Token", placeholder: "xoxb-...", secret: true },
       { key: "appToken", label: "App Token", placeholder: "xapp-...", secret: true },
       { key: "channelId", label: "Channel ID", placeholder: "C0123456789" },
     ]},
-    discord:    { color: "#5865F2", icon: "/icons/integrations/discord.svg", fields: [
+    discord:    { color: "#5865F2", icon: "discord.com", fields: [
       { key: "botToken", label: "Bot Token", placeholder: "Discord Developer Portal → Bot → Token", secret: true },
       { key: "channelId", label: "Channel ID", placeholder: "Right-click channel → Copy Channel ID" },
     ]},
-    whatsapp:   { color: "#25D366", icon: "/icons/integrations/whatsapp.svg", note: "On first connect, a QR code will appear in the server terminal. Scan it with WhatsApp.", fields: [
+    whatsapp:   { color: "#25D366", icon: "whatsapp.com", note: "On first connect, a QR code will appear in the server terminal. Scan it with WhatsApp.", fields: [
       { key: "authorizedJid", label: "Authorized JID", placeholder: "919876543210@s.whatsapp.net" },
     ]},
-    teams:      { color: "#6264A7", icon: "/icons/integrations/teams.svg", fields: [
+    teams:      { color: "#6264A7", icon: "teams.microsoft.com", fields: [
       { key: "incomingWebhookUrl", label: "Incoming Webhook URL", placeholder: "https://outlook.office.com/webhook/...", secret: true },
       { key: "outgoingWebhookSecret", label: "Outgoing Webhook Secret (optional)", placeholder: "HMAC secret for verifying Teams messages", secret: true },
     ]},
-    matrix:     { color: "#0DBD8B", icon: "/icons/integrations/matrix.svg", fields: [
+    matrix:     { color: "#0DBD8B", icon: "matrix.org", fields: [
       { key: "homeserverUrl", label: "Homeserver URL", placeholder: "https://matrix.org" },
       { key: "accessToken", label: "Access Token", placeholder: "Bot user access token", secret: true },
       { key: "roomId", label: "Room ID", placeholder: "!abc123:matrix.org" },
     ]},
-    signal:     { color: "#3A76F0", icon: "/icons/integrations/signal.svg", note: "Requires signal-cli installed and registered on the server.", fields: [
+    signal:     { color: "#3A76F0", icon: "signal.org", note: "Requires signal-cli installed and registered on the server.", fields: [
       { key: "phoneNumber", label: "Phone Number", placeholder: "+1234567890" },
       { key: "recipient", label: "Recipient", placeholder: "+1234567890 or group ID" },
       { key: "cliPath", label: "signal-cli Path (optional)", placeholder: "/usr/local/bin/signal-cli" },
     ]},
-    googlechat: { color: "#00AC47", icon: "/icons/integrations/googlechat.svg", fields: [
+    googlechat: { color: "#00AC47", icon: "chat.google.com", fields: [
       { key: "webhookUrl", label: "Webhook URL", placeholder: "https://chat.googleapis.com/v1/spaces/...", secret: true },
     ]},
-    irc:        { color: "#6667AB", icon: "/icons/integrations/irc.svg", fields: [
+    irc:        { color: "#6667AB", icon: "libera.chat", fields: [
       { key: "server", label: "Server", placeholder: "irc.libera.chat" },
       { key: "port", label: "Port", placeholder: "6697" },
       { key: "nickname", label: "Nickname", placeholder: "octo-vec" },
@@ -907,40 +936,40 @@ export default function SettingsView() {
       { key: "authNick", label: "Auth Nick (authorized user)", placeholder: "your-nick" },
       { key: "useTls", label: "Use TLS (true/false)", placeholder: "true" },
     ]},
-    line:       { color: "#00C300", icon: "/icons/integrations/line.svg", fields: [
+    line:       { color: "#00C300", icon: "line.me", fields: [
       { key: "channelAccessToken", label: "Channel Access Token", placeholder: "LINE Developers → Messaging API", secret: true },
       { key: "channelSecret", label: "Channel Secret", placeholder: "LINE channel secret", secret: true },
       { key: "userId", label: "User ID", placeholder: "Target user ID to send messages to" },
     ]},
-    mattermost: { color: "#0058CC", icon: "/icons/integrations/mattermost.svg", fields: [
+    mattermost: { color: "#0058CC", icon: "developers.mattermost.com", fields: [
       { key: "serverUrl", label: "Server URL", placeholder: "https://mattermost.example.com" },
       { key: "botToken", label: "Bot Token", placeholder: "Bot access token", secret: true },
       { key: "channelId", label: "Channel ID", placeholder: "Channel ID to listen on" },
       { key: "authUser", label: "Auth User (authorized username)", placeholder: "admin" },
     ]},
-    twitch:     { color: "#9146FF", icon: "/icons/integrations/twitch.svg", fields: [
+    twitch:     { color: "#9146FF", icon: "twitch.tv", fields: [
       { key: "botUsername", label: "Bot Username", placeholder: "my_bot" },
       { key: "oauthToken", label: "OAuth Token", placeholder: "oauth:...", secret: true },
       { key: "channel", label: "Channel", placeholder: "#my-channel" },
       { key: "authUser", label: "Auth User (authorized username)", placeholder: "streamer-name" },
     ]},
-    nostr:      { color: "#8B5CF6", icon: "/icons/integrations/nostr.svg", fields: [
+    nostr:      { color: "#8B5CF6", icon: "nostr.com", fields: [
       { key: "privateKey", label: "Private Key (hex)", placeholder: "nsec or hex private key", secret: true },
       { key: "relayUrl", label: "Relay URL", placeholder: "wss://relay.damus.io" },
       { key: "authPubkey", label: "Auth Pubkey (authorized user)", placeholder: "npub or hex pubkey" },
     ]},
-    nextcloud:  { color: "#0082C9", icon: "/icons/integrations/nextcloud.svg", fields: [
+    nextcloud:  { color: "#0082C9", icon: "nextcloud.com", fields: [
       { key: "serverUrl", label: "Server URL", placeholder: "https://cloud.example.com" },
       { key: "username", label: "Username", placeholder: "bot-user" },
       { key: "password", label: "Password", placeholder: "App password", secret: true },
       { key: "roomToken", label: "Room Token", placeholder: "Talk room token" },
       { key: "authUser", label: "Auth User (authorized username)", placeholder: "admin" },
     ]},
-    synology:   { color: "#B6002B", icon: "/icons/integrations/synology.svg", fields: [
+    synology:   { color: "#B6002B", icon: "synology.com", fields: [
       { key: "incomingUrl", label: "Incoming Webhook URL", placeholder: "Synology Chat incoming webhook URL", secret: true },
       { key: "outgoingToken", label: "Outgoing Webhook Token", placeholder: "Token for verifying outgoing webhooks", secret: true },
     ]},
-    feishu:     { color: "#3370FF", icon: "/icons/integrations/feishu.svg", fields: [
+    feishu:     { color: "#3370FF", icon: "feishu.cn", fields: [
       { key: "webhookUrl", label: "Webhook URL", placeholder: "Feishu bot webhook URL", secret: true },
       { key: "verificationToken", label: "Verification Token", placeholder: "Event verification token", secret: true },
     ]},
@@ -958,6 +987,14 @@ export default function SettingsView() {
     "signal", "googlechat", "irc", "line", "mattermost", "twitch",
     "nostr", "nextcloud", "synology", "feishu",
   ];
+
+  // Real brand favicon domains for gstatic favicon service (same as MCP icons)
+  const CHANNEL_ICON_DOMAINS: Record<string, string> = {
+    telegram: "telegram.org", slack: "slack.com", discord: "discord.com", whatsapp: "whatsapp.com",
+    teams: "teams.microsoft.com", matrix: "matrix.org", signal: "signal.org", googlechat: "chat.google.com",
+    irc: "libera.chat", line: "line.me", mattermost: "developers.mattermost.com", twitch: "twitch.tv",
+    nostr: "nostr.com", nextcloud: "nextcloud.com", synology: "synology.com", feishu: "feishu.cn",
+  };
 
   function openChannelEdit(ch: string) {
     setEditingChannel(ch);
@@ -1029,140 +1066,173 @@ export default function SettingsView() {
     const label = CHANNEL_LABELS[ch] ?? ch;
     const color = meta.color;
     const hasAnyField = Object.values(chFields).some(v => v && v.trim());
+    const iconDomain = CHANNEL_ICON_DOMAINS[ch];
 
-    // Summary line for configured channels
-    const summaryField = meta.fields.find(f => !f.secret);
-    const summaryValue = summaryField ? (info?.fields?.[summaryField.key] ?? "") : "";
-
-    return (
-      <div key={ch} style={{
-        padding: "18px 20px", borderRadius: 12,
-        background: "var(--bg-card)", border: `1px solid ${isEditing ? color : "var(--border)"}`,
-        transition: "border-color 0.15s",
-      }}>
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: isEditing ? 16 : 0 }}>
+    // Compact card (non-editing) — matches MCP directory style
+    if (!isEditing) {
+      return (
+        <div key={ch} style={{
+          display: "flex", alignItems: "center", gap: 14,
+          padding: "14px 16px", borderRadius: 12,
+          background: "var(--bg-card)", border: "1px solid var(--border)",
+          transition: "border-color 0.15s, box-shadow 0.15s",
+          minWidth: 0, overflow: "hidden",
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--text-muted) 40%, transparent)"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.1)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
+        >
+          {/* Icon — real brand favicon from gstatic */}
           <div style={{
-            width: 42, height: 42, borderRadius: 10,
-            background: configured ? `color-mix(in srgb, ${color} 10%, transparent)` : "var(--bg-tertiary)",
+            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+            background: configured ? `color-mix(in srgb, ${color} 12%, transparent)` : "var(--bg-tertiary)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            color: configured ? color : "var(--text-muted)", flexShrink: 0,
           }}>
-            <LogoIcon src={meta.icon} fallback={<Radio size={22} />} size={22} colored />
+            <img
+              src={`https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${iconDomain ?? meta.icon}&size=32`}
+              alt="" style={{ width: 20, height: 20, borderRadius: 3 }}
+              onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
           </div>
+
+          {/* Name + status line */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{label}</div>
-            {configured && !isEditing && summaryValue && (
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                {summaryField!.label}: {summaryValue}
-              </div>
-            )}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {configured && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <span style={{
+                fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              }}>{label}</span>
+              {configured && (
                 <div style={{
-                  width: 7, height: 7, borderRadius: "50%",
+                  width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
                   background: connected ? "var(--green)" : "var(--red)",
                   boxShadow: connected ? "0 0 6px var(--green)" : "none",
                 }} />
-                <span style={{ fontSize: 10, fontWeight: 500, color: connected ? "var(--green)" : "var(--red)" }}>
-                  {connected ? "Online" : "Offline"}
-                </span>
-              </div>
-            )}
-            <span style={{
-              fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 6,
-              background: configured ? "color-mix(in srgb, var(--green) 10%, transparent)" : "var(--bg-tertiary)",
-              color: configured ? "var(--green)" : "var(--text-muted)",
-              border: `1px solid ${configured ? "color-mix(in srgb, var(--green) 18%, transparent)" : "var(--border)"}`,
-              flexShrink: 0, letterSpacing: "0.04em",
+              )}
+            </div>
+            <div style={{
+              fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.4, marginTop: 2,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
-              {configured ? "CONFIGURED" : "NOT SET"}
-            </span>
-          </div>
-        </div>
-
-        {/* Action buttons (when not editing) */}
-        {!isEditing && (
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={() => openChannelEdit(ch)} style={{
-              padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
-              border: "1px solid var(--border)", background: "var(--bg-hover)",
-              color: "var(--text-primary)", cursor: "pointer", fontFamily: "inherit",
-            }}>
-              {configured ? "Update" : "Configure"}
-            </button>
-            {configured && (
-              <button onClick={() => disconnectChannel(ch)} style={{
-                padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
-                border: "1px solid color-mix(in srgb, var(--red) 30%, transparent)",
-                background: "color-mix(in srgb, var(--red) 8%, transparent)",
-                color: "var(--red)", cursor: "pointer", fontFamily: "inherit",
-              }}>
-                Disconnect
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Edit form */}
-        {isEditing && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {meta.fields.map(f => (
-              <CredentialField
-                key={f.key}
-                label={f.label}
-                placeholder={f.placeholder}
-                value={chFields[f.key] ?? ""}
-                onChange={(v) => setChFields(prev => ({ ...prev, [f.key]: v }))}
-                isSecret={f.secret}
-              />
-            ))}
-            {meta.note && (
-              <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px" }}>
-                {meta.note}
-              </div>
-            )}
-            {chTestResult && (
-              <div style={{
-                padding: "8px 12px", borderRadius: 8, fontSize: 12,
-                background: chTestResult.ok ? "color-mix(in srgb, var(--green) 8%, transparent)" : "color-mix(in srgb, var(--red) 8%, transparent)",
-                color: chTestResult.ok ? "var(--green)" : "var(--red)",
-                border: `1px solid ${chTestResult.ok ? "color-mix(in srgb, var(--green) 20%, transparent)" : "color-mix(in srgb, var(--red) 20%, transparent)"}`,
-                display: "flex", alignItems: "center", gap: 8,
-              }}>
-                {chTestResult.ok ? <Check size={14} /> : <X size={14} />}
-                {chTestResult.msg}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-              <button onClick={testChannel} disabled={chTesting || !hasAnyField} style={{
-                padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
-                border: "1px solid var(--border)", background: "var(--bg-hover)",
-                color: "var(--text-primary)", cursor: chTesting ? "wait" : "pointer",
-                fontFamily: "inherit", opacity: chTesting || !hasAnyField ? 0.5 : 1,
-              }}>
-                {chTesting ? "Testing..." : "Test Connection"}
-              </button>
-              <button onClick={saveChannel} disabled={chSaving || !hasAnyField} style={{
-                padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                border: "none", background: color, color: "#fff",
-                cursor: chSaving ? "wait" : "pointer", fontFamily: "inherit",
-                opacity: chSaving || !hasAnyField ? 0.5 : 1,
-              }}>
-                {chSaving ? "Saving..." : "Save & Connect"}
-              </button>
-              <button onClick={closeChannelEdit} style={{
-                padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 500,
-                border: "1px solid var(--border)", background: "transparent",
-                color: "var(--text-muted)", cursor: "pointer", fontFamily: "inherit",
-              }}>
-                Cancel
-              </button>
+              {configured
+                ? (connected ? "Connected" : "Offline")
+                : "Not configured"}
             </div>
           </div>
-        )}
+
+          {/* Action button */}
+          <button
+            onClick={() => configured ? openChannelEdit(ch) : openChannelEdit(ch)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 30, height: 30, borderRadius: 8, border: "1px solid var(--border)",
+              background: "transparent", color: "var(--text-muted)",
+              cursor: "pointer", flexShrink: 0,
+              transition: "background 0.12s, color 0.12s, border-color 0.12s",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = color; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = color; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border)"; }}
+            title={configured ? `Edit ${label}` : `Configure ${label}`}
+          >
+            {configured ? <Settings2 size={14} /> : <Plus size={14} />}
+          </button>
+        </div>
+      );
+    }
+
+    // Expanded editing card — full width
+    return (
+      <div key={ch} style={{
+        padding: "16px 18px", borderRadius: 12,
+        background: "var(--bg-card)", border: `1px solid ${color}`,
+        gridColumn: "1 / -1",
+        transition: "border-color 0.15s",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+            background: `color-mix(in srgb, ${color} 12%, transparent)`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <img
+              src={`https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${iconDomain ?? meta.icon}&size=32`}
+              alt="" style={{ width: 20, height: 20, borderRadius: 3 }}
+              onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{label}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>
+              {configured ? (connected ? "Connected" : "Offline") : "Setup credentials below"}
+            </div>
+          </div>
+          {configured && (
+            <button onClick={() => disconnectChannel(ch)} style={{
+              padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+              border: "1px solid color-mix(in srgb, var(--red) 30%, transparent)",
+              background: "color-mix(in srgb, var(--red) 8%, transparent)",
+              color: "var(--red)", cursor: "pointer", fontFamily: "inherit",
+            }}>
+              Disconnect
+            </button>
+          )}
+        </div>
+
+        {/* Edit form */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {meta.fields.map(f => (
+            <CredentialField
+              key={f.key}
+              label={f.label}
+              placeholder={f.placeholder}
+              value={chFields[f.key] ?? ""}
+              onChange={(v) => setChFields(prev => ({ ...prev, [f.key]: v }))}
+              isSecret={f.secret}
+            />
+          ))}
+          {meta.note && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px" }}>
+              {meta.note}
+            </div>
+          )}
+          {chTestResult && (
+            <div style={{
+              padding: "8px 12px", borderRadius: 8, fontSize: 12,
+              background: chTestResult.ok ? "color-mix(in srgb, var(--green) 8%, transparent)" : "color-mix(in srgb, var(--red) 8%, transparent)",
+              color: chTestResult.ok ? "var(--green)" : "var(--red)",
+              border: `1px solid ${chTestResult.ok ? "color-mix(in srgb, var(--green) 20%, transparent)" : "color-mix(in srgb, var(--red) 20%, transparent)"}`,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              {chTestResult.ok ? <Check size={14} /> : <X size={14} />}
+              {chTestResult.msg}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button onClick={testChannel} disabled={chTesting || !hasAnyField} style={{
+              padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+              border: "1px solid var(--border)", background: "var(--bg-hover)",
+              color: "var(--text-primary)", cursor: chTesting ? "wait" : "pointer",
+              fontFamily: "inherit", opacity: chTesting || !hasAnyField ? 0.5 : 1,
+            }}>
+              {chTesting ? "Testing..." : "Test Connection"}
+            </button>
+            <button onClick={saveChannel} disabled={chSaving || !hasAnyField} style={{
+              padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+              border: "none", background: color, color: "#fff",
+              cursor: chSaving ? "wait" : "pointer", fontFamily: "inherit",
+              opacity: chSaving || !hasAnyField ? 0.5 : 1,
+            }}>
+              {chSaving ? "Saving..." : "Save & Connect"}
+            </button>
+            <button onClick={closeChannelEdit} style={{
+              padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+              border: "1px solid var(--border)", background: "transparent",
+              color: "var(--text-muted)", cursor: "pointer", fontFamily: "inherit",
+            }}>
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1170,32 +1240,33 @@ export default function SettingsView() {
   function renderChannels() {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-        {/* Stats */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <div style={{
-            flex: "1 1 140px", padding: "14px 16px",
-            background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8,
-          }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--blue)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-              {channelCount}
+        {/* Stats — matching MCP-style 4-column */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[
+            { val: channelCount, label: "Configured", color: "var(--blue)" },
+            { val: Object.values(channelCfg ?? {}).filter((c: any) => c?.connected).length, label: "Connected", color: "var(--green)" },
+            { val: TOTAL_CHANNELS - channelCount, label: "Available", color: "var(--purple, var(--text-muted))" },
+            { val: TOTAL_CHANNELS, label: "Total Channels", color: "var(--text-muted)" },
+          ].map(s => (
+            <div key={s.label} style={{
+              flex: "1 1 100px", padding: "14px 16px",
+              background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8,
+            }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: s.color, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                {s.val}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{s.label}</div>
             </div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Active Channels</div>
-          </div>
-          <div style={{
-            flex: "1 1 140px", padding: "14px 16px",
-            background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8,
-          }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-muted)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-              {TOTAL_CHANNELS - channelCount}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Not Configured</div>
-          </div>
+          ))}
         </div>
 
-        {/* Channel cards */}
+        {/* Channel cards — 2-column grid matching MCP directory style */}
         <div>
           <SectionLabel title="Communication Channels" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{
+            display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: 10,
+          }}>
             {CHANNEL_ORDER.map(ch => renderChannelEditCard(ch))}
           </div>
         </div>
@@ -1384,7 +1455,8 @@ export default function SettingsView() {
   }
 
   function renderIntegrations() {
-    const ICON_BASE = "/icons/integrations";
+    const gstaticIcon = (domain: string) =>
+      `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=32`;
 
     type IntegItem = { key: string; name: string; logoUrl: string; fallbackIcon: React.ReactNode; configured: boolean; enabled: boolean; detail: string; color: string; subtitle: string };
 
@@ -1394,7 +1466,7 @@ export default function SettingsView() {
         color: "var(--green)",
         items: [
           {
-            key: "searxng", name: "SearXNG", logoUrl: `${ICON_BASE}/searxng.svg`, fallbackIcon: <Search size={16} />,
+            key: "searxng", name: "SearXNG", logoUrl: gstaticIcon("searx.space"), fallbackIcon: <Search size={16} />,
             configured: integ?.searxng.configured ?? false, enabled: integ?.searxng.enabled ?? false,
             detail: integ?.searxng.configured ? integ.searxng.url : "Not configured",
             color: "var(--green)", subtitle: "WEB SEARCH",
@@ -1406,7 +1478,7 @@ export default function SettingsView() {
         color: "var(--blue)",
         items: [
           {
-            key: "sonarqube", name: "SonarQube", logoUrl: `${ICON_BASE}/sonarqube.svg`, fallbackIcon: <Eye size={16} />,
+            key: "sonarqube", name: "SonarQube", logoUrl: gstaticIcon("sonarqube.org"), fallbackIcon: <Eye size={16} />,
             configured: integ?.sonarqube.configured ?? false, enabled: integ?.sonarqube.enabled ?? false,
             detail: integ?.sonarqube.configured ? `${integ.sonarqube.hostUrl} (${integ.sonarqube.projectBaseKey})` : "Not configured",
             color: "var(--blue)", subtitle: "ANALYSIS",
@@ -1418,19 +1490,19 @@ export default function SettingsView() {
         color: "var(--red)",
         items: [
           {
-            key: "gitleaks", name: "Gitleaks", logoUrl: `${ICON_BASE}/gitleaks.svg`, fallbackIcon: <Shield size={16} />,
+            key: "gitleaks", name: "Gitleaks", logoUrl: gstaticIcon("gitleaks.io"), fallbackIcon: <Shield size={16} />,
             configured: true, enabled: integ?.gitleaks.enabled ?? true,
             detail: `Image: ${integ?.gitleaks.image ?? "zricethezav/gitleaks:latest"}`,
             color: "var(--red)", subtitle: "SECRETS",
           },
           {
-            key: "semgrep", name: "Semgrep", logoUrl: `${ICON_BASE}/semgrep.svg`, fallbackIcon: <Shield size={16} />,
+            key: "semgrep", name: "Semgrep", logoUrl: gstaticIcon("semgrep.dev"), fallbackIcon: <Shield size={16} />,
             configured: true, enabled: integ?.semgrep.enabled ?? true,
             detail: `Image: ${integ?.semgrep.image ?? "semgrep/semgrep"}`,
             color: "var(--orange)", subtitle: "SAST",
           },
           {
-            key: "trivy", name: "Trivy", logoUrl: `${ICON_BASE}/trivy.svg`, fallbackIcon: <Database size={16} />,
+            key: "trivy", name: "Trivy", logoUrl: gstaticIcon("trivy.dev"), fallbackIcon: <Database size={16} />,
             configured: true, enabled: integ?.trivy.enabled ?? true,
             detail: `Image: ${integ?.trivy.image ?? "aquasec/trivy:latest"}`,
             color: "var(--purple)", subtitle: "SCA",
@@ -1643,6 +1715,512 @@ export default function SettingsView() {
     );
   }
 
+  // ── Versioning & Backup ──────────────────────────────────────────────────
+
+  const GIT_PROVIDERS = [
+    { id: "github", label: "GitHub", domain: "github.com" },
+    { id: "gitlab", label: "GitLab", domain: "gitlab.com" },
+    { id: "bitbucket", label: "Bitbucket", domain: "bitbucket.org" },
+    { id: "custom", label: "Custom", domain: "" },
+  ] as const;
+
+  async function saveGitSettings() {
+    setGitSaving(true);
+    try {
+      const body: Record<string, any> = {
+        username: gitForm.username,
+        email: gitForm.email,
+        provider: gitForm.provider,
+        remoteUrl: gitForm.remoteUrl,
+        backupEnabled: gitForm.backupEnabled,
+        backupIntervalHours: gitForm.backupIntervalHours,
+      };
+      // Only send token if it changed (not the masked value)
+      if (gitForm.token && !gitForm.token.startsWith("••••")) {
+        body.token = gitForm.token;
+      }
+      await postApi("/api/git-config", body);
+      await fetchGitConfig();
+      setGitEditing(false);
+      showToast("Git configuration saved");
+    } catch {
+      showToast("Failed to save Git configuration");
+    } finally {
+      setGitSaving(false);
+    }
+  }
+
+  async function testGitConnection() {
+    setGitTesting(true);
+    setGitTestResult(null);
+    try {
+      const res = await postApi("/api/git-test", {});
+      setGitTestResult(res);
+    } catch {
+      setGitTestResult({ ok: false, message: "Connection test failed" });
+    } finally {
+      setGitTesting(false);
+    }
+  }
+
+  async function triggerBackup() {
+    setGitBacking(true);
+    setGitBackupResult(null);
+    try {
+      const res = await postApi("/api/git-backup", {});
+      setGitBackupResult(res);
+      await fetchGitConfig();
+    } catch {
+      setGitBackupResult({ ok: false, message: "Backup failed" });
+    } finally {
+      setGitBacking(false);
+    }
+  }
+
+  function renderVersioning() {
+    const cfg = gitCfg;
+    const providerIcon = (id: string) => {
+      const domain = GIT_PROVIDERS.find(p => p.id === id)?.domain;
+      return domain
+        ? `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=32`
+        : undefined;
+    };
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        {/* Status cards */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[
+            {
+              label: "Git Status",
+              value: cfg?.configured ? "Connected" : "Not Configured",
+              color: cfg?.configured ? "var(--green)" : "var(--text-muted)",
+              icon: cfg?.configured ? <CheckCircle size={14} /> : <AlertCircle size={14} />,
+            },
+            {
+              label: "Provider",
+              value: cfg?.provider ? GIT_PROVIDERS.find(p => p.id === cfg.provider)?.label || cfg.provider : "—",
+              color: "var(--cyan, #06b6d4)",
+              icon: cfg?.provider && providerIcon(cfg.provider)
+                ? <img src={providerIcon(cfg.provider)} width={14} height={14} style={{ borderRadius: 3 }} />
+                : <GitBranch size={14} />,
+            },
+            {
+              label: "Last Backup",
+              value: cfg?.lastBackup ? new Date(cfg.lastBackup).toLocaleDateString() : "Never",
+              color: cfg?.lastBackupStatus === "success" ? "var(--green)" : cfg?.lastBackupStatus === "error" ? "var(--red)" : "var(--text-muted)",
+              icon: <Clock size={14} />,
+            },
+            {
+              label: "Auto-Backup",
+              value: cfg?.backupEnabled ? `Every ${cfg.backupIntervalHours}h` : "Off",
+              color: cfg?.backupEnabled ? "var(--blue)" : "var(--text-muted)",
+              icon: <RefreshCw size={14} />,
+            },
+          ].map((stat) => (
+            <div key={stat.label} style={{
+              flex: "1 1 120px", padding: "14px 16px",
+              background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, color: stat.color, fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>
+                {stat.icon}
+                {stat.value}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{stat.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Git Credentials */}
+        <div>
+          <SectionLabel title="Git Credentials" />
+          <div className="vec-card" style={{ padding: 16 }}>
+            {!gitEditing ? (
+              // Read-only view
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Username</div>
+                    <div style={{ fontSize: 13, color: cfg?.username ? "var(--text-primary)" : "var(--text-muted)" }}>
+                      {cfg?.username || "Not set"}
+                    </div>
+                  </div>
+                  <div style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Email</div>
+                    <div style={{ fontSize: 13, color: cfg?.email ? "var(--text-primary)" : "var(--text-muted)" }}>
+                      {cfg?.email || "Not set"}
+                    </div>
+                  </div>
+                  <div style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Access Token</div>
+                    <div style={{ fontSize: 13, color: cfg?.token ? "var(--text-primary)" : "var(--text-muted)" }}>
+                      {cfg?.token || "Not set"}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Remote URL</div>
+                    <div style={{ fontSize: 13, color: cfg?.remoteUrl ? "var(--text-primary)" : "var(--text-muted)", wordBreak: "break-all" }}>
+                      {cfg?.remoteUrl || "Not set"}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <button
+                    onClick={() => {
+                      setGitForm({
+                        username: cfg?.username || "",
+                        email: cfg?.email || "",
+                        token: cfg?.token || "",
+                        provider: cfg?.provider || "github",
+                        remoteUrl: cfg?.remoteUrl || "",
+                        backupEnabled: cfg?.backupEnabled || false,
+                        backupIntervalHours: cfg?.backupIntervalHours || 24,
+                      });
+                      setGitEditing(true);
+                      setShowGitToken(false);
+                      setGitTestResult(null);
+                    }}
+                    style={{
+                      padding: "7px 16px", borderRadius: 6, border: "1px solid var(--border)",
+                      background: "var(--bg-hover)", color: "var(--text-primary)",
+                      fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}
+                  >
+                    <Settings2 size={13} />
+                    {cfg?.configured ? "Edit Credentials" : "Set Up Git"}
+                  </button>
+                  {cfg?.configured && (
+                    <button
+                      onClick={testGitConnection}
+                      disabled={gitTesting}
+                      style={{
+                        padding: "7px 16px", borderRadius: 6, border: "1px solid var(--border)",
+                        background: "transparent", color: "var(--text-secondary)",
+                        fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+                        opacity: gitTesting ? 0.5 : 1,
+                      }}
+                    >
+                      {gitTesting ? "Testing..." : "Test Connection"}
+                    </button>
+                  )}
+                </div>
+                {gitTestResult && (
+                  <div style={{
+                    padding: "8px 12px", borderRadius: 6, fontSize: 12, marginTop: 4,
+                    background: gitTestResult.ok ? "color-mix(in srgb, var(--green) 10%, transparent)" : "color-mix(in srgb, var(--red) 10%, transparent)",
+                    color: gitTestResult.ok ? "var(--green)" : "var(--red)",
+                    border: `1px solid ${gitTestResult.ok ? "var(--green)" : "var(--red)"}`,
+                    borderColor: gitTestResult.ok ? "color-mix(in srgb, var(--green) 25%, transparent)" : "color-mix(in srgb, var(--red) 25%, transparent)",
+                  }}>
+                    {gitTestResult.ok ? <Check size={12} style={{ marginRight: 6 }} /> : <X size={12} style={{ marginRight: 6 }} />}
+                    {gitTestResult.message}
+                  </div>
+                )}
+              </div>
+            ) : (
+              // Editing form
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Provider selector */}
+                <div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>Provider</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {GIT_PROVIDERS.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => setGitForm(f => ({ ...f, provider: p.id }))}
+                        style={{
+                          padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 500,
+                          border: `1px solid ${gitForm.provider === p.id ? "var(--accent)" : "var(--border)"}`,
+                          background: gitForm.provider === p.id ? "color-mix(in srgb, var(--accent) 10%, transparent)" : "transparent",
+                          color: gitForm.provider === p.id ? "var(--accent)" : "var(--text-secondary)",
+                          cursor: "pointer", fontFamily: "inherit",
+                          display: "flex", alignItems: "center", gap: 6,
+                        }}
+                      >
+                        {p.domain && (
+                          <img src={providerIcon(p.id)} width={14} height={14} style={{ borderRadius: 3 }} />
+                        )}
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Fields */}
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 200px" }}>
+                    <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Username</label>
+                    <input
+                      value={gitForm.username}
+                      onChange={e => setGitForm(f => ({ ...f, username: e.target.value }))}
+                      placeholder="e.g. octocat"
+                      style={{
+                        width: "100%", padding: "8px 10px", borderRadius: 6,
+                        border: "1px solid var(--border)", background: "var(--bg-primary)",
+                        color: "var(--text-primary)", fontSize: 13, fontFamily: "inherit",
+                        outline: "none", boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: "1 1 200px" }}>
+                    <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>Email</label>
+                    <input
+                      value={gitForm.email}
+                      onChange={e => setGitForm(f => ({ ...f, email: e.target.value }))}
+                      placeholder="you@example.com"
+                      style={{
+                        width: "100%", padding: "8px 10px", borderRadius: 6,
+                        border: "1px solid var(--border)", background: "var(--bg-primary)",
+                        color: "var(--text-primary)", fontSize: 13, fontFamily: "inherit",
+                        outline: "none", boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
+                    Personal Access Token (PAT)
+                  </label>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showGitToken ? "text" : "password"}
+                      value={gitForm.token}
+                      onChange={e => setGitForm(f => ({ ...f, token: e.target.value }))}
+                      placeholder={gitForm.provider === "github" ? "ghp_xxxxxxxxxxxx" : "Personal access token"}
+                      style={{
+                        width: "100%", padding: "8px 36px 8px 10px", borderRadius: 6,
+                        border: "1px solid var(--border)", background: "var(--bg-primary)",
+                        color: "var(--text-primary)", fontSize: 13, fontFamily: "monospace",
+                        outline: "none", boxSizing: "border-box",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowGitToken(v => !v)}
+                      style={{
+                        position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                        background: "none", border: "none", cursor: "pointer",
+                        color: "var(--text-muted)", padding: 2,
+                      }}
+                    >
+                      {showGitToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+                    {gitForm.provider === "github" && "Generate at GitHub → Settings → Developer Settings → Personal Access Tokens → Fine-grained tokens"}
+                    {gitForm.provider === "gitlab" && "Generate at GitLab → Preferences → Access Tokens"}
+                    {gitForm.provider === "bitbucket" && "Generate at Bitbucket → Personal Settings → App Passwords"}
+                    {gitForm.provider === "custom" && "Enter a token with push access to your remote repository"}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
+                    Remote Repository URL
+                  </label>
+                  <input
+                    value={gitForm.remoteUrl}
+                    onChange={e => setGitForm(f => ({ ...f, remoteUrl: e.target.value }))}
+                    placeholder={
+                      gitForm.provider === "github" ? "https://github.com/username/octo-vec-backup.git"
+                      : gitForm.provider === "gitlab" ? "https://gitlab.com/username/octo-vec-backup.git"
+                      : gitForm.provider === "bitbucket" ? "https://bitbucket.org/username/octo-vec-backup.git"
+                      : "https://your-git-server.com/repo.git"
+                    }
+                    style={{
+                      width: "100%", padding: "8px 10px", borderRadius: 6,
+                      border: "1px solid var(--border)", background: "var(--bg-primary)",
+                      color: "var(--text-primary)", fontSize: 13, fontFamily: "inherit",
+                      outline: "none", boxSizing: "border-box",
+                    }}
+                  />
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+                    Agents will use this as the default remote for <code style={{ fontSize: 10 }}>git push</code>. Memory backups also push here.
+                  </div>
+                </div>
+
+                {/* Buttons */}
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <button
+                    onClick={saveGitSettings}
+                    disabled={gitSaving || !gitForm.username || !gitForm.token || !gitForm.remoteUrl}
+                    style={{
+                      padding: "8px 20px", borderRadius: 6, border: "none",
+                      background: "var(--accent)", color: "#fff",
+                      fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                      opacity: (gitSaving || !gitForm.username || !gitForm.token || !gitForm.remoteUrl) ? 0.5 : 1,
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}
+                  >
+                    <Save size={13} />
+                    {gitSaving ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    onClick={() => { setGitEditing(false); setGitTestResult(null); }}
+                    style={{
+                      padding: "8px 16px", borderRadius: 6, border: "1px solid var(--border)",
+                      background: "transparent", color: "var(--text-secondary)",
+                      fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Memory Backup */}
+        <div>
+          <SectionLabel title="Memory Backup" />
+          <div className="vec-card" style={{ padding: 16 }}>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 14, lineHeight: 1.5 }}>
+              Back up all agent memory (STM, LTM, SLTM), settings, and roster to your Git repository.
+              Agents' knowledge, daily journals, and core identity files are preserved and version-controlled.
+            </div>
+
+            {/* Auto-backup toggle */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "10px 0",
+              borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)",
+              marginBottom: 14,
+            }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: 1 }}>
+                <div
+                  onClick={() => {
+                    const next = !gitForm.backupEnabled;
+                    setGitForm(f => ({ ...f, backupEnabled: next }));
+                    postApi("/api/git-config", { backupEnabled: next }).then(() => fetchGitConfig());
+                  }}
+                  style={{
+                    width: 36, height: 20, borderRadius: 10,
+                    background: (gitCfg?.backupEnabled || gitForm.backupEnabled) ? "var(--accent)" : "var(--bg-tertiary)",
+                    position: "relative", cursor: "pointer", transition: "background 0.15s",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{
+                    width: 16, height: 16, borderRadius: 8, background: "#fff",
+                    position: "absolute", top: 2,
+                    left: (gitCfg?.backupEnabled || gitForm.backupEnabled) ? 18 : 2,
+                    transition: "left 0.15s",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  }} />
+                </div>
+                <span style={{ fontSize: 13, color: "var(--text-primary)" }}>Automatic Backup</span>
+              </label>
+              {(gitCfg?.backupEnabled || gitForm.backupEnabled) && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Every</span>
+                  <select
+                    value={gitCfg?.backupIntervalHours || gitForm.backupIntervalHours}
+                    onChange={(e) => {
+                      const h = Number(e.target.value);
+                      setGitForm(f => ({ ...f, backupIntervalHours: h }));
+                      postApi("/api/git-config", { backupIntervalHours: h }).then(() => fetchGitConfig());
+                    }}
+                    style={{
+                      padding: "4px 8px", borderRadius: 5, border: "1px solid var(--border)",
+                      background: "var(--bg-primary)", color: "var(--text-primary)",
+                      fontSize: 12, fontFamily: "inherit",
+                    }}
+                  >
+                    {[1, 4, 8, 12, 24, 48, 72].map(h => (
+                      <option key={h} value={h}>{h}h</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Manual backup button */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                onClick={triggerBackup}
+                disabled={gitBacking || !cfg?.configured}
+                style={{
+                  padding: "8px 20px", borderRadius: 6, border: "none",
+                  background: cfg?.configured ? "var(--accent)" : "var(--bg-tertiary)",
+                  color: cfg?.configured ? "#fff" : "var(--text-muted)",
+                  fontSize: 12, fontWeight: 600, cursor: cfg?.configured ? "pointer" : "not-allowed",
+                  fontFamily: "inherit", opacity: gitBacking ? 0.5 : 1,
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                <Upload size={13} />
+                {gitBacking ? "Backing up..." : "Backup Now"}
+              </button>
+              {cfg?.lastBackup && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  Last: {new Date(cfg.lastBackup).toLocaleString()}
+                  {cfg.lastBackupStatus === "success" && <Check size={11} style={{ marginLeft: 4, color: "var(--green)" }} />}
+                  {cfg.lastBackupStatus === "error" && <X size={11} style={{ marginLeft: 4, color: "var(--red)" }} />}
+                </span>
+              )}
+            </div>
+            {gitBackupResult && (
+              <div style={{
+                padding: "8px 12px", borderRadius: 6, fontSize: 12, marginTop: 10,
+                background: gitBackupResult.ok ? "color-mix(in srgb, var(--green) 10%, transparent)" : "color-mix(in srgb, var(--red) 10%, transparent)",
+                color: gitBackupResult.ok ? "var(--green)" : "var(--red)",
+                border: `1px solid ${gitBackupResult.ok ? "color-mix(in srgb, var(--green) 25%, transparent)" : "color-mix(in srgb, var(--red) 25%, transparent)"}`,
+              }}>
+                {gitBackupResult.ok ? <CheckCircle size={12} style={{ marginRight: 6 }} /> : <AlertCircle size={12} style={{ marginRight: 6 }} />}
+                {gitBackupResult.message}
+              </div>
+            )}
+            {cfg?.lastBackupStatus === "error" && cfg.lastBackupMessage && !gitBackupResult && (
+              <div style={{
+                padding: "8px 12px", borderRadius: 6, fontSize: 12, marginTop: 10,
+                background: "color-mix(in srgb, var(--red) 10%, transparent)",
+                color: "var(--red)",
+                border: "1px solid color-mix(in srgb, var(--red) 25%, transparent)",
+              }}>
+                <AlertCircle size={12} style={{ marginRight: 6 }} />
+                Last error: {cfg.lastBackupMessage}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* How it works */}
+        <div>
+          <SectionLabel title="How It Works" />
+          <div className="vec-card" style={{ padding: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                { icon: <GitBranch size={14} />, title: "Agent Projects", desc: "Agents use your Git credentials to push project code. Each agent commits under their own name (e.g. Maya → maya@octovec.dev)." },
+                { icon: <Database size={14} />, title: "Memory Backup", desc: "STM (scratchpad), LTM (daily journals), and SLTM (core identity) for every agent are committed and pushed to your backup repo." },
+                { icon: <Shield size={14} />, title: "Credentials", desc: "Your PAT is stored locally in the VEC data directory. It's never sent to any LLM — only used for git push operations." },
+                { icon: <RefreshCw size={14} />, title: "Auto-Backup", desc: "When enabled, VEC automatically commits and pushes memory changes on your chosen schedule. Manual backup is always available." },
+              ].map((item, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 6, flexShrink: 0,
+                    background: "color-mix(in srgb, var(--cyan, #06b6d4) 10%, transparent)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "var(--cyan, #06b6d4)",
+                  }}>
+                    {item.icon}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 2 }}>{item.title}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>{item.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const sectionRenderers: Record<SettingsSection, () => React.ReactNode> = {
@@ -1651,6 +2229,7 @@ export default function SettingsView() {
     channels: renderChannels,
     integrations: renderIntegrations,
     mcp: renderMCP,
+    versioning: renderVersioning,
   };
 
   const sectionBadges: Record<SettingsSection, string | null> = {
@@ -1659,6 +2238,7 @@ export default function SettingsView() {
     channels: channelCount > 0 ? String(channelCount) : null,
     integrations: integCount > 0 ? String(integCount) : null,
     mcp: serverNames.length > 0 ? String(serverNames.length) : null,
+    versioning: gitCfg?.configured ? "✓" : null,
   };
 
   return (
@@ -1781,7 +2361,6 @@ function ProviderCard({ provider: p, onClick }: {
         alt={p.name}
         style={{
           width: 28, height: 28, flexShrink: 0, borderRadius: 6,
-          filter: "var(--icon-filter, none)",
         }}
         onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
       />
@@ -1812,6 +2391,11 @@ function APIKeyModal({ provider, onClose, onSave, saving }: {
 }) {
   const [key, setKey] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [modelSearch, setModelSearch] = useState("");
+
+  const filteredModels = provider.models.filter(m =>
+    m.toLowerCase().includes(modelSearch.toLowerCase())
+  );
 
   return (
     <>
@@ -1824,41 +2408,47 @@ function APIKeyModal({ provider, onClose, onSave, saving }: {
           WebkitBackdropFilter: "blur(8px)",
         }}
       />
-      {/* Modal */}
+      {/* Modal — larger */}
       <div style={{
         position: "fixed", top: "50%", left: "50%",
         transform: "translate(-50%, -50%)", zIndex: 101,
         background: "var(--bg-secondary)", border: "1px solid var(--border)",
-        borderRadius: 16, width: 440, maxWidth: "92vw",
+        borderRadius: 16, width: 560, maxWidth: "92vw", maxHeight: "85vh",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px var(--border)",
         overflow: "hidden", animation: "fade-in 0.12s ease-out",
+        display: "flex", flexDirection: "column",
       }}>
         {/* Header */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 12,
-          padding: "18px 22px 14px",
-          borderBottom: "1px solid var(--border)",
+          display: "flex", alignItems: "center", gap: 14,
+          padding: "20px 24px 16px",
+          borderBottom: "1px solid var(--border)", flexShrink: 0,
         }}>
-          <img
-            src={provider.iconUrl}
-            alt={provider.name}
-            style={{
-              width: 34, height: 34, borderRadius: 8,
-              filter: "var(--icon-filter, none)",
-            }}
-            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-          />
+          <div style={{
+            width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+            background: "var(--bg-tertiary)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <img
+              src={provider.iconUrl}
+              alt={provider.name}
+              style={{ width: 28, height: 28, borderRadius: 6 }}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)" }}>
               {provider.name}
             </div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1 }}>
-              {provider.configured ? "Update API key" : "Configure API key"}
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+              {provider.models.length} model{provider.models.length !== 1 ? "s" : ""} available
+              {provider.configured && <span style={{ color: "var(--green)", marginLeft: 8, fontWeight: 600 }}>Active</span>}
+              {!provider.configured && <span style={{ color: "var(--text-muted)", marginLeft: 8, opacity: 0.6 }}>Not configured</span>}
             </div>
           </div>
           <button onClick={onClose} style={{
             display: "flex", alignItems: "center", justifyContent: "center",
-            width: 28, height: 28, border: "1px solid var(--border)", borderRadius: 8,
+            width: 32, height: 32, border: "1px solid var(--border)", borderRadius: 8,
             background: "var(--bg-tertiary)", color: "var(--text-muted)",
             cursor: "pointer", padding: 0, transition: "all 0.12s",
           }}
@@ -1869,53 +2459,91 @@ function APIKeyModal({ provider, onClose, onSave, saving }: {
           </button>
         </div>
 
-        {/* Body */}
-        <div style={{ padding: "18px 22px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Provider info */}
-          <div style={{
-            display: "flex", gap: 12, flexWrap: "wrap",
-          }}>
-            <div style={{
-              flex: "1 1 100px", padding: "10px 14px", borderRadius: 8,
-              background: "var(--bg-card)", border: "1px solid var(--border)",
-            }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "var(--purple)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-                {provider.models.length}
-              </div>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3 }}>Models</div>
-            </div>
-            <div style={{
-              flex: "1 1 100px", padding: "10px 14px", borderRadius: 8,
-              background: "var(--bg-card)", border: "1px solid var(--border)",
-            }}>
-              <div style={{
-                fontSize: 12, fontWeight: 600, lineHeight: 1.2,
-                color: provider.configured ? "var(--green)" : "var(--text-muted)",
+        {/* Body — scrollable */}
+        <div style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", flex: 1 }}>
+
+          {/* Stats row */}
+          <div style={{ display: "flex", gap: 10 }}>
+            {[
+              { val: String(provider.models.length), label: "Models", color: "var(--purple, var(--accent))" },
+              { val: provider.configured ? "Active" : "Not Set", label: "Status", color: provider.configured ? "var(--green)" : "var(--text-muted)" },
+              { val: provider.envKey, label: "Env Variable", color: "var(--text-secondary)", mono: true },
+            ].map(s => (
+              <div key={s.label} style={{
+                flex: 1, padding: "12px 14px", borderRadius: 10,
+                background: "var(--bg-card)", border: "1px solid var(--border)",
               }}>
-                {provider.configured ? "Active" : "Not Set"}
+                <div style={{
+                  fontSize: s.mono ? 11 : 18, fontWeight: s.mono ? 500 : 700,
+                  color: s.color, lineHeight: 1, fontVariantNumeric: "tabular-nums",
+                  fontFamily: s.mono ? "monospace" : "inherit",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {s.val}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{s.label}</div>
               </div>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3 }}>Status</div>
-            </div>
+            ))}
           </div>
 
-          {/* Model list */}
+          {/* Model list with search */}
           {provider.models.length > 0 && (
-            <div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 600, color: "var(--text-muted)",
+                  textTransform: "uppercase", letterSpacing: "0.04em",
+                }}>Available Models</div>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  {filteredModels.length} of {provider.models.length}
+                </span>
+              </div>
+
+              {/* Search input */}
+              <div style={{ position: "relative" }}>
+                <Search size={13} style={{
+                  position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                  color: "var(--text-muted)", pointerEvents: "none",
+                }} />
+                <input
+                  value={modelSearch}
+                  onChange={e => setModelSearch(e.target.value)}
+                  placeholder="Search models..."
+                  style={{
+                    ...inputStyle, width: "100%", fontSize: 12,
+                    padding: "8px 12px 8px 30px",
+                  }}
+                />
+              </div>
+
+              {/* Scrollable model list */}
               <div style={{
-                fontSize: 11, fontWeight: 600, color: "var(--text-muted)",
-                textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6,
-              }}>Available Models</div>
-              <div style={{
-                display: "flex", flexWrap: "wrap", gap: 4,
-                maxHeight: 80, overflowY: "auto",
+                maxHeight: 200, overflowY: "auto",
+                border: "1px solid var(--border)", borderRadius: 10,
+                background: "var(--bg-card)",
               }}>
-                {provider.models.map(m => (
-                  <span key={m} style={{
-                    fontSize: 10, padding: "3px 8px", borderRadius: 5,
-                    background: "var(--bg-tertiary)", color: "var(--text-secondary)",
-                    fontFamily: "monospace", border: "1px solid var(--border)",
-                  }}>{m.split("/").pop()}</span>
+                {filteredModels.map((m, i) => (
+                  <div key={m} style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: "9px 14px",
+                    borderBottom: i < filteredModels.length - 1 ? "1px solid var(--border)" : "none",
+                    transition: "background 0.08s",
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <Box size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                    <span style={{
+                      fontSize: 12, fontFamily: "monospace", color: "var(--text-primary)",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+                    }}>{m}</span>
+                  </div>
                 ))}
+                {filteredModels.length === 0 && (
+                  <div style={{ padding: "16px 14px", textAlign: "center", fontSize: 12, color: "var(--text-muted)" }}>
+                    No models match "{modelSearch}"
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1924,12 +2552,9 @@ function APIKeyModal({ provider, onClose, onSave, saving }: {
           <div>
             <label style={{
               fontSize: 12, fontWeight: 500, color: "var(--text-secondary)",
-              marginBottom: 6, display: "block",
+              marginBottom: 8, display: "block",
             }}>
               API Key
-              <span style={{ fontWeight: 400, marginLeft: 6, opacity: 0.6, fontFamily: "monospace", fontSize: 11 }}>
-                {provider.envKey}
-              </span>
             </label>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
               <input
@@ -1948,7 +2573,7 @@ function APIKeyModal({ provider, onClose, onSave, saving }: {
                 onClick={() => setShowKey(s => !s)}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                  width: 38, height: 38, borderRadius: 8, flexShrink: 0,
                   border: "1px solid var(--border)", background: "var(--bg-tertiary)",
                   color: showKey ? "var(--accent)" : "var(--text-muted)",
                   cursor: "pointer", padding: 0, transition: "color 0.12s",
@@ -1963,14 +2588,14 @@ function APIKeyModal({ provider, onClose, onSave, saving }: {
           {/* Actions */}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
             <button onClick={onClose} style={{
-              ...btnSecondary, padding: "8px 16px", fontSize: 12, borderRadius: 8,
+              ...btnSecondary, padding: "9px 18px", fontSize: 12, borderRadius: 8,
             }}>Cancel</button>
             <button
               onClick={() => key.trim() && onSave(key)}
               disabled={!key.trim() || saving}
               style={{
                 display: "flex", alignItems: "center", gap: 6,
-                padding: "8px 20px", borderRadius: 8, border: "none",
+                padding: "9px 22px", borderRadius: 8, border: "none",
                 background: key.trim() ? "var(--accent)" : "var(--bg-tertiary)",
                 color: key.trim() ? "#fff" : "var(--text-muted)",
                 fontSize: 12, fontWeight: 600,

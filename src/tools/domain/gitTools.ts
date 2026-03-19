@@ -180,7 +180,106 @@ export function getGitWriteTools(agentId: string): AgentTool[] {
     },
   };
 
-  return [git_add, git_commit];
+  const git_push: AgentTool = {
+    name: "git_push",
+    label: "Git Push",
+    description:
+      "Push commits to a remote repository. Uses stored Git credentials from Settings → Versioning. " +
+      "If no remote is set, adds one from the stored config.",
+    parameters: Type.Object({
+      project: Type.String({ description: "Project folder name under workspace/projects/" }),
+      branch: Type.Optional(Type.String({ description: "Branch to push. Default: current branch." })),
+      remote: Type.Optional(Type.String({ description: "Remote name. Default: 'origin'." })),
+    }),
+    execute: async (_, params: any) => {
+      const dir = resolveProjectDir(params.project);
+      if (!isGitRepo(dir)) return ok(`ERROR: '${params.project}' is not a git repository.`);
+
+      // Get stored credentials
+      let creds: { username: string; email: string; token: string; remoteUrl: string } | null = null;
+      try {
+        const { getGitCredentials } = await import("../../dashboard/gitConfig.js");
+        creds = getGitCredentials();
+      } catch { /* gitConfig not available */ }
+
+      if (!creds || !creds.token) {
+        return ok("ERROR: No Git credentials configured. Ask the user to set up Git credentials in Settings → Versioning.");
+      }
+
+      const remoteName = params.remote ?? "origin";
+      const branch = params.branch ?? git(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+
+      // Ensure remote exists
+      try {
+        git(dir, ["remote", "get-url", remoteName]);
+      } catch {
+        // No remote — add one from stored config
+        if (creds.remoteUrl) {
+          git(dir, ["remote", "add", remoteName, creds.remoteUrl]);
+        } else {
+          return ok(`ERROR: No remote '${remoteName}' configured and no default remote URL in Git settings.`);
+        }
+      }
+
+      // Inject credentials into remote URL for push
+      const currentUrl = git(dir, ["remote", "get-url", remoteName]);
+      let authUrl = currentUrl;
+      try {
+        const url = new URL(currentUrl);
+        url.username = creds.username;
+        url.password = creds.token;
+        authUrl = url.toString();
+      } catch { /* SSH or non-URL format — push as-is */ }
+
+      // Temporarily set the auth URL, push, then restore
+      git(dir, ["remote", "set-url", remoteName, authUrl]);
+      try {
+        const output = git(dir, ["push", "-u", remoteName, branch]);
+        return ok(output || `Pushed '${branch}' to '${remoteName}' successfully.`);
+      } finally {
+        // Restore original URL (without embedded credentials)
+        git(dir, ["remote", "set-url", remoteName, currentUrl]);
+      }
+    },
+  };
+
+  const git_remote: AgentTool = {
+    name: "git_remote",
+    label: "Git Remote",
+    description: "Manage remote repositories. Add, remove, or list remotes.",
+    parameters: Type.Object({
+      project: Type.String({ description: "Project folder name under workspace/projects/" }),
+      action: Type.Union([
+        Type.Literal("list"),
+        Type.Literal("add"),
+        Type.Literal("remove"),
+      ], { description: "Action: 'list', 'add', or 'remove'" }),
+      name: Type.Optional(Type.String({ description: "Remote name (required for add/remove)" })),
+      url: Type.Optional(Type.String({ description: "Remote URL (required for add)" })),
+    }),
+    execute: async (_, params: any) => {
+      const dir = resolveProjectDir(params.project);
+      if (!isGitRepo(dir)) return ok(`ERROR: '${params.project}' is not a git repository.`);
+
+      if (params.action === "list") {
+        const output = git(dir, ["remote", "-v"]);
+        return ok(output || "(no remotes)");
+      }
+      if (params.action === "add") {
+        if (!params.name || !params.url) return ok("ERROR: 'name' and 'url' are required for add.");
+        git(dir, ["remote", "add", params.name, params.url]);
+        return ok(`Added remote '${params.name}' → ${params.url}`);
+      }
+      if (params.action === "remove") {
+        if (!params.name) return ok("ERROR: 'name' is required for remove.");
+        git(dir, ["remote", "remove", params.name]);
+        return ok(`Removed remote '${params.name}'.`);
+      }
+      return ok("ERROR: Unknown action. Use 'list', 'add', or 'remove'.");
+    },
+  };
+
+  return [git_add, git_commit, git_push, git_remote];
 }
 
 /** Admin-level git tools: init (uses agent identity). */
