@@ -28,6 +28,7 @@ function verifySecret(input) {
 // ── State ───────────────────────────────────────────────────────────────────
 const pcSessions = new Map();
 const pendingRequests = new Map();
+const mobileClients = new Map(); // sessionId → Set<WebSocket>
 
 // ── HTTP server ─────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
@@ -167,20 +168,63 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: "not found" }));
 });
 
-// ── WebSocket for PC connections ────────────────────────────────────────────
-const wss = new WebSocketServer({ server, path: "/ws" });
+// ── Single WebSocket server — distinguishes PC vs mobile by query param ─────
+const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const secret = url.searchParams.get("secret");
   const sessionId = url.searchParams.get("session") || "default";
+  const isMobile = url.searchParams.get("client") === "mobile";
 
   if (!verifySecret(secret)) {
     ws.close(4001, "unauthorized");
     return;
   }
 
-  // Close old connection if exists
+  // ── Mobile client ──────────────────────────────────────────────────────
+  if (isMobile) {
+    ws._ready = false;
+    if (!mobileClients.has(sessionId)) mobileClients.set(sessionId, new Set());
+    mobileClients.get(sessionId).add(ws);
+    console.log(`[relay] Mobile connected: session=${sessionId} (${mobileClients.get(sessionId).size} mobile clients)`);
+    // Skip replay: mark ready after 2s so old SSE events are ignored
+    setTimeout(() => { ws._ready = true; }, 2000);
+
+    // If PC is connected, open an SSE stream so we get events to forward
+    const pc = pcSessions.get(sessionId);
+    if (pc && pc.readyState === 1 && !pc._mobileSSEId) {
+      const sseId = crypto.randomUUID();
+      pc._mobileSSEId = sseId;
+      if (!pc._sseClients) pc._sseClients = new Map();
+      pc.send(JSON.stringify({ type: "sse_open", sseId }));
+    }
+
+    // Heartbeat
+    const heartbeat = setInterval(() => {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ channel: "ping" }));
+    }, 15000);
+
+    ws.on("close", () => {
+      clearInterval(heartbeat);
+      const set = mobileClients.get(sessionId);
+      if (set) {
+        set.delete(ws);
+        if (set.size === 0) {
+          mobileClients.delete(sessionId);
+          const pc = pcSessions.get(sessionId);
+          if (pc && pc._mobileSSEId) {
+            try { pc.send(JSON.stringify({ type: "sse_close", sseId: pc._mobileSSEId })); } catch {}
+            pc._mobileSSEId = null;
+          }
+        }
+      }
+    });
+    ws.on("error", () => {});
+    return;
+  }
+
+  // ── PC client ──────────────────────────────────────────────────────────
   const old = pcSessions.get(sessionId);
   if (old && old.readyState === 1) old.close(4002, "replaced");
 
@@ -206,10 +250,24 @@ wss.on("connection", (ws, req) => {
         }
       }
 
-      if (msg.type === "sse_event" && msg.sseId && ws._sseClients) {
-        const sseRes = ws._sseClients.get(msg.sseId);
-        if (sseRes && !sseRes.writableEnded) {
-          sseRes.write(`data: ${typeof msg.data === "string" ? msg.data : JSON.stringify(msg.data)}\n\n`);
+      if (msg.type === "sse_event" && msg.sseId) {
+        // Forward to SSE HTTP clients
+        if (ws._sseClients) {
+          const sseRes = ws._sseClients.get(msg.sseId);
+          if (sseRes && !sseRes.writableEnded) {
+            sseRes.write(`data: ${typeof msg.data === "string" ? msg.data : JSON.stringify(msg.data)}\n\n`);
+          }
+        }
+        // Forward to all mobile WebSocket clients for this session
+        const mobiles = mobileClients.get(sessionId);
+        if (mobiles) {
+          try {
+            const parsed = typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data;
+            const payload = JSON.stringify({ channel: "stream", data: parsed });
+            for (const mws of mobiles) {
+              if (mws.readyState === 1 && mws._ready) try { mws.send(payload); } catch {}
+            }
+          } catch {}
         }
       }
     } catch {}
