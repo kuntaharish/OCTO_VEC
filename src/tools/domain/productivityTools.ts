@@ -207,7 +207,7 @@ const create_presentation: AgentTool = {
   execute: async (ctx: any, params: any) => {
     try {
       const PptxGenJS = (await import("pptxgenjs")).default;
-      const pptx = new PptxGenJS();
+      const pptx = new (PptxGenJS as any)();
       pptx.author = params.author ?? "OCTO VEC";
       pptx.title = params.title;
       pptx.layout = "LAYOUT_WIDE"; // 16:9

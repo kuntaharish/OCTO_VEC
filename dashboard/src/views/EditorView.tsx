@@ -1,6 +1,22 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Editor, { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
+import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
+import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
+import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+
+// Configure Monaco workers for Vite (avoids CDN + fixes web worker errors)
+self.MonacoEnvironment = {
+  getWorker(_: unknown, label: string) {
+    if (label === "json") return new jsonWorker();
+    if (label === "css" || label === "scss" || label === "less") return new cssWorker();
+    if (label === "html" || label === "handlebars" || label === "razor") return new htmlWorker();
+    if (label === "typescript" || label === "javascript") return new tsWorker();
+    return new editorWorker();
+  },
+};
 
 // Use local monaco-editor bundle instead of CDN (CSP blocks CDN scripts)
 loader.config({ monaco });
@@ -9,6 +25,7 @@ import {
   FileCode, FileJson, FileText, Image, Package, Terminal,
   Save, X, ArrowUp, Search, RefreshCw, PanelRightClose, PanelRightOpen,
   Circle, GitBranch, RotateCcw, FilePlus, FileEdit, Trash2, FileQuestion, Plus, ChevronDown as ChevronDownIcon,
+  GitCommit, Tag, Globe, Clock, User, Copy, Check,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import Markdown from "react-markdown";
@@ -45,6 +62,35 @@ interface ChatEntry {
   ts: string;
   channel?: string;
 }
+
+interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  parents: string[];
+  authorName: string;
+  authorEmail: string;
+  date: string;
+  subject: string;
+  refs: string[];
+}
+
+interface GitBranchEntry {
+  name: string;
+  hash: string;
+  isCurrent?: boolean;
+  upstream?: string | null;
+  date: string;
+  type: "local" | "remote" | "tag";
+}
+
+interface GitBranchesData {
+  locals: GitBranchEntry[];
+  remotes: GitBranchEntry[];
+  tags: GitBranchEntry[];
+  current: string;
+}
+
+type GitSubTab = "changes" | "commits" | "branches";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -117,7 +163,21 @@ export default function EditorView({ projectPath, projectName, onBack }: {
   const termInstances = useRef<Map<string, { term: XTerm; ws: WebSocket; fitAddon: FitAddon }>>(new Map());
 
   const [sidebarTab, setSidebarTab] = useState<"files" | "git">("files");
-  const [gitStatus, setGitStatus] = useState<{ isGitRepo: boolean; branch?: string; files?: { status: string; path: string }[] } | null>(null);
+  const [gitStatus, setGitStatus] = useState<{
+    isGitRepo: boolean; branch?: string;
+    files?: { status: string; path: string }[];
+    staged?: { status: string; path: string }[];
+    unstaged?: { status: string; path: string }[];
+    untracked?: { path: string }[];
+  } | null>(null);
+  const [gitSubTab, setGitSubTab] = useState<GitSubTab>("changes");
+  const [gitLog, setGitLog] = useState<GitLogEntry[]>([]);
+  const [gitBranches, setGitBranches] = useState<GitBranchesData | null>(null);
+  const [selectedCommit, setSelectedCommit] = useState<GitLogEntry | null>(null);
+  const [commitDetail, setCommitDetail] = useState<{ hash: string; authorName: string; authorEmail: string; date: string; subject: string; body: string; filesChanged: string } | null>(null);
+  const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const [commitMsg, setCommitMsg] = useState("");
+  const [committing, setCommitting] = useState(false);
 
   // @ mention
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -162,6 +222,89 @@ export default function EditorView({ projectPath, projectName, onBack }: {
 
   useEffect(() => { loadGitStatus(); const t = setInterval(loadGitStatus, 10000); return () => clearInterval(t); }, [loadGitStatus]);
 
+  // ── Load git log ──────────────────────────────────────────────────────────
+  const loadGitLog = useCallback(async () => {
+    try {
+      const r = await authFetch(`/api/workspace-git-log?root=${encodeURIComponent(projectPath)}&limit=80`);
+      if (r.ok) setGitLog(await r.json());
+    } catch { /* ignore */ }
+  }, [projectPath]);
+
+  // ── Load git branches ─────────────────────────────────────────────────────
+  const loadGitBranches = useCallback(async () => {
+    try {
+      const r = await authFetch(`/api/workspace-git-branches?root=${encodeURIComponent(projectPath)}`);
+      if (r.ok) setGitBranches(await r.json());
+    } catch { /* ignore */ }
+  }, [projectPath]);
+
+  // ── Load commit detail ────────────────────────────────────────────────────
+  const loadCommitDetail = useCallback(async (hash: string) => {
+    try {
+      const r = await authFetch(`/api/workspace-git-show?root=${encodeURIComponent(projectPath)}&hash=${encodeURIComponent(hash)}`);
+      if (r.ok) setCommitDetail(await r.json());
+    } catch { /* ignore */ }
+  }, [projectPath]);
+
+  // Load git log + branches when switching to git tab (always load log for last commit info)
+  useEffect(() => {
+    if (sidebarTab !== "git") return;
+    loadGitLog(); // Always load — needed for last commit display in Changes tab too
+    if (gitSubTab === "branches") loadGitBranches();
+  }, [sidebarTab, gitSubTab, loadGitLog, loadGitBranches]);
+
+  // Auto-switch to Commits tab on initial load when there are no working tree changes
+  const gitAutoSwitched = useRef(false);
+  useEffect(() => {
+    if (gitAutoSwitched.current) return; // Only auto-switch once
+    if (sidebarTab === "git" && gitStatus?.isGitRepo && gitSubTab === "changes" && gitLog.length > 0 &&
+      (gitStatus.staged?.length ?? 0) + (gitStatus.unstaged?.length ?? 0) + (gitStatus.untracked?.length ?? 0) === 0) {
+      setGitSubTab("commits");
+      gitAutoSwitched.current = true;
+    }
+  }, [sidebarTab, gitStatus, gitSubTab, gitLog.length]);
+
+  // Load commit detail when selecting a commit
+  useEffect(() => {
+    if (selectedCommit) loadCommitDetail(selectedCommit.hash);
+    else setCommitDetail(null);
+  }, [selectedCommit, loadCommitDetail]);
+
+  // Copy hash helper
+  const copyHash = useCallback((hash: string) => {
+    navigator.clipboard.writeText(hash).then(() => {
+      setCopiedHash(hash);
+      setTimeout(() => setCopiedHash(null), 1500);
+    }).catch(() => {});
+  }, []);
+
+  // ── Git actions: stage, unstage, commit ─────────────────────────────────
+  const gitStage = useCallback(async (files: string[]) => {
+    try {
+      await postApi("/api/workspace-git-stage", { root: projectPath, files });
+      loadGitStatus();
+    } catch { /* ignore */ }
+  }, [projectPath, loadGitStatus]);
+
+  const gitUnstage = useCallback(async (files: string[]) => {
+    try {
+      await postApi("/api/workspace-git-unstage", { root: projectPath, files });
+      loadGitStatus();
+    } catch { /* ignore */ }
+  }, [projectPath, loadGitStatus]);
+
+  const gitCommit = useCallback(async () => {
+    if (!commitMsg.trim() || committing) return;
+    setCommitting(true);
+    try {
+      await postApi("/api/workspace-git-commit", { root: projectPath, message: commitMsg.trim() });
+      setCommitMsg("");
+      loadGitStatus();
+      loadGitLog();
+    } catch { /* ignore */ }
+    setCommitting(false);
+  }, [commitMsg, committing, projectPath, loadGitStatus, loadGitLog]);
+
   // Auto-refresh file tree + git when agent writes/edits/creates files
   const lastActivityLen = useRef(0);
   useEffect(() => {
@@ -172,13 +315,19 @@ export default function EditorView({ projectPath, projectName, onBack }: {
           t => (e.toolName?.toLowerCase() ?? "").includes(t)
         ) && !e.isError
       );
-      if (hasFileChange) {
+      // Detect git operations (git init, git add, git commit, etc.) via Bash tool
+      const hasGitChange = newEntries.some(e =>
+        e.type === "tool_end" && (e.toolName?.toLowerCase() ?? "").includes("bash") && !e.isError
+      );
+      if (hasFileChange || hasGitChange) {
         loadTree();
         loadGitStatus();
+        if (gitSubTab === "commits") loadGitLog();
+        if (gitSubTab === "branches") loadGitBranches();
       }
     }
     lastActivityLen.current = activity.length;
-  }, [activity.length, loadTree, loadGitStatus]);
+  }, [activity.length, loadTree, loadGitStatus, loadGitLog, loadGitBranches, gitSubTab]);
 
   // Auto-scroll timeline
   useEffect(() => {
@@ -739,7 +888,7 @@ export default function EditorView({ projectPath, projectName, onBack }: {
                   }}>
                     <GitBranch size={13} style={{ color: "var(--accent)" }} />
                     <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)" }}>{gitStatus.branch}</span>
-                    <button onClick={loadGitStatus} style={{
+                    <button onClick={() => { loadGitStatus(); if (gitSubTab === "commits") loadGitLog(); if (gitSubTab === "branches") loadGitBranches(); }} style={{
                       marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
                       color: "var(--text-muted)", display: "flex", alignItems: "center",
                     }}>
@@ -747,62 +896,665 @@ export default function EditorView({ projectPath, projectName, onBack }: {
                     </button>
                   </div>
 
-                  {/* Changed files */}
-                  <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
-                    {gitStatus.files && gitStatus.files.length === 0 && (
-                      <div style={{ padding: "16px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
-                        No changes detected
-                      </div>
-                    )}
-                    {gitStatus.files?.map((f, i) => {
-                      const statusMap: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-                        M: { label: "M", color: "var(--yellow, #e2b93d)", icon: <FileEdit size={12} /> },
-                        A: { label: "A", color: "var(--green)", icon: <FilePlus size={12} /> },
-                        D: { label: "D", color: "var(--red)", icon: <Trash2 size={12} /> },
-                        "?": { label: "U", color: "var(--green)", icon: <FileQuestion size={12} /> },
-                        "??": { label: "U", color: "var(--green)", icon: <FileQuestion size={12} /> },
-                        R: { label: "R", color: "var(--accent)", icon: <FileEdit size={12} /> },
-                      };
-                      const st = statusMap[f.status] ?? statusMap["?"]!;
-                      const fileName = f.path.split("/").pop() ?? f.path;
-                      const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
-                      return (
-                        <button key={i}
-                          onClick={() => openFile({ name: fileName, path: f.path, type: "file" })}
-                          style={{
-                            width: "100%", display: "flex", alignItems: "center", gap: 6,
-                            padding: "4px 12px 4px 14px", background: "none", border: "none",
-                            cursor: "pointer", textAlign: "left", fontFamily: "inherit",
-                            color: "var(--text-secondary)", fontSize: 11,
-                          }}
-                          onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-hover)")}
-                          onMouseLeave={e => (e.currentTarget.style.background = "none")}
-                        >
-                          <span style={{ color: st.color, display: "flex", flexShrink: 0 }}>{st.icon}</span>
-                          <span style={{ color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {fileName}
-                          </span>
-                          {dir && (
-                            <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: "auto", fontFamily: "monospace", flexShrink: 0, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {dir}
-                            </span>
-                          )}
+                  {/* Sub-tabs: Changes | Commits | Branches */}
+                  <div style={{ display: "flex", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                    {([["changes", "Changes"], ["commits", "Commits"], ["branches", "Branches"]] as const).map(([key, label]) => (
+                      <button key={key} onClick={() => setGitSubTab(key)}
+                        style={{
+                          flex: 1, padding: "6px 0", background: "none", border: "none", cursor: "pointer",
+                          fontSize: 10, fontWeight: gitSubTab === key ? 600 : 400, fontFamily: "inherit",
+                          color: gitSubTab === key ? "var(--text-primary)" : "var(--text-muted)",
+                          borderBottom: gitSubTab === key ? "2px solid var(--accent)" : "2px solid transparent",
+                        }}
+                      >
+                        {label}
+                        {key === "changes" && ((gitStatus.staged?.length ?? 0) + (gitStatus.unstaged?.length ?? 0) + (gitStatus.untracked?.length ?? 0)) > 0 && (
                           <span style={{
-                            fontSize: 9, fontWeight: 700, color: st.color,
-                            padding: "0 4px", borderRadius: 3, background: `${st.color}15`,
-                            flexShrink: 0, minWidth: 14, textAlign: "center",
-                          }}>{st.label}</span>
-                        </button>
-                      );
-                    })}
+                            fontSize: 8, fontWeight: 700, padding: "0 4px", borderRadius: 8,
+                            background: "var(--accent)", color: "#fff", lineHeight: "14px", marginLeft: 4,
+                          }}>{(gitStatus.staged?.length ?? 0) + (gitStatus.unstaged?.length ?? 0) + (gitStatus.untracked?.length ?? 0)}</span>
+                        )}
+                      </button>
+                    ))}
                   </div>
+
+                  {/* ── Changes sub-tab ─────────────────────────────────────── */}
+                  {gitSubTab === "changes" && (
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                      {/* ── Commit message input ─────────────────────────── */}
+                      {(gitStatus.staged?.length ?? 0) + (gitStatus.unstaged?.length ?? 0) + (gitStatus.untracked?.length ?? 0) > 0 && (
+                        <div style={{ padding: "8px 8px 4px", flexShrink: 0, borderBottom: "1px solid var(--border)" }}>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input
+                              value={commitMsg}
+                              onChange={e => setCommitMsg(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); gitCommit(); } }}
+                              placeholder="Commit message"
+                              style={{
+                                flex: 1, padding: "5px 8px", fontSize: 11,
+                                background: "var(--bg-tertiary)", border: "1px solid var(--border)",
+                                borderRadius: 4, color: "var(--text-primary)", outline: "none",
+                                fontFamily: "inherit",
+                              }}
+                            />
+                            <button
+                              onClick={gitCommit}
+                              disabled={!commitMsg.trim() || (gitStatus.staged?.length ?? 0) === 0 || committing}
+                              style={{
+                                padding: "4px 10px", fontSize: 10, fontWeight: 600, fontFamily: "inherit",
+                                background: commitMsg.trim() && (gitStatus.staged?.length ?? 0) > 0 ? "var(--accent)" : "var(--bg-hover)",
+                                color: commitMsg.trim() && (gitStatus.staged?.length ?? 0) > 0 ? "#fff" : "var(--text-muted)",
+                                border: "none", borderRadius: 4, cursor: commitMsg.trim() && (gitStatus.staged?.length ?? 0) > 0 ? "pointer" : "default",
+                                opacity: committing ? 0.6 : 1,
+                              }}
+                            >
+                              {committing ? "..." : "Commit"}
+                            </button>
+                          </div>
+                          {commitMsg.trim() && (gitStatus.staged?.length ?? 0) === 0 && (
+                            <div style={{ fontSize: 9, color: "var(--yellow, #e2b93d)", marginTop: 3, padding: "0 2px" }}>
+                              Stage files before committing
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── Scrollable file sections ─────────────────────── */}
+                      <div style={{ flex: 1, overflowY: "auto" }}>
+                        {/* Empty state */}
+                        {(gitStatus.staged?.length ?? 0) + (gitStatus.unstaged?.length ?? 0) + (gitStatus.untracked?.length ?? 0) === 0 && (
+                          <div style={{ padding: "12px" }}>
+                            <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 11, marginBottom: 8 }}>
+                              No changes detected
+                            </div>
+                            {gitLog.length > 0 && (
+                              <div style={{
+                                padding: "8px 10px", borderRadius: 6, background: "var(--bg-primary)",
+                                border: "1px solid var(--border)",
+                              }}>
+                                <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                                  Last Commit
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                                  <GitCommit size={10} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                                  <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {gitLog[0].subject}
+                                  </span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "var(--text-muted)" }}>
+                                  <code style={{ color: "var(--accent)", fontSize: 9, fontFamily: "'Cascadia Code', 'Fira Code', monospace" }}>{gitLog[0].shortHash}</code>
+                                  <span>·</span>
+                                  <span>{gitLog[0].authorName}</span>
+                                  <span>·</span>
+                                  <span>{(() => {
+                                    const d = new Date(gitLog[0].date);
+                                    const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
+                                    if (diffMin < 1) return "just now";
+                                    if (diffMin < 60) return `${diffMin}m ago`;
+                                    const diffHr = Math.floor(diffMin / 60);
+                                    if (diffHr < 24) return `${diffHr}h ago`;
+                                    return `${Math.floor(diffHr / 24)}d ago`;
+                                  })()}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* ── Staged Changes ─────────────────────────────── */}
+                        {(gitStatus.staged?.length ?? 0) > 0 && (
+                          <div>
+                            <div style={{
+                              padding: "6px 12px", display: "flex", alignItems: "center", gap: 6,
+                              borderBottom: "1px solid var(--border)", background: "var(--bg-tertiary)",
+                            }}>
+                              <ChevronDown size={11} style={{ color: "var(--green)", flexShrink: 0 }} />
+                              <span style={{ fontSize: 10, fontWeight: 600, color: "var(--green)", flex: 1 }}>
+                                Staged Changes
+                              </span>
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: "0 5px", borderRadius: 8,
+                                background: "rgba(74,192,131,0.12)", color: "var(--green)", lineHeight: "16px",
+                              }}>{gitStatus.staged!.length}</span>
+                              <button onClick={() => gitUnstage(["."])} title="Unstage All" style={{
+                                background: "transparent", border: "none", cursor: "pointer",
+                                color: "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center",
+                                padding: 3, width: 22, height: 22, borderRadius: 4, fontFamily: "inherit",
+                              }}
+                                onMouseEnter={e => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
+                              ><RotateCcw size={13} /></button>
+                            </div>
+                            {gitStatus.staged!.map((f, i) => {
+                              const statusMap: Record<string, { label: string; color: string }> = {
+                                M: { label: "M", color: "var(--yellow, #e2b93d)" },
+                                A: { label: "A", color: "var(--green)" },
+                                D: { label: "D", color: "var(--red)" },
+                                R: { label: "R", color: "var(--accent)" },
+                              };
+                              const st = statusMap[f.status] ?? { label: f.status, color: "var(--text-muted)" };
+                              const fileName = f.path.split("/").pop() ?? f.path;
+                              const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
+                              return (
+                                <div key={`s-${i}`}
+                                  onClick={() => openFile({ name: fileName, path: f.path, type: "file" })}
+                                  style={{
+                                    width: "100%", display: "flex", alignItems: "center", gap: 6,
+                                    padding: "3px 8px 3px 14px", background: "transparent",
+                                    cursor: "pointer", fontFamily: "inherit",
+                                    fontSize: 11.5, color: "var(--text-secondary)",
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-hover)")}
+                                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                                >
+                                  <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>{getFileIcon(fileName, 14)}</span>
+                                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-primary)" }}>
+                                    {fileName}
+                                  </span>
+                                  {dir && (
+                                    <span style={{ fontSize: 9.5, color: "var(--text-muted)", fontFamily: "'Cascadia Code', 'Fira Code', monospace", flexShrink: 0, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {dir}
+                                    </span>
+                                  )}
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, color: st.color, flexShrink: 0, width: 14, textAlign: "center",
+                                  }}>{st.label}</span>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); gitUnstage([f.path]); }}
+                                    title="Unstage"
+                                    style={{
+                                      flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                                      cursor: "pointer", padding: 3, width: 20, height: 20,
+                                      color: "var(--text-muted)", borderRadius: 4,
+                                      background: "transparent", border: "none", fontFamily: "inherit",
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
+                                  ><RotateCcw size={12} /></button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* ── Unstaged Changes ───────────────────────────── */}
+                        {(gitStatus.unstaged?.length ?? 0) > 0 && (
+                          <div>
+                            <div style={{
+                              padding: "6px 12px", display: "flex", alignItems: "center", gap: 6,
+                              borderBottom: "1px solid var(--border)", background: "var(--bg-tertiary)",
+                            }}>
+                              <ChevronDown size={11} style={{ color: "var(--yellow, #e2b93d)", flexShrink: 0 }} />
+                              <span style={{ fontSize: 10, fontWeight: 600, color: "var(--yellow, #e2b93d)", flex: 1 }}>
+                                Changes
+                              </span>
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: "0 5px", borderRadius: 8,
+                                background: "rgba(226,185,61,0.12)", color: "var(--yellow, #e2b93d)", lineHeight: "16px",
+                              }}>{gitStatus.unstaged!.length}</span>
+                              <button onClick={() => gitStage(gitStatus.unstaged!.map(f => f.path))} title="Stage All" style={{
+                                background: "transparent", border: "none", cursor: "pointer",
+                                color: "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center",
+                                padding: 3, width: 22, height: 22, borderRadius: 4, fontFamily: "inherit",
+                              }}
+                                onMouseEnter={e => { e.currentTarget.style.color = "var(--green)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
+                              ><Plus size={14} /></button>
+                            </div>
+                            {gitStatus.unstaged!.map((f, i) => {
+                              const statusMap: Record<string, { label: string; color: string }> = {
+                                M: { label: "M", color: "var(--yellow, #e2b93d)" },
+                                D: { label: "D", color: "var(--red)" },
+                              };
+                              const st = statusMap[f.status] ?? { label: f.status, color: "var(--text-muted)" };
+                              const fileName = f.path.split("/").pop() ?? f.path;
+                              const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
+                              return (
+                                <div key={`u-${i}`}
+                                  onClick={() => openFile({ name: fileName, path: f.path, type: "file" })}
+                                  style={{
+                                    width: "100%", display: "flex", alignItems: "center", gap: 6,
+                                    padding: "3px 8px 3px 14px", background: "transparent",
+                                    cursor: "pointer", fontFamily: "inherit",
+                                    fontSize: 11.5, color: "var(--text-secondary)",
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-hover)")}
+                                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                                >
+                                  <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>{getFileIcon(fileName, 14)}</span>
+                                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-primary)" }}>
+                                    {fileName}
+                                  </span>
+                                  {dir && (
+                                    <span style={{ fontSize: 9.5, color: "var(--text-muted)", fontFamily: "'Cascadia Code', 'Fira Code', monospace", flexShrink: 0, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {dir}
+                                    </span>
+                                  )}
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, color: st.color, flexShrink: 0, width: 14, textAlign: "center",
+                                  }}>{st.label}</span>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); gitStage([f.path]); }}
+                                    title="Stage"
+                                    style={{
+                                      flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                                      cursor: "pointer", padding: 3, width: 20, height: 20,
+                                      color: "var(--text-muted)", borderRadius: 4,
+                                      background: "transparent", border: "none", fontFamily: "inherit",
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.color = "var(--green)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
+                                  ><Plus size={13} /></button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* ── Untracked Files ────────────────────────────── */}
+                        {(gitStatus.untracked?.length ?? 0) > 0 && (
+                          <div>
+                            <div style={{
+                              padding: "6px 12px", display: "flex", alignItems: "center", gap: 6,
+                              borderBottom: "1px solid var(--border)", background: "var(--bg-tertiary)",
+                            }}>
+                              <ChevronDown size={11} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                              <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", flex: 1 }}>
+                                Untracked
+                              </span>
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: "0 5px", borderRadius: 8,
+                                background: "var(--bg-hover)", color: "var(--text-muted)", lineHeight: "16px",
+                              }}>{gitStatus.untracked!.length}</span>
+                              <button onClick={() => gitStage(gitStatus.untracked!.map(f => f.path))} title="Stage All" style={{
+                                background: "transparent", border: "none", cursor: "pointer",
+                                color: "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center",
+                                padding: 3, width: 22, height: 22, borderRadius: 4, fontFamily: "inherit",
+                              }}
+                                onMouseEnter={e => { e.currentTarget.style.color = "var(--green)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
+                              ><Plus size={14} /></button>
+                            </div>
+                            {gitStatus.untracked!.map((f, i) => {
+                              const fileName = f.path.split("/").pop() ?? f.path;
+                              const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
+                              return (
+                                <div key={`t-${i}`}
+                                  onClick={() => openFile({ name: fileName, path: f.path, type: "file" })}
+                                  style={{
+                                    width: "100%", display: "flex", alignItems: "center", gap: 6,
+                                    padding: "3px 8px 3px 14px", background: "transparent",
+                                    cursor: "pointer", fontFamily: "inherit",
+                                    fontSize: 11.5, color: "var(--text-secondary)",
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-hover)")}
+                                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                                >
+                                  <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>{getFileIcon(fileName, 14)}</span>
+                                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-primary)" }}>
+                                    {fileName}
+                                  </span>
+                                  {dir && (
+                                    <span style={{ fontSize: 9.5, color: "var(--text-muted)", fontFamily: "'Cascadia Code', 'Fira Code', monospace", flexShrink: 0, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {dir}
+                                    </span>
+                                  )}
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, color: "var(--green)", flexShrink: 0, width: 14, textAlign: "center",
+                                  }}>U</span>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); gitStage([f.path]); }}
+                                    title="Stage"
+                                    style={{
+                                      flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                                      cursor: "pointer", padding: 3, width: 20, height: 20,
+                                      color: "var(--text-muted)", borderRadius: 4,
+                                      background: "transparent", border: "none", fontFamily: "inherit",
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.color = "var(--green)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
+                                  ><Plus size={13} /></button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Commits sub-tab (graph + history) ──────────────────── */}
+                  {gitSubTab === "commits" && (
+                    <div style={{ flex: 1, overflowY: "auto" }}>
+                      {selectedCommit && commitDetail ? (
+                        /* ── Commit detail view ────────────────────────── */
+                        <div style={{ padding: 0 }}>
+                          <button onClick={() => { setSelectedCommit(null); setCommitDetail(null); }} style={{
+                            width: "100%", display: "flex", alignItems: "center", gap: 4,
+                            padding: "6px 10px", background: "var(--bg-hover)", border: "none",
+                            cursor: "pointer", fontSize: 10, color: "var(--accent)", fontFamily: "inherit", fontWeight: 600,
+                            borderBottom: "1px solid var(--border)",
+                          }}>
+                            <RotateCcw size={10} /> Back to log
+                          </button>
+                          <div style={{ padding: "10px 12px" }}>
+                            {/* Subject */}
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8, lineHeight: 1.4 }}>
+                              {commitDetail.subject}
+                            </div>
+                            {/* Meta */}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10 }}>
+                                <User size={10} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{commitDetail.authorName}</span>
+                                <span style={{ color: "var(--text-muted)" }}>&lt;{commitDetail.authorEmail}&gt;</span>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10 }}>
+                                <Clock size={10} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                                <span style={{ color: "var(--text-secondary)" }}>{new Date(commitDetail.date).toLocaleString()}</span>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10 }}>
+                                <GitCommit size={10} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                                <code style={{ color: "var(--accent)", fontSize: 10, background: "var(--bg-hover)", padding: "1px 5px", borderRadius: 3 }}>
+                                  {commitDetail.hash.slice(0, 10)}
+                                </code>
+                                <button onClick={() => copyHash(commitDetail.hash)} style={{
+                                  background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)",
+                                  display: "flex", alignItems: "center", padding: 0,
+                                }}>
+                                  {copiedHash === commitDetail.hash ? <Check size={10} style={{ color: "var(--green)" }} /> : <Copy size={10} />}
+                                </button>
+                              </div>
+                              {/* Refs (branches/tags) */}
+                              {selectedCommit.refs.length > 0 && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
+                                  {selectedCommit.refs.map((ref, ri) => {
+                                    const isTag = ref.startsWith("tag:");
+                                    const isHead = ref.includes("HEAD");
+                                    return (
+                                      <span key={ri} style={{
+                                        fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 4,
+                                        background: isTag ? "var(--yellow, #e2b93d)18" : isHead ? "var(--accent)18" : "var(--green)18",
+                                        color: isTag ? "var(--yellow, #e2b93d)" : isHead ? "var(--accent)" : "var(--green)",
+                                        display: "flex", alignItems: "center", gap: 3,
+                                      }}>
+                                        {isTag ? <Tag size={8} /> : <GitBranch size={8} />}
+                                        {ref.replace("tag: ", "")}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                            {/* Body */}
+                            {commitDetail.body && (
+                              <div style={{
+                                fontSize: 10, color: "var(--text-secondary)", lineHeight: 1.5,
+                                padding: "6px 8px", background: "var(--bg-primary)", borderRadius: 5,
+                                border: "1px solid var(--border)", marginBottom: 8, whiteSpace: "pre-wrap",
+                              }}>
+                                {commitDetail.body}
+                              </div>
+                            )}
+                            {/* Files changed */}
+                            {commitDetail.filesChanged && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4 }}>Files Changed</div>
+                                <div style={{
+                                  fontSize: 10, fontFamily: "'Cascadia Code', 'Fira Code', monospace",
+                                  padding: "6px 8px", background: "var(--bg-primary)", borderRadius: 5,
+                                  border: "1px solid var(--border)", lineHeight: 1.6, color: "var(--text-secondary)",
+                                  whiteSpace: "pre-wrap", maxHeight: 200, overflowY: "auto",
+                                }}>
+                                  {commitDetail.filesChanged}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        /* ── Commit list with graph ────────────────────── */
+                        <>
+                          {gitLog.length === 0 ? (
+                            <div style={{ padding: "16px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
+                              No commits yet
+                            </div>
+                          ) : gitLog.map((commit, idx) => {
+                            // ── Simple graph: compute lane/color for visual graph
+                            const isMerge = commit.parents.length > 1;
+                            const hasRefs = commit.refs.length > 0;
+                            const isHead = commit.refs.some(r => r.includes("HEAD"));
+                            // Color cycle for graph nodes
+                            const graphColors = ["var(--accent)", "var(--green)", "#e2b93d", "var(--red)", "#a78bfa", "#f472b6"];
+                            const nodeColor = graphColors[idx % graphColors.length];
+                            const prevCommit = idx > 0 ? gitLog[idx - 1] : null;
+                            const nextCommit = idx < gitLog.length - 1 ? gitLog[idx + 1] : null;
+
+                            return (
+                              <button key={commit.hash}
+                                onClick={() => setSelectedCommit(commit)}
+                                style={{
+                                  width: "100%", display: "flex", gap: 0, padding: 0,
+                                  background: "none", border: "none", cursor: "pointer",
+                                  textAlign: "left", fontFamily: "inherit",
+                                  borderBottom: "1px solid var(--border)",
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-hover)")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "none")}
+                              >
+                                {/* Graph column */}
+                                <div style={{
+                                  width: 28, flexShrink: 0, display: "flex", flexDirection: "column",
+                                  alignItems: "center", position: "relative",
+                                }}>
+                                  {/* Line above */}
+                                  {idx > 0 && (
+                                    <div style={{ width: 2, height: 10, background: nodeColor }} />
+                                  )}
+                                  {idx === 0 && <div style={{ height: 10 }} />}
+                                  {/* Node */}
+                                  <div style={{
+                                    width: isMerge ? 10 : 8, height: isMerge ? 10 : 8,
+                                    borderRadius: "50%", flexShrink: 0,
+                                    background: isHead ? nodeColor : "transparent",
+                                    border: `2px solid ${nodeColor}`,
+                                    boxShadow: isHead ? `0 0 6px ${nodeColor}` : "none",
+                                  }} />
+                                  {/* Line below */}
+                                  {idx < gitLog.length - 1 && (
+                                    <div style={{ width: 2, flex: 1, minHeight: 10, background: graphColors[(idx + 1) % graphColors.length] }} />
+                                  )}
+                                  {/* Merge branch lines */}
+                                  {isMerge && (
+                                    <div style={{
+                                      position: "absolute", top: 14, left: 18,
+                                      width: 8, height: 8, borderTop: `2px solid ${nodeColor}`,
+                                      borderRight: `2px solid ${nodeColor}`, borderRadius: "0 6px 0 0",
+                                    }} />
+                                  )}
+                                </div>
+                                {/* Content */}
+                                <div style={{ flex: 1, padding: "6px 10px 6px 2px", minWidth: 0 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                                    <span style={{
+                                      fontSize: 11, fontWeight: 600, color: "var(--text-primary)",
+                                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0,
+                                    }}>
+                                      {commit.subject}
+                                    </span>
+                                  </div>
+                                  {/* Refs (branch/tag badges) */}
+                                  {hasRefs && (
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 2 }}>
+                                      {commit.refs.map((ref, ri) => {
+                                        const isTag = ref.startsWith("tag:");
+                                        const isHEAD = ref.includes("HEAD");
+                                        return (
+                                          <span key={ri} style={{
+                                            fontSize: 8, fontWeight: 700, padding: "0 5px", borderRadius: 3,
+                                            background: isTag ? "var(--yellow, #e2b93d)18" : isHEAD ? "var(--accent)18" : "var(--green)18",
+                                            color: isTag ? "var(--yellow, #e2b93d)" : isHEAD ? "var(--accent)" : "var(--green)",
+                                            display: "flex", alignItems: "center", gap: 2, lineHeight: "14px",
+                                          }}>
+                                            {isTag ? <Tag size={7} /> : <GitBranch size={7} />}
+                                            {ref.replace("tag: ", "")}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  {/* Author + date + hash */}
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                                    <span style={{ fontSize: 9.5, color: "var(--text-muted)" }}>{commit.authorName}</span>
+                                    <span style={{ fontSize: 9, color: "var(--text-muted)", opacity: 0.6 }}>·</span>
+                                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>
+                                      {(() => {
+                                        const d = new Date(commit.date);
+                                        const now = new Date();
+                                        const diffMs = now.getTime() - d.getTime();
+                                        const diffMin = Math.floor(diffMs / 60000);
+                                        if (diffMin < 1) return "just now";
+                                        if (diffMin < 60) return `${diffMin}m ago`;
+                                        const diffHr = Math.floor(diffMin / 60);
+                                        if (diffHr < 24) return `${diffHr}h ago`;
+                                        const diffDay = Math.floor(diffHr / 24);
+                                        if (diffDay < 30) return `${diffDay}d ago`;
+                                        return d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+                                      })()}
+                                    </span>
+                                    <code style={{
+                                      fontSize: 9, color: "var(--accent)", marginLeft: "auto",
+                                      fontFamily: "'Cascadia Code', 'Fira Code', monospace", opacity: 0.8,
+                                    }}>{commit.shortHash}</code>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Branches sub-tab ────────────────────────────────── */}
+                  {gitSubTab === "branches" && (
+                    <div style={{ flex: 1, overflowY: "auto" }}>
+                      {!gitBranches ? (
+                        <div style={{ padding: "16px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>Loading...</div>
+                      ) : (
+                        <>
+                          {/* Local branches */}
+                          {gitBranches.locals.length > 0 && (
+                            <div>
+                              <div style={{
+                                padding: "6px 12px", fontSize: 9, fontWeight: 700, color: "var(--text-muted)",
+                                textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid var(--border)",
+                                background: "var(--bg-tertiary)",
+                              }}>Local Branches</div>
+                              {gitBranches.locals.map(b => (
+                                <div key={b.name} style={{
+                                  display: "flex", alignItems: "center", gap: 6, padding: "5px 12px",
+                                  borderBottom: "1px solid var(--border)",
+                                  background: b.isCurrent ? "var(--accent)08" : "none",
+                                }}>
+                                  <GitBranch size={12} style={{ color: b.isCurrent ? "var(--accent)" : "var(--text-muted)", flexShrink: 0 }} />
+                                  <span style={{
+                                    fontSize: 11, fontWeight: b.isCurrent ? 700 : 400,
+                                    color: b.isCurrent ? "var(--accent)" : "var(--text-primary)",
+                                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                  }}>
+                                    {b.name}
+                                  </span>
+                                  {b.isCurrent && (
+                                    <span style={{
+                                      fontSize: 8, fontWeight: 700, padding: "0 5px", borderRadius: 3,
+                                      background: "var(--accent)18", color: "var(--accent)", lineHeight: "14px",
+                                    }}>HEAD</span>
+                                  )}
+                                  {b.upstream && (
+                                    <span style={{ fontSize: 9, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 2 }}>
+                                      <Globe size={8} /> {b.upstream}
+                                    </span>
+                                  )}
+                                  <code style={{
+                                    fontSize: 9, color: "var(--text-muted)", marginLeft: "auto",
+                                    fontFamily: "'Cascadia Code', 'Fira Code', monospace",
+                                  }}>{b.hash}</code>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Remote branches */}
+                          {gitBranches.remotes.length > 0 && (
+                            <div>
+                              <div style={{
+                                padding: "6px 12px", fontSize: 9, fontWeight: 700, color: "var(--text-muted)",
+                                textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid var(--border)",
+                                background: "var(--bg-tertiary)",
+                              }}>Remote Branches</div>
+                              {gitBranches.remotes.map(b => (
+                                <div key={b.name} style={{
+                                  display: "flex", alignItems: "center", gap: 6, padding: "5px 12px",
+                                  borderBottom: "1px solid var(--border)",
+                                }}>
+                                  <Globe size={12} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                                  <span style={{
+                                    fontSize: 11, color: "var(--text-primary)",
+                                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                  }}>{b.name}</span>
+                                  <code style={{
+                                    fontSize: 9, color: "var(--text-muted)", marginLeft: "auto",
+                                    fontFamily: "'Cascadia Code', 'Fira Code', monospace",
+                                  }}>{b.hash}</code>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Tags */}
+                          {gitBranches.tags.length > 0 && (
+                            <div>
+                              <div style={{
+                                padding: "6px 12px", fontSize: 9, fontWeight: 700, color: "var(--text-muted)",
+                                textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid var(--border)",
+                                background: "var(--bg-tertiary)",
+                              }}>Tags</div>
+                              {gitBranches.tags.map(t => (
+                                <div key={t.name} style={{
+                                  display: "flex", alignItems: "center", gap: 6, padding: "5px 12px",
+                                  borderBottom: "1px solid var(--border)",
+                                }}>
+                                  <Tag size={12} style={{ color: "var(--yellow, #e2b93d)", flexShrink: 0 }} />
+                                  <span style={{ fontSize: 11, color: "var(--text-primary)" }}>{t.name}</span>
+                                  <code style={{
+                                    fontSize: 9, color: "var(--text-muted)", marginLeft: "auto",
+                                    fontFamily: "'Cascadia Code', 'Fira Code', monospace",
+                                  }}>{t.hash}</code>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Empty state */}
+                          {gitBranches.locals.length === 0 && gitBranches.remotes.length === 0 && gitBranches.tags.length === 0 && (
+                            <div style={{ padding: "16px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
+                              No branches found
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   {/* Summary footer */}
                   <div style={{
                     padding: "6px 10px", borderTop: "1px solid var(--border)",
                     fontSize: 10, color: "var(--text-muted)", display: "flex", gap: 8,
                   }}>
-                    <span>{gitStatus.files?.length ?? 0} changes</span>
+                    {gitSubTab === "changes" && <span>{gitStatus.staged?.length ?? 0} staged · {gitStatus.unstaged?.length ?? 0} modified · {gitStatus.untracked?.length ?? 0} untracked</span>}
+                    {gitSubTab === "commits" && <span>{gitLog.length} commits</span>}
+                    {gitSubTab === "branches" && <span>{(gitBranches?.locals.length ?? 0) + (gitBranches?.remotes.length ?? 0)} branches · {gitBranches?.tags.length ?? 0} tags</span>}
                   </div>
                 </>
               )}
@@ -1176,27 +1928,41 @@ function ChatTimeline({ chatMessages, activity, activeAgents, empMap }: {
   activeAgents: Record<string, boolean>;
   empMap: Map<string, { name: string; color: string; agentKey: string }>;
 }) {
-  const activeKeys = Object.keys(activeAgents).filter(k => activeAgents[k]);
-  const anyActive = activeKeys.length > 0;
   const [liveExpanded, setLiveExpanded] = useState(true);
 
-  // Auto-expand when agents become active, auto-collapse when they finish
+  // Determine which agents are relevant to this editor chat
+  const relevantAgents = useMemo(() => {
+    const agents = new Set<string>();
+    for (const m of chatMessages) {
+      if (m.from !== "user") agents.add(m.from);
+      if (m.to !== "user") agents.add(m.to);
+    }
+    return agents;
+  }, [chatMessages]);
+
+  // Only track active state for agents relevant to this chat
+  const activeKeys = Object.keys(activeAgents).filter(k => activeAgents[k] && (relevantAgents.size === 0 || relevantAgents.has(k)));
+  const anyActive = activeKeys.length > 0;
+
+  // Auto-expand when agents become active
   const prevActive = useRef(false);
   useEffect(() => {
     if (anyActive && !prevActive.current) setLiveExpanded(true);
     prevActive.current = anyActive;
   }, [anyActive]);
 
-  // Filter activity
+  // Filter activity: only relevant agents, skip noise — always persist (no auto-hide)
   const filteredActivity = useMemo(() =>
     activity.slice(-80).filter(entry => {
+      // Only show activity from agents involved in this editor chat
+      if (relevantAgents.size > 0 && !relevantAgents.has(entry.agentId)) return false;
       const tn = entry.toolName?.toLowerCase() ?? "";
       if (entry.type === "tool_end" && !entry.isError) return false;
       if (entry.type === "tool_start" && tn.includes("message_agent")) return false;
       if (entry.type === "thinking") return false;
       return true;
     }),
-  [activity]);
+  [activity, relevantAgents]);
 
   // Render a chat bubble
   const renderBubble = (msg: typeof chatMessages[0]) => {

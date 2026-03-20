@@ -219,9 +219,14 @@ function attachPmStreaming(pmAgent: PMAgent): void {
           !messageAgentCalled &&
           !suppressChatLog &&
           !text.startsWith("NO_ACTION_REQUIRED") &&
-          (_ch === "cli" || _ch === "dashboard")
+          (_ch === "cli" || _ch === "dashboard" || _ch === "editor")
         ) {
-          UserChatLog.log({ from: "pm", to: "user", message: text, channel: "agent" });
+          if (_ch === "editor") {
+            const editorProject = EditorChannelState.get();
+            UserChatLog.log({ from: "pm", to: "user", message: text, channel: "editor", editor_project: editorProject ?? undefined });
+          } else {
+            UserChatLog.log({ from: "pm", to: "user", message: text, channel: "agent" });
+          }
         }
         capturedText = "";
         messageAgentCalled = false;
@@ -527,12 +532,16 @@ async function startServer(doStartupReset: boolean): Promise<void> {
       // forward their reply to all other group members and log with group_id.
       const activeGroup = getActiveGroupForAgent(msg.from_agent);
       if (activeGroup) {
-        // Log with group_id
-        UserChatLog.log({
+        // Log with group_id — preserve editor channel so OCTO-EDIT can pick it up
+        const groupLogEntry: Parameters<typeof UserChatLog.log>[0] = {
           from: msg.from_agent, to: "user",
-          message: msg.message, channel: "agent",
+          message: msg.message, channel: ch === "editor" ? "editor" : "agent",
           group_id: activeGroup.id,
-        });
+        };
+        if (ch === "editor") {
+          groupLogEntry.editor_project = EditorChannelState.get() ?? undefined;
+        }
+        UserChatLog.log(groupLogEntry);
         // Forward to other group members
         const otherMembers = activeGroup.members.filter((m) => m !== msg.from_agent);
         const senderName = AGENT_DISPLAY_NAMES[msg.from_agent] ?? msg.from_agent;

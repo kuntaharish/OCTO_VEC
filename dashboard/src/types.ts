@@ -80,8 +80,9 @@ export interface ChatEntry {
   from: string;  // "user" or agent key (pm / dev / ba)
   to: string;    // "user" or agent key
   message: string;
-  channel: "cli" | "telegram" | "dashboard" | "agent";
+  channel: "cli" | "telegram" | "dashboard" | "agent" | "editor";
   group_id?: string;  // If part of a group conversation
+  editor_project?: string;  // If sent from OCTO-EDIT, the project path
 }
 
 export interface ChatAgent {

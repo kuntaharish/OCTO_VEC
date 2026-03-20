@@ -3366,16 +3366,232 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
       let branch = "";
       try { branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], gitOpts).toString().trim(); } catch { /* not a git repo */ }
       if (!branch) { res.json({ isGitRepo: false }); return; }
-      // Porcelain status
-      const raw = execFileSync("git", ["status", "--porcelain", "-uall"], gitOpts).toString().trim();
-      const files = raw ? raw.split("\n").map(line => {
-        const status = line.slice(0, 2).trim();
-        const path = line.slice(3);
-        return { status, path };
-      }) : [];
-      res.json({ isGitRepo: true, branch, files });
+      // Porcelain v1: XY path — X = staged, Y = unstaged
+      const raw = execFileSync("git", ["status", "--porcelain", "-uall"], gitOpts).toString();
+      const staged: { status: string; path: string }[] = [];
+      const unstaged: { status: string; path: string }[] = [];
+      const untracked: { path: string }[] = [];
+      // Also keep flat list for backward compat
+      const files: { status: string; path: string }[] = [];
+      const rawLines = raw.split("\n").filter(l => l.length >= 3);
+      if (rawLines.length > 0) {
+        for (const line of rawLines) {
+          const x = line[0]; // staged status
+          const y = line[1]; // unstaged status
+          const filePath = line.slice(3).replace(/\r$/, "");
+          files.push({ status: line.slice(0, 2).trim(), path: filePath });
+          if (x === "?" && y === "?") {
+            untracked.push({ path: filePath });
+          } else {
+            if (x !== " " && x !== "?") staged.push({ status: x, path: filePath });
+            if (y !== " " && y !== "?") unstaged.push({ status: y, path: filePath });
+          }
+        }
+      }
+      res.json({ isGitRepo: true, branch, files, staged, unstaged, untracked });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "git status failed" });
+    }
+  });
+
+  // ── Git stage files ─────────────────────────────────────────────────────
+  app.post("/api/workspace-git-stage", (req, res) => {
+    const { root, files } = req.body ?? {};
+    if (!root || !files) { res.status(400).json({ error: "root and files required" }); return; }
+    const absRoot = resolve(config.workspace, root);
+    if (!absRoot.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    try {
+      const gitOpts = { cwd: absRoot, timeout: 5000, stdio: ["pipe", "pipe", "pipe"] as any, maxBuffer: 1024 * 1024 };
+      const filesToStage = Array.isArray(files) ? files : [files];
+      // "." means stage all
+      if (filesToStage.includes(".")) {
+        execFileSync("git", ["add", "-A"], gitOpts);
+      } else {
+        execFileSync("git", ["add", "--", ...filesToStage], gitOpts);
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "git add failed" });
+    }
+  });
+
+  // ── Git unstage files ───────────────────────────────────────────────────
+  app.post("/api/workspace-git-unstage", (req, res) => {
+    const { root, files } = req.body ?? {};
+    if (!root || !files) { res.status(400).json({ error: "root and files required" }); return; }
+    const absRoot = resolve(config.workspace, root);
+    if (!absRoot.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    try {
+      const gitOpts = { cwd: absRoot, timeout: 5000, stdio: ["pipe", "pipe", "pipe"] as any, maxBuffer: 1024 * 1024 };
+      const filesToUnstage = Array.isArray(files) ? files : [files];
+      if (filesToUnstage.includes(".")) {
+        execFileSync("git", ["reset", "HEAD"], gitOpts);
+      } else {
+        execFileSync("git", ["reset", "HEAD", "--", ...filesToUnstage], gitOpts);
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "git reset failed" });
+    }
+  });
+
+  // ── Git commit ──────────────────────────────────────────────────────────
+  app.post("/api/workspace-git-commit", (req, res) => {
+    const { root, message } = req.body ?? {};
+    if (!root || !message || typeof message !== "string" || !message.trim()) {
+      res.status(400).json({ error: "root and message required" }); return;
+    }
+    const absRoot = resolve(config.workspace, root);
+    if (!absRoot.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    try {
+      const gitOpts = { cwd: absRoot, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] as any, maxBuffer: 1024 * 1024 };
+      const result = execFileSync("git", ["commit", "-m", message.trim()], gitOpts).toString().trim();
+      res.json({ ok: true, output: result });
+    } catch (err: any) {
+      const stderr = err.stderr?.toString?.() ?? err.message ?? "git commit failed";
+      res.status(500).json({ error: stderr });
+    }
+  });
+
+  // ── Git log (commit history with graph) ─────────────────────────────────
+  app.get("/api/workspace-git-log", (req, res) => {
+    const root = (req.query.root as string) ?? "";
+    const limit = Math.min(parseInt((req.query.limit as string) ?? "50", 10) || 50, 200);
+    if (!root) { res.status(400).json({ error: "root param required" }); return; }
+    const absRoot = resolve(config.workspace, root);
+    if (!absRoot.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    try {
+      const gitOpts = { cwd: absRoot, timeout: 10000, stdio: ["pipe", "pipe", "pipe"] as any, maxBuffer: 2 * 1024 * 1024 };
+      // Format: hash|short_hash|parent_hashes|author_name|author_email|date_iso|refs|subject
+      const SEP = "@@SEP@@";
+      const fmt = [`%H`, `%h`, `%P`, `%an`, `%ae`, `%aI`, `%D`, `%s`].join(SEP);
+      const raw = execFileSync("git", ["log", `--format=${fmt}`, `--max-count=${limit}`, "--all"], gitOpts).toString().trim();
+      if (!raw) { res.json([]); return; }
+      const commits = raw.split("\n").map(line => {
+        const [hash, shortHash, parents, authorName, authorEmail, date, refs, subject] = line.split(SEP);
+        return {
+          hash, shortHash, parents: parents ? parents.split(" ") : [],
+          authorName, authorEmail, date, subject,
+          refs: refs ? refs.split(", ").map(r => r.trim()).filter(Boolean) : [],
+        };
+      });
+      res.json(commits);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "git log failed" });
+    }
+  });
+
+  // ── Git branches ────────────────────────────────────────────────────────
+  app.get("/api/workspace-git-branches", (req, res) => {
+    const root = (req.query.root as string) ?? "";
+    if (!root) { res.status(400).json({ error: "root param required" }); return; }
+    const absRoot = resolve(config.workspace, root);
+    if (!absRoot.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    try {
+      const gitOpts = { cwd: absRoot, timeout: 5000, stdio: ["pipe", "pipe", "pipe"] as any, maxBuffer: 1024 * 1024 };
+      // Local branches
+      const localRaw = execFileSync("git", ["branch", "--format=%(refname:short)|%(objectname:short)|%(HEAD)|%(upstream:short)|%(committerdate:iso)"], gitOpts).toString().trim();
+      const locals = localRaw ? localRaw.split("\n").map(line => {
+        const [name, hash, isCurrent, upstream, date] = line.split("|");
+        return { name, hash, isCurrent: isCurrent === "*", upstream: upstream || null, date, type: "local" as const };
+      }) : [];
+      // Remote branches
+      let remotes: { name: string; hash: string; date: string; type: "remote" }[] = [];
+      try {
+        const remoteRaw = execFileSync("git", ["branch", "-r", "--format=%(refname:short)|%(objectname:short)|%(committerdate:iso)"], gitOpts).toString().trim();
+        remotes = remoteRaw ? remoteRaw.split("\n")
+          .filter(line => !line.includes("HEAD"))
+          .map(line => {
+            const [name, hash, date] = line.split("|");
+            return { name, hash, date, type: "remote" as const };
+          }) : [];
+      } catch { /* no remotes */ }
+      // Tags
+      let tags: { name: string; hash: string; date: string; type: "tag" }[] = [];
+      try {
+        const tagRaw = execFileSync("git", ["tag", "--format=%(refname:short)|%(objectname:short)|%(creatordate:iso)"], gitOpts).toString().trim();
+        tags = tagRaw ? tagRaw.split("\n").map(line => {
+          const [name, hash, date] = line.split("|");
+          return { name, hash, date, type: "tag" as const };
+        }) : [];
+      } catch { /* no tags */ }
+      res.json({ locals, remotes, tags, current: locals.find(b => b.isCurrent)?.name ?? "" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "git branches failed" });
+    }
+  });
+
+  // ── Git diff for a single file ──────────────────────────────────────────
+  app.get("/api/workspace-git-diff", (req, res) => {
+    const root = (req.query.root as string) ?? "";
+    const file = (req.query.file as string) ?? "";
+    if (!root || !file) { res.status(400).json({ error: "root and file params required" }); return; }
+    const absRoot = resolve(config.workspace, root);
+    if (!absRoot.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    try {
+      const gitOpts = { cwd: absRoot, timeout: 5000, stdio: ["pipe", "pipe", "pipe"] as any, maxBuffer: 2 * 1024 * 1024 };
+      // Try staged diff first, then unstaged, then untracked
+      let diff = "";
+      try { diff = execFileSync("git", ["diff", "--cached", "--", file], gitOpts).toString(); } catch { /* */ }
+      if (!diff) {
+        try { diff = execFileSync("git", ["diff", "--", file], gitOpts).toString(); } catch { /* */ }
+      }
+      if (!diff) {
+        // Untracked file — show full content as added
+        try {
+          const content = execFileSync("git", ["show", `:${file}`], gitOpts).toString();
+          diff = `new file\n${content}`;
+        } catch {
+          try {
+            const filePath = resolve(absRoot, file);
+            if (filePath.startsWith(absRoot)) {
+              diff = `new file (untracked)\n${readFileSync(filePath, "utf-8")}`;
+            }
+          } catch { /* */ }
+        }
+      }
+      res.json({ file, diff: diff || "(no diff available)" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "git diff failed" });
+    }
+  });
+
+  // ── Git commit detail (show full commit info) ──────────────────────────
+  app.get("/api/workspace-git-show", (req, res) => {
+    const root = (req.query.root as string) ?? "";
+    const hash = (req.query.hash as string) ?? "";
+    if (!root || !hash) { res.status(400).json({ error: "root and hash params required" }); return; }
+    const absRoot = resolve(config.workspace, root);
+    if (!absRoot.startsWith(resolve(config.workspace))) {
+      res.status(403).json({ error: "Access denied" }); return;
+    }
+    // Validate hash is safe (alphanumeric only)
+    if (!/^[a-f0-9]+$/i.test(hash)) { res.status(400).json({ error: "Invalid hash" }); return; }
+    try {
+      const gitOpts = { cwd: absRoot, timeout: 5000, stdio: ["pipe", "pipe", "pipe"] as any, maxBuffer: 2 * 1024 * 1024 };
+      const stat = execFileSync("git", ["show", "--stat", "--format=%H%n%an%n%ae%n%aI%n%s%n%b%n---STAT---", hash], gitOpts).toString();
+      const parts = stat.split("---STAT---");
+      const lines = parts[0].split("\n");
+      const filesChanged = (parts[1] ?? "").trim();
+      res.json({
+        hash: lines[0], authorName: lines[1], authorEmail: lines[2],
+        date: lines[3], subject: lines[4], body: lines.slice(5).join("\n").trim(),
+        filesChanged,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "git show failed" });
     }
   });
 

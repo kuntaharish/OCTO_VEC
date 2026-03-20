@@ -63,7 +63,7 @@ class LINEChannel implements VECChannel {
     });
   }
 
-  getMiddleware() {
+  getMiddleware(): ReturnType<typeof middleware> {
     return middleware({ channelSecret: this.channelSecret });
   }
 
