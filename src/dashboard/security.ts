@@ -70,7 +70,9 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 // ── CORS Configuration ───────────────────────────────────────────────────
 
 export function getCorsOptions() {
-  const allowedOrigin = process.env.VEC_CORS_ORIGIN ?? `http://localhost:${config.dashboardPort}`;
+  const envOrigin = process.env.VEC_CORS_ORIGIN;
+  // Allow all origins when explicitly set to "*" or for mobile app connections
+  const allowedOrigin = envOrigin === "*" ? true : (envOrigin ?? `http://localhost:${config.dashboardPort}`);
   return {
     origin: allowedOrigin,
     methods: ["GET", "POST", "DELETE", "PATCH"],
