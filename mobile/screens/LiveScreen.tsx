@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { colors, spacing } from "../lib/theme";
-import { getApi, postApi, subscribeStream, getWsDebug } from "../lib/api";
+import { getApi, postApi, subscribeStream } from "../lib/api";
 import Icon from "react-native-vector-icons/Ionicons";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -45,7 +45,6 @@ export default function LiveScreen() {
   const [steerMsg, setSteerMsg] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [wsDebug, setWsDebug] = useState("init");
 
   const loadLive = useCallback(async () => {
     try {
@@ -78,9 +77,6 @@ export default function LiveScreen() {
   useFocusEffect(useCallback(() => {
     // Load agent list once on focus, then rely on WebSocket for updates
     loadLive();
-
-    // Debug: show WS status
-    const dbgTimer = setInterval(() => setWsDebug(getWsDebug()), 2000);
 
     // Real-time stream via WebSocket (works through relay too)
     // System content to hide from timeline
@@ -130,7 +126,7 @@ export default function LiveScreen() {
       });
     });
 
-    return () => { unsub(); clearInterval(dbgTimer); };
+    return () => { unsub(); };
   }, [loadLive]));
 
   async function handleSteer() {
@@ -170,8 +166,6 @@ export default function LiveScreen() {
           </View>
         </View>
       </View>
-      <Text style={{ color: "#666", fontSize: 8, paddingHorizontal: 20, fontFamily: "monospace" }}>WS: {wsDebug}</Text>
-
       {/* ── Status bar ─────────────────────────────────────── */}
       <View style={s.statusBar}>
         <View style={s.statusItem}>
@@ -351,33 +345,35 @@ function AgentCard({ agent, state, onSteer, onInterrupt, showSteer, steerMsg, se
         </View>
       )}
 
-      {/* Activity timeline */}
+      {/* Activity timeline — fixed max height with scroll */}
       {hasActivity && (
-        <View style={s.timeline}>
-          {state.activity.slice(0, 6).map((entry, i) => {
-            const cfg = getEntryConfig(entry);
-            const isLast = i === Math.min(state.activity.length - 1, 5);
-            return (
-              <View key={`${entry.timestamp}-${i}`} style={s.tlRow}>
-                <View style={s.tlRail}>
-                  <View style={[s.tlDot, { backgroundColor: cfg.color }]} />
-                  {!isLast && <View style={s.tlLine} />}
-                </View>
-                <View style={s.tlBody}>
-                  <View style={s.tlTopRow}>
-                    <Text style={[s.tlLabel, { color: cfg.color }]}>{cfg.label}</Text>
-                    <Text style={s.tlTime}>{fmtTime(entry.timestamp)}</Text>
+        <ScrollView style={s.timelineScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+          <View style={s.timeline}>
+            {state.activity.slice(-10).map((entry, i, arr) => {
+              const cfg = getEntryConfig(entry);
+              const isLast = i === arr.length - 1;
+              return (
+                <View key={`${entry.timestamp}-${i}`} style={s.tlRow}>
+                  <View style={s.tlRail}>
+                    <View style={[s.tlDot, { backgroundColor: cfg.color }]} />
+                    {!isLast && <View style={s.tlLine} />}
                   </View>
-                  {entry.content && entry.type !== "agent_start" && entry.type !== "agent_end" && (
-                    <Text style={[s.tlDetail, entry.isError && { color: colors.red }]} numberOfLines={2}>
-                      {trunc(entry.toolName ? `${entry.toolName}: ${entry.content}` : entry.content, 100)}
-                    </Text>
-                  )}
+                  <View style={s.tlBody}>
+                    <View style={s.tlTopRow}>
+                      <Text style={[s.tlLabel, { color: cfg.color }]}>{cfg.label}</Text>
+                      <Text style={s.tlTime}>{fmtTime(entry.timestamp)}</Text>
+                    </View>
+                    {entry.content && entry.type !== "agent_start" && entry.type !== "agent_end" && (
+                      <Text style={[s.tlDetail, entry.isError && { color: colors.red }]} numberOfLines={2}>
+                        {trunc(entry.toolName ? `${entry.toolName}: ${entry.content}` : entry.content, 100)}
+                      </Text>
+                    )}
+                  </View>
                 </View>
-              </View>
-            );
-          })}
-        </View>
+              );
+            })}
+          </View>
+        </ScrollView>
       )}
 
       {/* Idle state */}
@@ -547,7 +543,8 @@ const s = StyleSheet.create({
   todoMore: { fontSize: 10, color: colors.textDim, marginTop: 4, textAlign: "center" },
 
   // Timeline
-  timeline: { paddingHorizontal: 14, paddingBottom: 12 },
+  timelineScroll: { maxHeight: 180, marginHorizontal: 14, marginBottom: 12 },
+  timeline: { },
   tlRow: { flexDirection: "row", minHeight: 26 },
   tlRail: { width: 18, alignItems: "center" },
   tlDot: { width: 6, height: 6, borderRadius: 3, marginTop: 5 },
