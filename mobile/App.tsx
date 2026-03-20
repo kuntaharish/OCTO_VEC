@@ -5,7 +5,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { colors } from "./lib/theme";
-import { isLoggedIn } from "./lib/api";
+import { isLoggedIn, hydrateAuth } from "./lib/api";
 import { setupNotifications, startBackgroundSync } from "./lib/notifications";
 import Icon from "react-native-vector-icons/Ionicons";
 
@@ -95,11 +95,13 @@ export default function App() {
 
   useEffect(() => {
     setupNotifications();
-    isLoggedIn().then(v => {
-      setAuthed(v);
-      setReady(true);
-      if (v) startBackgroundSync();
-    });
+    hydrateAuth().then(() =>
+      isLoggedIn().then(v => {
+        setAuthed(v);
+        setReady(true);
+        if (v) startBackgroundSync();
+      })
+    );
   }, []);
 
   if (!ready) {

@@ -35,6 +35,15 @@ export async function isLoggedIn(): Promise<boolean> {
   return !!(url && key);
 }
 
+// Hydrate all cached vars from storage (call once on app start)
+export async function hydrateAuth(): Promise<void> {
+  _serverUrl = (await EncryptedStorage.getItem("server_url")) ?? "";
+  _apiKey = (await EncryptedStorage.getItem("api_key")) ?? "";
+  _relayMode = (await EncryptedStorage.getItem("relay_mode")) === "true";
+  _relaySecret = (await EncryptedStorage.getItem("relay_secret")) ?? "";
+  _sessionId = (await EncryptedStorage.getItem("relay_session")) ?? "default";
+}
+
 // ── Login ───────────────────────────────────────────────────────────────────
 
 export async function login(serverUrl: string, key: string): Promise<{ ok: boolean; error?: string }> {
@@ -93,6 +102,9 @@ export async function logout() {
   _relayMode = false;
   _relaySecret = "";
   _sessionId = "default";
+  // Close WebSocket on logout
+  if (_ws) { try { _ws.close(); } catch {} _ws = null; }
+  _wsListeners.clear();
   await EncryptedStorage.removeItem("server_url");
   await EncryptedStorage.removeItem("api_key");
   await EncryptedStorage.removeItem("relay_mode");
@@ -135,65 +147,115 @@ export async function getApi<T>(path: string): Promise<T> {
 
 export async function postApi<T = any>(path: string, body: unknown): Promise<T> {
   const res = await authFetch(path, { method: "POST", body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${errBody}`);
+  }
   return res.json();
 }
 
-// ── SSE for typing indicators ───────────────────────────────────────────────
+// ── WebSocket real-time stream ───────────────────────────────────────────────
 
-export type StreamCallback = (event: {
+export type StreamEvent = {
   agentId: string;
   type: string;
   content: string;
-}) => void;
+  toolName?: string;
+  toolArgs?: any;
+  toolResult?: string;
+  isError?: boolean;
+  taskId?: string;
+  todos?: any[];
+};
 
-export function createSSEStream(onEvent: StreamCallback): () => void {
-  let aborted = false;
+export type StreamCallback = (event: StreamEvent) => void;
 
-  (async () => {
-    const base = await getServerUrl();
-    const relay = await getRelayMode();
+// Singleton WebSocket connection shared across all screens
+let _ws: WebSocket | null = null;
+let _wsListeners: Set<StreamCallback> = new Set();
+let _wsConnecting = false;
+let _wsDebug = "init";
+let _wsMsgCount = 0;
+export function getWsDebug() { return `${_wsDebug} | msgs:${_wsMsgCount} | listeners:${_wsListeners.size}`; }
 
-    if (!base) return;
+async function ensureWebSocket(): Promise<void> {
+  if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === 1)) return;
+  if (_wsConnecting) return;
+  _wsConnecting = true;
 
-    while (!aborted) {
+  const base = await getServerUrl();
+  if (!base) { _wsConnecting = false; return; }
+
+  const wsBase = base.replace(/^http/, "ws");
+  const relay = await getRelayMode();
+
+  let url: string;
+  if (relay) {
+    url = `${wsBase}/ws?secret=${encodeURIComponent(_relaySecret)}&session=${encodeURIComponent(_sessionId)}&client=mobile`;
+  } else {
+    url = `${wsBase}/ws?key=${encodeURIComponent(_apiKey)}`;
+  }
+
+  try {
+    const ws = new WebSocket(url);
+
+    _wsDebug = "connecting:" + url.replace(/secret=[^&]+/, "***").replace(/key=[^&]+/, "***");
+
+    ws.onopen = () => {
+      _ws = ws;
+      _wsConnecting = false;
+      _wsDebug = "open";
+      _wsMsgCount = 0;
+    };
+
+    ws.onmessage = (event: any) => {
+      _wsMsgCount++;
       try {
-        let url: string;
-        let headers: Record<string, string> = { Accept: "text/event-stream" };
-
-        if (relay) {
-          url = `${base}/relay/stream`;
-          headers["X-Relay-Secret"] = _relaySecret;
-          headers["X-Session-Id"] = _sessionId;
-        } else {
-          const key = await getApiKey();
-          url = `${base}/api/stream?key=${encodeURIComponent(key)}`;
-        }
-
-        const res = await fetch(url, { headers });
-        if (!res.ok || !res.body) break;
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = "";
-
-        while (!aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split("\n");
-          buf = lines.pop() ?? "";
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try { onEvent(JSON.parse(line.slice(6))); } catch {}
-            }
+        const raw = event?.data ?? event;
+        const str = typeof raw === "string" ? raw : typeof raw === "object" && raw !== null ? JSON.stringify(raw) : String(raw);
+        if (!str || str === "undefined") return;
+        const msg = JSON.parse(str);
+        if (msg.channel === "stream" && msg.data) {
+          _wsDebug = "stream:" + (msg.data.agentId || "?") + ":" + (msg.data.type || "?");
+          for (const cb of _wsListeners) {
+            try { cb(msg.data); } catch {}
           }
+        } else if (msg.channel === "ping") {
+          _wsDebug = "open(ping)";
         }
-      } catch {
-        if (!aborted) await new Promise(r => setTimeout(r, 3000));
+      } catch (e: any) {
+        _wsDebug = "parse_err:" + (e?.message || "unknown");
       }
-    }
-  })();
+    };
 
-  return () => { aborted = true; };
+    ws.onerror = (e: any) => {
+      _wsConnecting = false;
+      _wsDebug = "error:" + (e?.message || "unknown");
+    };
+
+    ws.onclose = (e: any) => {
+      _ws = null;
+      _wsConnecting = false;
+      _wsDebug = "closed:" + (e?.code || "?");
+      // Always auto-reconnect — WS stays alive for the app lifetime
+      setTimeout(() => ensureWebSocket(), 3000);
+    };
+  } catch {
+    _wsConnecting = false;
+  }
 }
+
+/** Subscribe to real-time stream events via WebSocket. Returns unsubscribe function. */
+export function subscribeStream(onEvent: StreamCallback): () => void {
+  _wsListeners.add(onEvent);
+  ensureWebSocket();
+
+  return () => {
+    _wsListeners.delete(onEvent);
+    // Keep WebSocket alive — don't close on unsubscribe.
+    // It auto-reconnects and stays ready for the next subscribe.
+  };
+}
+
+// Keep backward compat alias
+export const createSSEStream = subscribeStream;
