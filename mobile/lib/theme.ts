@@ -1,23 +1,36 @@
-// OCTO VEC dark theme — matches dashboard CSS variables
+// OCTO VEC — Modern monochrome dark theme
+// Inspired by Linear, Vercel, and X dark modes
 export const colors = {
-  bgPrimary: "#0a0e17",
-  bgSecondary: "#0f1420",
-  bgCard: "#131825",
-  bgTertiary: "#1a1f2e",
+  // Backgrounds — deep blacks with subtle warmth
+  bgPrimary: "#000000",
+  bgSecondary: "#0a0a0a",
+  bgCard: "#111111",
+  bgTertiary: "#1a1a1a",
+  bgElevated: "#1e1e1e",
   bgHover: "rgba(255,255,255,0.04)",
-  border: "rgba(255,255,255,0.06)",
-  accent: "#6c5ce7",
-  accentDark: "#5a4bd1",
-  textPrimary: "#e8eaed",
-  textSecondary: "#9ca3af",
-  textMuted: "#6b7280",
-  green: "#4ac083",
-  red: "#ef4444",
-  yellow: "#e2b93d",
+
+  // Borders
+  border: "rgba(255,255,255,0.08)",
+  borderLight: "rgba(255,255,255,0.12)",
+
+  // Accent — clean white instead of purple
+  accent: "#ffffff",
+  accentMuted: "rgba(255,255,255,0.8)",
+  accentSubtle: "rgba(255,255,255,0.12)",
+
+  // Text
+  textPrimary: "#ffffff",
+  textSecondary: "#a1a1a1",
+  textMuted: "#666666",
+  textDim: "#444444",
+
+  // Status colors — desaturated and elegant
+  green: "#3dd68c",
+  red: "#f04444",
+  yellow: "#eab308",
   blue: "#3b82f6",
-  purple: "#8b5cf6",
   orange: "#f97316",
-  cyan: "#06b6d4",
+  cyan: "#22d3ee",
 } as const;
 
 export const fonts = {

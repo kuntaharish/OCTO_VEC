@@ -148,7 +148,7 @@ export default function LoginScreen({ navigation }: Props) {
                 Your OCTO VEC dashboard URL. Use your PC's local IP if on the same WiFi.
               </Text>
               <TouchableOpacity style={s.btn} onPress={handleConnect} disabled={loading}>
-                {loading ? <ActivityIndicator color="#fff" size="small" /> : (
+                {loading ? <ActivityIndicator color={colors.bgPrimary} size="small" /> : (
                   <><Text style={s.btnText}>Connect</Text><Icon name="arrow-forward" size={18} color="#fff" /></>
                 )}
               </TouchableOpacity>
@@ -182,7 +182,7 @@ export default function LoginScreen({ navigation }: Props) {
               </View>
               <Text style={s.hint}>The same key you use to log into the dashboard.</Text>
               <TouchableOpacity style={s.btn} onPress={handleLogin} disabled={loading}>
-                {loading ? <ActivityIndicator color="#fff" size="small" /> : (
+                {loading ? <ActivityIndicator color={colors.bgPrimary} size="small" /> : (
                   <><Text style={s.btnText}>Sign In</Text><Icon name="log-in-outline" size={18} color="#fff" /></>
                 )}
               </TouchableOpacity>
@@ -253,8 +253,8 @@ export default function LoginScreen({ navigation }: Props) {
             </Text>
 
             <TouchableOpacity style={[s.btn, { backgroundColor: colors.green }]} onPress={handleRelayLogin} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" size="small" /> : (
-                <><Text style={s.btnText}>Connect</Text><Icon name="link-outline" size={18} color="#fff" /></>
+              {loading ? <ActivityIndicator color={colors.bgPrimary} size="small" /> : (
+                <><Text style={s.btnText}>Connect</Text><Icon name="link-outline" size={18} color={colors.bgPrimary} /></>
               )}
             </TouchableOpacity>
 
@@ -291,9 +291,9 @@ const s = StyleSheet.create({
   hint: { fontSize: 12, color: colors.textMuted, lineHeight: 18, paddingHorizontal: 2 },
   btn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 14, marginTop: 8,
+    backgroundColor: colors.textPrimary, borderRadius: 12, paddingVertical: 14, marginTop: 8,
   },
-  btnText: { fontSize: 16, fontWeight: "700", color: "#fff" },
+  btnText: { fontSize: 16, fontWeight: "700", color: colors.bgPrimary },
   serverBadge: {
     flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: colors.bgCard, borderRadius: 8,
