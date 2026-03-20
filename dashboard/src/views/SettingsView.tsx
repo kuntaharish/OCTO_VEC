@@ -5,7 +5,7 @@ import {
   Shield, Search, MessageSquare, Cpu, Box, ExternalLink, Palette, RotateCcw,
   Zap, Settings2, Database, Eye, Star, Check, X, Package,
   Hash, Globe, Radio, Gamepad2, FolderOpen, Phone, Users, Grid3X3,
-  GitBranch, Upload, Clock, CheckCircle, AlertCircle, EyeOff,
+  GitBranch, Upload, Clock, CheckCircle, AlertCircle, EyeOff, Keyboard, Command, CornerDownLeft,
 } from "lucide-react";
 import { postApi, apiUrl } from "../hooks/useApi";
 import { usePolling } from "../hooks/useApi";
@@ -91,16 +91,17 @@ function deepClone<T>(obj: T): T { return JSON.parse(JSON.stringify(obj)); }
 
 // ── Settings section type ────────────────────────────────────────────────────
 
-type SettingsSection = "general" | "models" | "channels" | "integrations" | "mcp" | "versioning" | "chat";
+type SettingsSection = "general" | "models" | "channels" | "integrations" | "mcp" | "versioning" | "chat" | "shortcuts";
 
 const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode; color: string }[] = [
   { key: "general", label: "General", icon: <Settings2 size={15} />, color: "var(--text-secondary)" },
+  { key: "chat", label: "Chat", icon: <Palette size={15} />, color: "var(--accent)" },
   { key: "models", label: "Models", icon: <Box size={15} />, color: "var(--purple)" },
   { key: "channels", label: "Channels", icon: <Radio size={15} />, color: "var(--blue)" },
   { key: "integrations", label: "Integrations", icon: <Zap size={15} />, color: "var(--orange)" },
   { key: "mcp", label: "MCP Servers", icon: <Server size={15} />, color: "var(--green)" },
   { key: "versioning", label: "Versioning", icon: <GitBranch size={15} />, color: "var(--cyan, #06b6d4)" },
-  { key: "chat", label: "Chat", icon: <Palette size={15} />, color: "var(--accent)" },
+  { key: "shortcuts", label: "Shortcuts", icon: <Keyboard size={15} />, color: "var(--yellow, #e2b93d)" },
 ];
 
 // ── Logo icon helper ─────────────────────────────────────────────────────────
@@ -568,6 +569,77 @@ export default function SettingsView() {
     else root.style.removeProperty("--chat-ts-agent");
     localStorage.setItem("vec-chat-colors", JSON.stringify(chatColors));
   }, [chatColors]);
+
+  // Keyboard shortcuts
+  interface ShortcutDef {
+    id: string;
+    label: string;
+    description: string;
+    category: string;
+    keys: string; // e.g. "Ctrl+1", "Ctrl+Shift+S"
+  }
+
+  const DEFAULT_SHORTCUTS: ShortcutDef[] = [
+    { id: "nav-overview", label: "Overview", description: "Go to Overview", category: "Navigation", keys: "Ctrl+1" },
+    { id: "nav-kanban", label: "Kanban", description: "Go to Kanban Board", category: "Navigation", keys: "Ctrl+2" },
+    { id: "nav-chat", label: "Chat", description: "Go to Chat", category: "Navigation", keys: "Ctrl+3" },
+    { id: "nav-live", label: "Live Monitor", description: "Go to Live Monitor", category: "Navigation", keys: "Ctrl+4" },
+    { id: "nav-workspace", label: "Workspace", description: "Go to Workspace", category: "Navigation", keys: "Ctrl+5" },
+    { id: "nav-events", label: "Events", description: "Go to Events", category: "Navigation", keys: "Ctrl+6" },
+    { id: "nav-settings", label: "Settings", description: "Go to Settings", category: "Navigation", keys: "Ctrl+," },
+    { id: "editor-save", label: "Save File", description: "Save active file in editor", category: "Editor", keys: "Ctrl+S" },
+    { id: "editor-close-tab", label: "Close Tab", description: "Close active editor tab", category: "Editor", keys: "Ctrl+W" },
+    { id: "editor-search", label: "Search in File", description: "Search in active file", category: "Editor", keys: "Ctrl+F" },
+    { id: "global-search", label: "Global Search", description: "Focus search / command palette", category: "General", keys: "Ctrl+K" },
+    { id: "toggle-theme", label: "Toggle Theme", description: "Switch dark / light theme", category: "General", keys: "Ctrl+Shift+T" },
+    { id: "send-message", label: "Send Message", description: "Send chat message", category: "Chat", keys: "Enter" },
+    { id: "newline-message", label: "New Line", description: "New line in chat input", category: "Chat", keys: "Shift+Enter" },
+  ];
+
+  const [shortcuts, setShortcuts] = useState<ShortcutDef[]>(DEFAULT_SHORTCUTS);
+  const [shortcutsLoaded, setShortcutsLoaded] = useState(false);
+  const [recordingShortcutId, setRecordingShortcutId] = useState<string | null>(null);
+
+  // Load shortcuts from server on mount
+  useEffect(() => {
+    fetch(apiUrl("/api/shortcuts-config")).then(r => r.json()).then((saved: ShortcutDef[] | null) => {
+      if (saved && Array.isArray(saved)) {
+        setShortcuts(DEFAULT_SHORTCUTS.map(d => {
+          const override = saved.find(p => p.id === d.id);
+          return override ? { ...d, keys: override.keys } : d;
+        }));
+      }
+      setShortcutsLoaded(true);
+    }).catch(() => setShortcutsLoaded(true));
+  }, []);
+
+  // Persist shortcuts to server + localStorage cache + notify other views
+  const shortcutsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!shortcutsLoaded) return;
+    localStorage.setItem("vec-keyboard-shortcuts", JSON.stringify(shortcuts));
+    window.dispatchEvent(new CustomEvent("vec-shortcuts-changed", { detail: shortcuts }));
+    // Debounced save to server
+    if (shortcutsSaveTimer.current) clearTimeout(shortcutsSaveTimer.current);
+    shortcutsSaveTimer.current = setTimeout(() => {
+      postApi("/api/shortcuts-config", { shortcuts }).catch(() => {});
+    }, 500);
+  }, [shortcuts, shortcutsLoaded]);
+
+  const updateShortcutKeys = useCallback((id: string, keys: string) => {
+    setShortcuts(prev => prev.map(s => s.id === id ? { ...s, keys } : s));
+    setRecordingShortcutId(null);
+  }, []);
+
+  const resetShortcut = useCallback((id: string) => {
+    const def = DEFAULT_SHORTCUTS.find(d => d.id === id);
+    if (def) setShortcuts(prev => prev.map(s => s.id === id ? { ...s, keys: def.keys } : s));
+  }, []);
+
+  const resetAllShortcuts = useCallback(() => {
+    setShortcuts(DEFAULT_SHORTCUTS);
+    showToast("All shortcuts reset to defaults");
+  }, []);
 
   const fetchChannels = useCallback(async () => {
     try {
@@ -2266,6 +2338,206 @@ export default function SettingsView() {
     );
   }
 
+  // ── Keyboard Shortcuts ──────────────────────────────────────────────────
+
+  function formatKeyCombo(keys: string) {
+    const isMac = navigator.platform.toUpperCase().includes("MAC");
+    return keys.split("+").map(k => {
+      if (k === "Ctrl") return isMac ? "\u2318" : "Ctrl";
+      if (k === "Shift") return isMac ? "\u21E7" : "Shift";
+      if (k === "Alt") return isMac ? "\u2325" : "Alt";
+      if (k === "Enter") return "\u21B5";
+      if (k === "Escape") return "Esc";
+      return k;
+    }).join(isMac ? "" : " + ");
+  }
+
+  function KeyBadge({ keys }: { keys: string }) {
+    const parts = keys.split("+");
+    return (
+      <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+        {parts.map((part, i) => (
+          <span key={i} style={{
+            padding: "2px 7px", fontSize: 11, fontWeight: 600,
+            fontFamily: "'Cascadia Code', 'Fira Code', monospace",
+            background: "var(--bg-primary)", border: "1px solid var(--border)",
+            borderRadius: 5, color: "var(--text-primary)",
+            boxShadow: "0 1px 0 var(--border)",
+            lineHeight: "18px", minWidth: 22, textAlign: "center",
+          }}>
+            {part === "Ctrl" ? (navigator.platform.toUpperCase().includes("MAC") ? "\u2318" : "Ctrl") :
+             part === "Shift" ? (navigator.platform.toUpperCase().includes("MAC") ? "\u21E7" : "Shift") :
+             part === "Alt" ? (navigator.platform.toUpperCase().includes("MAC") ? "\u2325" : "Alt") :
+             part === "Enter" ? "\u21B5" : part === "Escape" ? "Esc" : part}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  function ShortcutRecorder({ shortcutId, onRecord }: { shortcutId: string; onRecord: (keys: string) => void }) {
+    const recorderRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      recorderRef.current?.focus();
+      const handler = (e: KeyboardEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Ignore lone modifier presses
+        if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+        const parts: string[] = [];
+        if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
+        if (e.shiftKey) parts.push("Shift");
+        if (e.altKey) parts.push("Alt");
+        // Normalize key
+        let key = e.key;
+        if (key === " ") key = "Space";
+        else if (key.length === 1) key = key.toUpperCase();
+        else if (key === "Escape") { setRecordingShortcutId(null); return; }
+        parts.push(key);
+        onRecord(parts.join("+"));
+      };
+      window.addEventListener("keydown", handler, true);
+      return () => window.removeEventListener("keydown", handler, true);
+    }, [shortcutId, onRecord]);
+
+    return (
+      <div ref={recorderRef} tabIndex={-1} style={{
+        padding: "4px 12px", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+        background: "var(--accent)", color: "#fff", borderRadius: 5,
+        animation: "pulse 1.2s infinite",
+        outline: "none", cursor: "default",
+      }}>
+        Press keys... (Esc to cancel)
+      </div>
+    );
+  }
+
+  function renderShortcuts() {
+    const categories = Array.from(new Set(shortcuts.map(s => s.category)));
+    const customCount = shortcuts.filter((s, i) => s.keys !== DEFAULT_SHORTCUTS[i]?.keys).length;
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Keyboard Shortcuts</h2>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 0" }}>
+              Click on a shortcut to customize it. Press Escape to cancel.
+            </p>
+          </div>
+          <button
+            onClick={resetAllShortcuts}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "7px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+              background: "var(--bg-tertiary)", border: "1px solid var(--border)",
+              borderRadius: 6, color: "var(--text-secondary)", cursor: "pointer",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-tertiary)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+          >
+            <RotateCcw size={12} /> Reset All
+          </button>
+        </div>
+
+        {/* Shortcut categories */}
+        {categories.map(cat => (
+          <div key={cat}>
+            <SectionLabel title={cat} count={shortcuts.filter(s => s.category === cat).length} />
+            <div style={{
+              borderRadius: 8, border: "1px solid var(--border)", overflow: "hidden",
+              background: "var(--bg-card)",
+            }}>
+              {shortcuts.filter(s => s.category === cat).map((shortcut, i, arr) => {
+                const isRecording = recordingShortcutId === shortcut.id;
+                const isCustom = shortcut.keys !== DEFAULT_SHORTCUTS.find(d => d.id === shortcut.id)?.keys;
+                return (
+                  <div key={shortcut.id} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "10px 16px",
+                    borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none",
+                    background: isRecording ? "color-mix(in srgb, var(--accent) 6%, transparent)" : "transparent",
+                    transition: "background 0.1s",
+                  }}
+                    onMouseEnter={e => { if (!isRecording) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                    onMouseLeave={e => { if (!isRecording) e.currentTarget.style.background = "transparent"; }}
+                  >
+                    {/* Label + description */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-primary)" }}>
+                        {shortcut.label}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 1 }}>
+                        {shortcut.description}
+                      </div>
+                    </div>
+
+                    {/* Key badge or recorder */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      {isCustom && !isRecording && (
+                        <button
+                          onClick={() => resetShortcut(shortcut.id)}
+                          title="Reset to default"
+                          style={{
+                            background: "transparent", border: "none", cursor: "pointer",
+                            color: "var(--text-muted)", display: "flex", padding: 3, borderRadius: 4,
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
+                        >
+                          <RotateCcw size={12} />
+                        </button>
+                      )}
+
+                      {isRecording ? (
+                        <ShortcutRecorder
+                          shortcutId={shortcut.id}
+                          onRecord={(keys) => updateShortcutKeys(shortcut.id, keys)}
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setRecordingShortcutId(shortcut.id)}
+                          style={{
+                            background: "transparent", border: "none", cursor: "pointer",
+                            padding: 0, display: "flex",
+                          }}
+                          title="Click to change shortcut"
+                        >
+                          <KeyBadge keys={shortcut.keys} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        {/* Info footer */}
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 10,
+          padding: "12px 14px", borderRadius: 8,
+          background: "color-mix(in srgb, var(--yellow, #e2b93d) 6%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--yellow, #e2b93d) 15%, transparent)",
+        }}>
+          <Command size={14} style={{ color: "var(--yellow, #e2b93d)", flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            Shortcuts work globally across the dashboard. Navigation shortcuts switch between views instantly.
+            Editor shortcuts only work when the editor view is active.
+            {customCount > 0 && (
+              <span style={{ color: "var(--accent)", fontWeight: 600 }}>
+                {" "}{customCount} custom binding{customCount > 1 ? "s" : ""} active.
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Chat Appearance ──────────────────────────────────────────────────────
 
   function renderChat() {
@@ -2441,8 +2713,10 @@ export default function SettingsView() {
     mcp: renderMCP,
     versioning: renderVersioning,
     chat: renderChat,
+    shortcuts: renderShortcuts,
   };
 
+  const customShortcutCount = shortcuts.filter((s, i) => s.keys !== DEFAULT_SHORTCUTS[i]?.keys).length;
   const sectionBadges: Record<SettingsSection, string | null> = {
     general: null,
     models: configuredProviders > 0 ? String(configuredProviders) : null,
@@ -2451,6 +2725,7 @@ export default function SettingsView() {
     mcp: serverNames.length > 0 ? String(serverNames.length) : null,
     versioning: gitCfg?.configured ? "✓" : null,
     chat: chatColors.userBubble ? "✓" : null,
+    shortcuts: customShortcutCount > 0 ? String(customShortcutCount) : null,
   };
 
   return (

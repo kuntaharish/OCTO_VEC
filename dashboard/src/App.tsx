@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ThemeProvider } from "./context/ThemeContext";
 import { EmployeesProvider } from "./context/EmployeesContext";
 import Sidebar, { type View } from "./components/Sidebar";
@@ -18,6 +18,7 @@ import OnboardingView from "./views/OnboardingView";
 import WelcomeTour, { WelcomeSplash, markTourDone } from "./components/WelcomeTour";
 import { apiUrl, startTokenRefresh, stopTokenRefresh, usePolling } from "./hooks/useApi";
 import { useChatNotifications } from "./hooks/useChatNotifications";
+import { useTheme } from "./context/ThemeContext";
 import ChatToasts from "./components/ChatToasts";
 
 // Restore chat colors from localStorage on startup
@@ -165,6 +166,94 @@ function DashboardShell({ activeView, setActiveView, tourPhase, setTourPhase }: 
     setActiveView("chat");
     markAgentRead(agentId);
   }
+
+  // ── Global keyboard shortcuts ──────────────────────────────────────────
+  const { theme, setTheme } = useTheme();
+
+  interface ShortcutDef { id: string; keys: string; }
+
+  const shortcutsRef = useRef<ShortcutDef[]>([]);
+
+  // Load shortcuts from localStorage (set by SettingsView) and listen for changes
+  useEffect(() => {
+    function loadShortcuts() {
+      try {
+        const saved = localStorage.getItem("vec-keyboard-shortcuts");
+        if (saved) shortcutsRef.current = JSON.parse(saved);
+      } catch { /* ignore */ }
+    }
+    loadShortcuts();
+    // Also load from server on mount
+    fetch(apiUrl("/api/shortcuts-config")).then(r => r.json()).then((data: ShortcutDef[] | null) => {
+      if (data && Array.isArray(data)) {
+        shortcutsRef.current = data;
+        localStorage.setItem("vec-keyboard-shortcuts", JSON.stringify(data));
+      }
+    }).catch(() => {});
+    function onChanged(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (Array.isArray(detail)) shortcutsRef.current = detail;
+    }
+    window.addEventListener("vec-shortcuts-changed", onChanged);
+    return () => window.removeEventListener("vec-shortcuts-changed", onChanged);
+  }, []);
+
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      // Don't fire shortcuts when typing in inputs/textareas
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+
+      const pressed: string[] = [];
+      if (e.ctrlKey || e.metaKey) pressed.push("Ctrl");
+      if (e.shiftKey) pressed.push("Shift");
+      if (e.altKey) pressed.push("Alt");
+      let key = e.key;
+      if (key === " ") key = "Space";
+      else if (key.length === 1) key = key.toUpperCase();
+      if (["Control", "Shift", "Alt", "Meta"].includes(key)) return;
+      pressed.push(key);
+      const combo = pressed.join("+");
+
+      const match = shortcutsRef.current.find(s => s.keys === combo);
+      if (!match) return;
+
+      // Navigation shortcuts
+      const navMap: Record<string, View> = {
+        "nav-overview": "overview",
+        "nav-kanban": "kanban",
+        "nav-chat": "chat",
+        "nav-live": "live",
+        "nav-workspace": "workspace",
+        "nav-events": "events",
+        "nav-settings": "settings",
+      };
+
+      if (navMap[match.id]) {
+        e.preventDefault();
+        setActiveView(navMap[match.id]);
+        return;
+      }
+
+      if (match.id === "toggle-theme") {
+        e.preventDefault();
+        setTheme(theme === "dark" ? "light" : "dark");
+        return;
+      }
+
+      if (match.id === "global-search") {
+        e.preventDefault();
+        // Focus any visible search input on the page
+        const searchInput = document.querySelector<HTMLInputElement>("[data-search-input]") ??
+          document.querySelector<HTMLInputElement>('input[placeholder*="earch"]');
+        if (searchInput) searchInput.focus();
+        return;
+      }
+    }
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [setActiveView, theme, setTheme]);
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-primary)" }}>

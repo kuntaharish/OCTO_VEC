@@ -3920,6 +3920,36 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     res.json({ ok: true });
   });
 
+  // ── Keyboard Shortcuts Config ───────────────────────────────────────────
+  const SHORTCUTS_PATH = join(config.dataDir, "keyboard-shortcuts.json");
+
+  app.get("/api/shortcuts-config", (_req, res) => {
+    try {
+      if (existsSync(SHORTCUTS_PATH)) {
+        const data = JSON.parse(readFileSync(SHORTCUTS_PATH, "utf8"));
+        res.json(data);
+      } else {
+        res.json(null);
+      }
+    } catch {
+      res.json(null);
+    }
+  });
+
+  app.post("/api/shortcuts-config", (req, res) => {
+    const { shortcuts } = req.body ?? {};
+    if (!Array.isArray(shortcuts)) {
+      res.status(400).json({ error: "shortcuts array required" });
+      return;
+    }
+    try {
+      writeFileSync(SHORTCUTS_PATH, JSON.stringify(shortcuts, null, 2), "utf8");
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to save shortcuts" });
+    }
+  });
+
   // ── Git Config & Backup ─────────────────────────────────────────────────
   app.get("/api/git-config", (_req, res) => {
     res.json(getMaskedGitConfig());
