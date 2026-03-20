@@ -4111,6 +4111,24 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     // Persist URL so `octo-vec dashboard` can reopen it
     try { writeFileSync(join(USER_DATA_DIR, ".dashboard-url"), url, "utf-8"); } catch { /* non-fatal */ }
     if (onReady) onReady(url);
+
+    // ── Relay client (optional, for remote mobile access) ──────────────
+    const relayUrl = process.env.VEC_RELAY_URL;
+    const relaySecret = process.env.VEC_RELAY_SECRET;
+    if (relayUrl && relaySecret) {
+      import("./relayClient.js").then(({ startRelayClient }) => {
+        startRelayClient({
+          relayUrl,
+          relaySecret,
+          sessionId: process.env.VEC_RELAY_SESSION || "default",
+          localPort: port,
+          localApiKey: apiKey,
+        });
+        console.log(`  [Relay] Remote access enabled via ${relayUrl}`);
+      }).catch((err) => {
+        console.error(`  [Relay] Failed to start: ${err.message}`);
+      });
+    }
   });
 
   server.on("error", (err: NodeJS.ErrnoException) => {
