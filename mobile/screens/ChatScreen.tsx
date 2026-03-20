@@ -8,7 +8,8 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import type { RootStackParams } from "../App";
 import { colors, spacing } from "../lib/theme";
-import { getApi, postApi, createSSEStream } from "../lib/api";
+import { getApi, postApi } from "../lib/api";
+import EncryptedStorage from "react-native-encrypted-storage";
 import Icon from "react-native-vector-icons/Ionicons";
 
 interface ChatEntry { id?: string; timestamp: string; from: string; to: string; message: string; }
@@ -66,23 +67,31 @@ export default function ChatScreen({ navigation, route }: Props) {
 
   const loadMsgs = useCallback(async () => {
     try {
-      const all = await getApi<ChatEntry[]>("/api/chat-log");
-      setMessages(all.filter(m =>
-        (m.from === agentKey && m.to === "user") || (m.from === "user" && m.to === agentKey)
-      ));
+      const msgs = await getApi<{ from: string; message: string; time: string }[]>(`/api/m/chat/${agentKey}`);
+      setMessages(msgs.map((m, i) => ({ from: m.from, to: m.from === "user" ? agentKey : "user", message: m.message, timestamp: m.time })));
     } catch {}
   }, [agentKey]);
+
+  // Mark as read whenever this screen is open
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await EncryptedStorage.getItem("chat_last_read");
+        const lr = raw ? JSON.parse(raw) : {};
+        lr[agentKey] = new Date().toISOString();
+        await EncryptedStorage.setItem("chat_last_read", JSON.stringify(lr));
+      } catch {}
+    })();
+  }, [agentKey, messages]);
 
   useEffect(() => {
     loadMsgs();
     const poll = setInterval(loadMsgs, 3000);
-    const stopSSE = createSSEStream((ev) => {
-      if (ev.agentId === agentKey) {
-        if (ev.type === "agent_start") setIsTyping(true);
-        else if (ev.type === "agent_end") { setIsTyping(false); loadMsgs(); }
-      }
-    });
-    return () => { clearInterval(poll); stopSSE(); };
+    const kbShow = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100),
+    );
+    return () => { clearInterval(poll); kbShow.remove(); };
   }, [agentKey, loadMsgs]);
 
   const send = useCallback(async () => {
@@ -92,11 +101,11 @@ export default function ChatScreen({ navigation, route }: Props) {
     setSending(true);
     Keyboard.dismiss();
     try {
-      await postApi("/api/send-message", { to: agentKey, message: msg });
+      await postApi("/api/m/send", { to: agentKey, message: msg });
       setMessages(prev => [...prev, { timestamp: new Date().toISOString(), from: "user", to: agentKey, message: msg }]);
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
-    } catch {
-      Alert.alert("Error", "Failed to send");
+    } catch (err: any) {
+      Alert.alert("Error", `Failed to send: ${err?.message || err}`);
       setInput(msg);
     }
     setSending(false);
@@ -111,8 +120,11 @@ export default function ChatScreen({ navigation, route }: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 4 }}>
           <Icon name="chevron-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <View style={s.headerAvatar}>
-          <Text style={s.headerAvatarText}>{agentInitials || firstName[0]}</Text>
+        <View style={s.headerAvatarWrap}>
+          <View style={s.headerAvatar}>
+            <Text style={s.headerAvatarText}>{agentInitials || firstName[0]}</Text>
+          </View>
+          {isTyping && <View style={s.headerOnline} />}
         </View>
         <View style={{ flex: 1 }}>
           <Text style={s.headerName}>{firstName}</Text>
@@ -122,7 +134,7 @@ export default function ChatScreen({ navigation, route }: Props) {
       </View>
 
       {/* Messages */}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}>
         <FlatList
           ref={listRef}
           data={messages}
@@ -147,8 +159,10 @@ export default function ChatScreen({ navigation, route }: Props) {
               </>
             );
           }}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, flexGrow: 1 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => listRef.current?.scrollToEnd({ animated: false })}
+          keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             <View style={s.empty}>
               <Icon name="chatbubbles-outline" size={40} color={colors.textDim} />
@@ -163,11 +177,13 @@ export default function ChatScreen({ navigation, route }: Props) {
         <View style={s.inputBar}>
           <TextInput value={input} onChangeText={setInput}
             placeholder={`Message ${firstName}...`} placeholderTextColor={colors.textDim}
-            style={s.textInput} multiline maxLength={4000} />
+            style={s.textInput} multiline maxLength={4000}
+            onSubmitEditing={send} blurOnSubmit={false} />
           <TouchableOpacity onPress={send} disabled={!input.trim() || sending}
-            style={[s.sendBtn, input.trim() && !sending ? s.sendActive : null]}>
+            style={[s.sendBtn, input.trim() && !sending ? s.sendActive : null]}
+            activeOpacity={0.7}>
             {sending ? <ActivityIndicator color={colors.bgPrimary} size="small" />
-              : <Icon name="arrow-up" size={18} color={input.trim() ? colors.bgPrimary : colors.textDim} />}
+              : <Icon name="send" size={18} color={input.trim() ? colors.bgPrimary : colors.textDim} />}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -182,7 +198,12 @@ const s = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 10,
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
+  headerAvatarWrap: { position: "relative" },
   headerAvatar: { width: 34, height: 34, borderRadius: 11, backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center" },
+  headerOnline: {
+    position: "absolute", bottom: -1, right: -1, width: 10, height: 10, borderRadius: 5,
+    backgroundColor: colors.green, borderWidth: 2, borderColor: colors.bgPrimary,
+  },
   headerAvatarText: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
   headerName: { fontSize: 16, fontWeight: "700", color: colors.textPrimary },
   headerRole: { fontSize: 11, color: colors.textDim },
@@ -213,16 +234,17 @@ const s = StyleSheet.create({
 
   inputBar: {
     flexDirection: "row", alignItems: "flex-end", gap: 8,
-    paddingHorizontal: 12, paddingVertical: 8,
+    paddingHorizontal: 10, paddingVertical: 8,
     borderTopWidth: 1, borderTopColor: colors.border,
+    backgroundColor: colors.bgPrimary,
   },
   textInput: {
-    flex: 1, minHeight: 40, maxHeight: 120,
-    backgroundColor: colors.bgCard, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
+    flex: 1, minHeight: 38, maxHeight: 100,
+    backgroundColor: colors.bgCard, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9,
     color: colors.textPrimary, fontSize: 15, borderWidth: 1, borderColor: colors.border,
   },
   sendBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 38, height: 38, borderRadius: 19,
     backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
   },
   sendActive: { backgroundColor: colors.textPrimary },

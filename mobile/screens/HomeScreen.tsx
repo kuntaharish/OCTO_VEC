@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParams } from "../App";
 import { colors, spacing } from "../lib/theme";
@@ -9,48 +9,41 @@ import { getApi } from "../lib/api";
 import { startBackgroundSync, stopBackgroundSync, isBackgroundRunning } from "../lib/notifications";
 import Icon from "react-native-vector-icons/Ionicons";
 
-interface Task {
-  id: string; title: string; status: string; assigned_to?: string;
-  priority?: string; created_at?: string;
-}
-interface Employee {
-  name: string; role: string; agent_key: string;
-  status: string; color?: string; initials?: string;
-}
-interface Event {
-  timestamp: string; type: string; agent_id?: string;
-  agent_name?: string; message?: string;
+interface SummaryData {
+  agents: { key: string; name: string; role: string; status: string; color: string; initials: string; running: boolean; paused: boolean }[];
+  tasks: { total: number; in_progress: number; completed: number; failed: number; todo: number };
+  recentTasks: { id: string; title: string; status: string; agent: string; priority: string }[];
+  events: { timestamp: string; type: string; agent: string; message: string }[];
+  pendingApprovals: number;
+  unreadChats: number;
 }
 
 export default function HomeScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [agents, setAgents] = useState<Employee[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
+  const [data, setData] = useState<SummaryData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [bgSync, setBgSync] = useState(isBackgroundRunning());
+  const [connError, setConnError] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [t, a, e] = await Promise.all([
-        getApi<Task[]>("/api/tasks").catch(() => []),
-        getApi<Employee[]>("/api/employees").catch(() => []),
-        getApi<Event[]>("/api/events").catch(() => []),
-      ]);
-      setTasks(t);
-      setAgents(a.filter(x => x.agent_key && x.agent_key !== "user"));
-      setEvents(e.slice(0, 8));
-    } catch {}
+      const d = await getApi<SummaryData>("/api/m/summary");
+      setData(d);
+      setConnError("");
+    } catch (err: any) {
+      setConnError(err.message || "Cannot reach server");
+    }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
-  const inProgress = tasks.filter(t => t.status === "in_progress").length;
-  const completed = tasks.filter(t => t.status === "completed").length;
-  const failed = tasks.filter(t => t.status === "failed").length;
-  const activeAgents = agents.filter(a => a.status === "available" || a.status === "busy").length;
+  const agents = data?.agents ?? [];
+  const tasks = data?.tasks ?? { total: 0, in_progress: 0, completed: 0, failed: 0, todo: 0 };
+  const events = data?.events ?? [];
+  const recentTasks = data?.recentTasks ?? [];
+  const activeAgents = agents.filter(a => a.running).length;
 
   return (
     <SafeAreaView style={s.container} edges={["top"]}>
@@ -75,6 +68,14 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
+      {connError ? (
+        <TouchableOpacity style={s.errorBanner} onPress={load} activeOpacity={0.7}>
+          <Icon name="cloud-offline-outline" size={14} color={colors.red} />
+          <Text style={s.errorText}>{connError}</Text>
+          <Text style={s.errorRetry}>Tap to retry</Text>
+        </TouchableOpacity>
+      ) : null}
+
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: spacing.lg }}
@@ -83,19 +84,19 @@ export default function HomeScreen() {
         {/* Stats Grid */}
         <View style={s.statsGrid}>
           <View style={s.statCard}>
-            <Text style={s.statValue}>{tasks.length}</Text>
+            <Text style={s.statValue}>{tasks.total}</Text>
             <Text style={s.statLabel}>Total Tasks</Text>
           </View>
           <View style={s.statCard}>
-            <Text style={[s.statValue, { color: colors.yellow }]}>{inProgress}</Text>
+            <Text style={[s.statValue, { color: colors.yellow }]}>{tasks.in_progress}</Text>
             <Text style={s.statLabel}>In Progress</Text>
           </View>
           <View style={s.statCard}>
-            <Text style={[s.statValue, { color: colors.green }]}>{completed}</Text>
+            <Text style={[s.statValue, { color: colors.green }]}>{tasks.completed}</Text>
             <Text style={s.statLabel}>Completed</Text>
           </View>
           <View style={s.statCard}>
-            <Text style={[s.statValue, { color: colors.red }]}>{failed}</Text>
+            <Text style={[s.statValue, { color: colors.red }]}>{tasks.failed}</Text>
             <Text style={s.statLabel}>Failed</Text>
           </View>
         </View>
@@ -108,14 +109,14 @@ export default function HomeScreen() {
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -spacing.lg, paddingHorizontal: spacing.lg }}>
             {agents.slice(0, 8).map(a => (
-              <TouchableOpacity key={a.agent_key} style={s.agentChip} onPress={() =>
+              <TouchableOpacity key={a.key} style={s.agentChip} onPress={() =>
                 nav.navigate("Chat", {
-                  agentKey: a.agent_key, agentName: a.name,
+                  agentKey: a.key, agentName: a.name,
                   agentColor: a.color, agentInitials: a.initials,
                   agentRole: a.role,
                 })
               }>
-                <View style={[s.agentDot, { backgroundColor: a.status === "available" || a.status === "busy" ? colors.green : colors.textDim }]} />
+                <View style={[s.agentDot, { backgroundColor: a.running ? colors.green : colors.textDim }]} />
                 <Text style={s.agentChipName}>{(a.name || "Agent").split(" ")[0]}</Text>
               </TouchableOpacity>
             ))}
@@ -135,7 +136,7 @@ export default function HomeScreen() {
                 <View style={[s.eventDot, { backgroundColor: ev.type?.includes("completed") ? colors.green : ev.type?.includes("failed") ? colors.red : colors.textDim }]} />
                 <View style={{ flex: 1 }}>
                   <Text style={s.eventText} numberOfLines={1}>
-                    {ev.agent_name || ev.agent_id || "System"}{" "}
+                    {ev.agent || "System"}{" "}
                     <Text style={s.eventType}>{(ev.type || "").replace(/_/g, " ")}</Text>
                   </Text>
                   {ev.message && <Text style={s.eventMsg} numberOfLines={1}>{ev.message}</Text>}
@@ -147,15 +148,15 @@ export default function HomeScreen() {
         </View>
 
         {/* In Progress Tasks */}
-        {inProgress > 0 && (
+        {recentTasks.length > 0 && (
           <View style={s.section}>
-            <Text style={s.sectionTitle}>In Progress</Text>
-            {tasks.filter(t => t.status === "in_progress").slice(0, 5).map(t => (
+            <Text style={s.sectionTitle}>Active Tasks</Text>
+            {recentTasks.map(t => (
               <View key={t.id} style={s.taskRow}>
                 <View style={s.taskDot} />
                 <View style={{ flex: 1 }}>
                   <Text style={s.taskTitle} numberOfLines={1}>{t.title}</Text>
-                  {t.assigned_to && <Text style={s.taskAssignee}>{t.assigned_to}</Text>}
+                  {t.agent && <Text style={s.taskAssignee}>{t.agent}</Text>}
                 </View>
                 {t.priority && <Text style={[s.taskPriority, t.priority === "high" && { color: colors.red }]}>{t.priority}</Text>}
               </View>
@@ -192,6 +193,13 @@ const s = StyleSheet.create({
   syncBtnActive: {
     backgroundColor: colors.textPrimary, borderColor: colors.textPrimary,
   },
+  errorBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: "rgba(240,68,68,0.08)", borderBottomWidth: 1, borderBottomColor: "rgba(240,68,68,0.15)",
+  },
+  errorText: { fontSize: 12, color: colors.red, flex: 1 },
+  errorRetry: { fontSize: 11, color: colors.textMuted, fontWeight: "600" },
   logo: { fontSize: 22, fontWeight: "800", color: colors.textPrimary, letterSpacing: 1.5 },
   subtitle: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 

@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { colors, spacing } from "../lib/theme";
 import { getApi } from "../lib/api";
 import Icon from "react-native-vector-icons/Ionicons";
 
 interface Task {
-  id: string; title: string; status: string; assigned_to?: string;
-  priority?: string; created_at?: string; description?: string;
+  id: string; title: string; status: string; agent?: string;
+  priority?: string; created?: string;
 }
 
 const FILTERS = ["all", "in_progress", "completed", "failed", "todo"] as const;
@@ -28,12 +29,12 @@ export default function TasksScreen() {
 
   const load = useCallback(async () => {
     try {
-      const t = await getApi<Task[]>("/api/tasks");
+      const t = await getApi<Task[]>("/api/m/tasks");
       setTasks(t);
     } catch {}
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
@@ -75,14 +76,11 @@ export default function TasksScreen() {
                 <Icon name={cfg.icon} size={18} color={cfg.color} />
                 <Text style={s.cardTitle} numberOfLines={2}>{item.title}</Text>
               </View>
-              {item.description && (
-                <Text style={s.cardDesc} numberOfLines={2}>{item.description}</Text>
-              )}
               <View style={s.cardFooter}>
-                {item.assigned_to && (
+                {item.agent && (
                   <View style={s.assignee}>
                     <Icon name="person-outline" size={11} color={colors.textMuted} />
-                    <Text style={s.assigneeText}>{item.assigned_to}</Text>
+                    <Text style={s.assigneeText}>{item.agent}</Text>
                   </View>
                 )}
                 {item.priority && (
@@ -90,7 +88,7 @@ export default function TasksScreen() {
                     {item.priority}
                   </Text>
                 )}
-                <Text style={s.date}>{item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</Text>
+                <Text style={s.date}>{item.created ? new Date(item.created).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</Text>
               </View>
             </View>
           );

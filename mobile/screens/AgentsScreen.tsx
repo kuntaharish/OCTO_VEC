@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParams } from "../App";
 import { colors, spacing } from "../lib/theme";
@@ -29,18 +29,15 @@ export default function AgentsScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [emps, rt] = await Promise.all([
-        getApi<Employee[]>("/api/employees"),
-        getApi<{ agents: RuntimeAgent[] }>("/api/agents/runtime").catch(() => ({ agents: [] })),
-      ]);
-      setAgents(emps.filter(e => e.agent_key && e.agent_key !== "user"));
+      const list = await getApi<{ key: string; name: string; role: string; status: string; color: string; initials: string; running: boolean; paused: boolean }[]>("/api/m/agents");
+      setAgents(list.map(a => ({ employee_id: a.key, name: a.name, role: a.role, agent_key: a.key, status: a.status, color: a.color, initials: a.initials })));
       const map: Record<string, RuntimeAgent> = {};
-      for (const a of (rt.agents || [])) map[a.agentId] = a;
+      for (const a of list) map[a.key] = { agentId: a.key, running: a.running, paused: a.paused };
       setRuntime(map);
     } catch {}
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 

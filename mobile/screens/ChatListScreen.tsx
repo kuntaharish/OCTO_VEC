@@ -1,22 +1,21 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParams } from "../App";
 import { colors, spacing } from "../lib/theme";
-import { getApi, createSSEStream } from "../lib/api";
+import { getApi } from "../lib/api";
+import EncryptedStorage from "react-native-encrypted-storage";
 import Icon from "react-native-vector-icons/Ionicons";
 
-interface Employee {
-  name: string; role: string; agent_key: string;
-  status: string; color?: string; initials?: string;
-}
-interface ChatEntry {
-  timestamp: string; from: string; to: string; message: string;
+interface ChatItem {
+  key: string; name: string; role: string; initials: string; color: string;
+  active: boolean; unread: number;
+  lastMessage: { from: string; text: string; time: string } | null;
 }
 
 function getInitials(name: string) { return (name || "?").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2); }
@@ -31,44 +30,31 @@ function formatTime(ts: string): string {
 
 export default function ChatListScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
-  const [agents, setAgents] = useState<Employee[]>([]);
-  const [messages, setMessages] = useState<ChatEntry[]>([]);
+  const [chats, setChats] = useState<ChatItem[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [activeAgents, setActiveAgents] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     try {
-      const [emps, msgs] = await Promise.all([
-        getApi<Employee[]>("/api/employees"),
-        getApi<ChatEntry[]>("/api/chat-log"),
-      ]);
-      setAgents(emps.filter(e => e.agent_key && e.agent_key !== "user"));
-      setMessages(msgs);
+      // Send lastRead timestamps to server so it can compute unread counts
+      let lastReadParam = "";
+      try {
+        const raw = await EncryptedStorage.getItem("chat_last_read");
+        if (raw) lastReadParam = `?lastRead=${encodeURIComponent(raw)}`;
+      } catch {}
+      const data = await getApi<ChatItem[]>(`/api/m/chats${lastReadParam}`);
+      setChats(data);
     } catch {}
     setLoading(false);
   }, []);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     load();
     const poll = setInterval(load, 4000);
-    const stopSSE = createSSEStream((ev) => {
-      if (ev.type === "agent_start") setActiveAgents(p => ({ ...p, [ev.agentId]: true }));
-      else if (ev.type === "agent_end") setActiveAgents(p => ({ ...p, [ev.agentId]: false }));
-    });
-    return () => { clearInterval(poll); stopSSE(); };
-  }, [load]);
+    return () => clearInterval(poll);
+  }, [load]));
 
-  const lastMsg: Record<string, ChatEntry> = {};
-  for (const m of messages) {
-    const k = m.from === "user" ? m.to : m.from;
-    if (!lastMsg[k] || m.timestamp > lastMsg[k].timestamp) lastMsg[k] = m;
-  }
-
-  const sorted = [...agents].sort((a, b) =>
-    (lastMsg[b.agent_key]?.timestamp ?? "").localeCompare(lastMsg[a.agent_key]?.timestamp ?? "")
-  );
-  const filtered = sorted.filter(a =>
+  const filtered = chats.filter(a =>
     !search || (a.name || "").toLowerCase().includes(search.toLowerCase()) || (a.role || "").toLowerCase().includes(search.toLowerCase())
   );
 
@@ -90,37 +76,54 @@ export default function ChatListScreen() {
       ) : (
         <FlatList
           data={filtered}
-          keyExtractor={a => a.agent_key}
+          keyExtractor={a => a.key}
           renderItem={({ item }) => {
-            const last = lastMsg[item.agent_key];
-            const active = activeAgents[item.agent_key];
+            const last = item.lastMessage;
             let preview = "";
             if (last) {
               if (last.from === "user") preview = "You: ";
-              preview += (last.message || "").replace(/\n/g, " ").slice(0, 50);
+              preview += last.text;
             }
+
             return (
-              <TouchableOpacity style={s.row} activeOpacity={0.6} onPress={() =>
+              <TouchableOpacity style={s.row} activeOpacity={0.6} onPress={async () => {
+                // Mark as read locally
+                try {
+                  const raw = await EncryptedStorage.getItem("chat_last_read");
+                  const lr = raw ? JSON.parse(raw) : {};
+                  lr[item.key] = new Date().toISOString();
+                  await EncryptedStorage.setItem("chat_last_read", JSON.stringify(lr));
+                } catch {}
                 nav.navigate("Chat", {
-                  agentKey: item.agent_key,
+                  agentKey: item.key,
                   agentName: item.name,
                   agentColor: item.color,
                   agentInitials: item.initials || getInitials(item.name),
                   agentRole: item.role,
-                })
-              }>
+                });
+              }}>
                 <View style={s.avatar}>
                   <Text style={s.avatarText}>{item.initials || getInitials(item.name)}</Text>
-                  {active && <View style={s.dot} />}
+                  {item.active && <View style={s.dot} />}
                 </View>
                 <View style={s.info}>
                   <View style={s.nameRow}>
-                    <Text style={s.name} numberOfLines={1}>{(item.name || "Agent").split(" ")[0]}</Text>
-                    {last && <Text style={s.time}>{formatTime(last.timestamp)}</Text>}
+                    <Text style={[s.name, item.unread > 0 && { fontWeight: "800" }]} numberOfLines={1}>{(item.name || "Agent").split(" ")[0]}</Text>
+                    <View style={s.nameRight}>
+                      {last && <Text style={[s.time, item.unread > 0 && { color: colors.textPrimary }]}>{formatTime(last.time)}</Text>}
+                    </View>
                   </View>
-                  {active ? <Text style={s.typing}>typing...</Text>
-                    : last ? <Text style={s.preview} numberOfLines={1}>{preview}</Text>
-                    : <Text style={s.role}>{item.role}</Text>}
+                  <View style={s.previewRow}>
+                    <View style={{ flex: 1 }}>
+                      {last ? <Text style={[s.preview, item.unread > 0 && { color: colors.textSecondary }]} numberOfLines={1}>{preview}</Text>
+                        : <Text style={s.role}>{item.role}</Text>}
+                    </View>
+                    {item.unread > 0 && (
+                      <View style={s.badge}>
+                        <Text style={s.badgeText}>{item.unread > 9 ? "9+" : item.unread}</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </TouchableOpacity>
             );
@@ -162,9 +165,17 @@ const s = StyleSheet.create({
   },
   info: { flex: 1 },
   nameRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  name: { fontSize: 15, fontWeight: "600", color: colors.textPrimary },
+  nameRight: { flexDirection: "row", alignItems: "center", gap: 6 },
+  name: { fontSize: 15, fontWeight: "600", color: colors.textPrimary, flex: 1 },
   time: { fontSize: 11, color: colors.textDim },
-  preview: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
-  role: { fontSize: 13, color: colors.textDim, marginTop: 2 },
-  typing: { fontSize: 13, color: colors.green, fontWeight: "500", marginTop: 2 },
+  previewRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
+  preview: { fontSize: 13, color: colors.textMuted },
+  role: { fontSize: 13, color: colors.textDim },
+  typing: { fontSize: 13, color: colors.green, fontWeight: "500" },
+  badge: {
+    minWidth: 20, height: 20, borderRadius: 10,
+    backgroundColor: colors.textPrimary, justifyContent: "center", alignItems: "center",
+    paddingHorizontal: 5,
+  },
+  badgeText: { fontSize: 11, fontWeight: "800", color: colors.bgPrimary },
 });
