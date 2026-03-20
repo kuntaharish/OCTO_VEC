@@ -26,6 +26,7 @@ import { ActiveChannelState, EditorChannelState } from "../channels/activeChanne
 import { clearActiveGroup } from "../atp/agentGroups.js";
 import type { AgentRuntime } from "../atp/agentRuntime.js";
 import type { VECAgent } from "../atp/inboxLoop.js";
+import { getAllUsage as getFinanceAllUsage, getTotals as getFinanceTotals, getBudgetStatus } from "../atp/tokenTracker.js";
 
 // ── Approval system (in-memory for now, persisted on restart via events) ─────
 
@@ -325,13 +326,22 @@ export function createMobileRouter(runtime: AgentRuntime): Router {
   // GET /api/m/tasks — Compact task list
   // ────────────────────────────────────────────────────────────────────────────
   router.get("/tasks", (_req, res) => {
+    const agentList = getCompactAgents();
+    const nameMap: Record<string, { name: string; initials: string; color: string }> = {};
+    for (const a of agentList) nameMap[a.key] = { name: a.name, initials: a.initials, color: a.color };
+
     const tasks = ATPDatabase.getAllTasks().map(t => ({
       id: t.task_id,
       title: t.description,
       status: t.status === "pending" ? "todo" : t.status,
       agent: t.agent_id,
+      agentName: nameMap[t.agent_id]?.name ?? t.agent_id,
+      agentInitials: nameMap[t.agent_id]?.initials ?? t.agent_id.slice(0, 2).toUpperCase(),
+      agentColor: nameMap[t.agent_id]?.color ?? "",
       priority: t.priority,
+      result: t.result || "",
       created: t.created_at,
+      updated: t.updated_at,
     }));
     res.json(tasks);
   });
@@ -447,6 +457,47 @@ export function createMobileRouter(runtime: AgentRuntime): Router {
       running: runtimeMap[a.key]?.running ?? false,
       paused: runtimeMap[a.key]?.paused ?? false,
     })));
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // GET /api/m/finance — Token usage, costs, and budget status
+  // ────────────────────────────────────────────────────────────────────────────
+  router.get("/finance", (_req, res) => {
+    const totals = getFinanceTotals();
+    const agentUsage = getFinanceAllUsage();
+    const budgetStatus = getBudgetStatus();
+    const agentList = getCompactAgents();
+    const nameMap: Record<string, { name: string; role: string; initials: string; color: string }> = {};
+    for (const a of agentList) nameMap[a.key] = { name: a.name, role: a.role, initials: a.initials, color: a.color };
+
+    res.json({
+      totals: {
+        totalCostUsd: totals.totalCostUsd,
+        totalTokens: totals.totalTokens,
+        totalInputTokens: totals.totalInputTokens,
+        totalOutputTokens: totals.totalOutputTokens,
+        totalTurns: totals.totalTurns,
+        sessionStart: totals.sessionStart,
+      },
+      agents: agentUsage.map(a => ({
+        id: a.agentId,
+        name: nameMap[a.agentId]?.name ?? a.agentId,
+        role: nameMap[a.agentId]?.role ?? "",
+        initials: nameMap[a.agentId]?.initials ?? a.agentId.slice(0, 2).toUpperCase(),
+        color: nameMap[a.agentId]?.color ?? "",
+        turns: a.turns,
+        inputTokens: a.inputTokens,
+        outputTokens: a.outputTokens,
+        totalTokens: a.totalTokens,
+        costUsd: a.costUsd,
+        model: a.model ?? "",
+        lastActivity: a.lastActivity,
+      })),
+      budget: {
+        org: budgetStatus.org,
+        departments: budgetStatus.departments,
+      },
+    });
   });
 
   // ────────────────────────────────────────────────────────────────────────────

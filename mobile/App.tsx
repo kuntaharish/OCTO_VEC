@@ -14,7 +14,7 @@ import HomeScreen from "./screens/HomeScreen";
 import ChatListScreen from "./screens/ChatListScreen";
 import ChatScreen from "./screens/ChatScreen";
 import TasksScreen from "./screens/TasksScreen";
-import AgentsScreen from "./screens/AgentsScreen";
+import FinanceScreen from "./screens/FinanceScreen";
 import LiveScreen from "./screens/LiveScreen";
 import ScanScreen from "./screens/ScanScreen";
 
@@ -30,7 +30,7 @@ export type TabParams = {
   Home: undefined;
   Chats: undefined;
   Tasks: undefined;
-  Agents: undefined;
+  Finance: undefined;
   Live: undefined;
 };
 
@@ -58,7 +58,7 @@ function MainTabs() {
             Home: focused ? "grid" : "grid-outline",
             Chats: focused ? "chatbubbles" : "chatbubbles-outline",
             Tasks: focused ? "checkbox" : "checkbox-outline",
-            Agents: focused ? "people" : "people-outline",
+            Finance: focused ? "wallet" : "wallet-outline",
             Live: focused ? "pulse" : "pulse-outline",
           };
           return <Icon name={icons[route.name]} size={22} color={color} />;
@@ -68,7 +68,7 @@ function MainTabs() {
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Chats" component={ChatListScreen} />
       <Tab.Screen name="Tasks" component={TasksScreen} />
-      <Tab.Screen name="Agents" component={AgentsScreen} />
+      <Tab.Screen name="Finance" component={FinanceScreen} />
       <Tab.Screen name="Live" component={LiveScreen} />
     </Tab.Navigator>
   );
