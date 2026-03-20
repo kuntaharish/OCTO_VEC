@@ -20,6 +20,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from "fs";
+import { networkInterfaces } from "os";
 import { join, resolve, sep } from "path";
 import { execFileSync, execSync, exec } from "child_process";
 import { config, PACKAGE_ROOT, USER_DATA_DIR, setWorkspace } from "../config.js";
@@ -3099,6 +3100,32 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   });
 
   // ── Settings: system config & integration status ─────────────────────────
+  // Mobile QR payload — returns connection info for the mobile app
+  app.get("/api/mobile-qr", (_req, res) => {
+    const apiKey = getDashboardApiKey();
+    const host = getDashboardHost();
+    let dashHost = host;
+    if (host === "0.0.0.0" || host === "127.0.0.1") {
+      // Find the LAN IP so mobile can reach us
+      const nets = networkInterfaces();
+      let lanIp = _req.hostname; // fallback
+      for (const name of Object.keys(nets)) {
+        for (const net of nets[name] ?? []) {
+          if (net.family === "IPv4" && !net.internal) {
+            lanIp = net.address;
+            break;
+          }
+        }
+        if (lanIp !== _req.hostname) break;
+      }
+      dashHost = lanIp;
+    }
+    res.json({
+      url: `http://${dashHost}:${port}`,
+      key: apiKey,
+    });
+  });
+
   app.get("/api/settings", (_req, res) => {
     const tgToken = process.env.TELEGRAM_BOT_TOKEN ?? "";
     const tgChatId = process.env.TELEGRAM_CHAT_ID ?? "";
@@ -4106,7 +4133,8 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   const host = getDashboardHost();
   const server = app.listen(port, host, () => {
     const apiKey = getDashboardApiKey();
-    const url = `http://${host}:${port}?key=${apiKey}`;
+    const displayHost = host === "0.0.0.0" ? "localhost" : host;
+    const url = `http://${displayHost}:${port}?key=${apiKey}`;
     console.log(`  Dashboard: ${url}`);
     // Persist URL so `octo-vec dashboard` can reopen it
     try { writeFileSync(join(USER_DATA_DIR, ".dashboard-url"), url, "utf-8"); } catch { /* non-fatal */ }

@@ -8,6 +8,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParams } from "../App";
 import { colors } from "../lib/theme";
 import { login, loginRelay } from "../lib/api";
+import { startBackgroundSync } from "../lib/notifications";
 import Icon from "react-native-vector-icons/Ionicons";
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParams, "Login"> };
@@ -55,7 +56,8 @@ export default function LoginScreen({ navigation }: Props) {
     const result = await login(serverUrl.trim(), key);
     setLoading(false);
     if (result.ok) {
-      navigation.reset({ index: 0, routes: [{ name: "ChatList" }] });
+      startBackgroundSync();
+      navigation.reset({ index: 0, routes: [{ name: "Main" }] });
     } else {
       Alert.alert("Login Failed", result.error ?? "Invalid key");
     }
@@ -71,7 +73,8 @@ export default function LoginScreen({ navigation }: Props) {
     const result = await loginRelay(url, secret, relaySession.trim());
     setLoading(false);
     if (result.ok) {
-      navigation.reset({ index: 0, routes: [{ name: "ChatList" }] });
+      startBackgroundSync();
+      navigation.reset({ index: 0, routes: [{ name: "Main" }] });
     } else {
       Alert.alert("Connection Failed", result.error ?? "Could not connect");
     }
@@ -91,26 +94,38 @@ export default function LoginScreen({ navigation }: Props) {
           </View>
 
           <View style={s.formWrap}>
+            {/* QR Scan — primary action */}
+            <TouchableOpacity style={s.scanBtn} onPress={() => navigation.navigate("Scan")}>
+              <Icon name="qr-code-outline" size={22} color={colors.bgPrimary} />
+              <Text style={s.scanBtnText}>Scan QR Code</Text>
+            </TouchableOpacity>
+
+            <View style={s.dividerRow}>
+              <View style={s.dividerLine} />
+              <Text style={s.dividerText}>or connect manually</Text>
+              <View style={s.dividerLine} />
+            </View>
+
             <TouchableOpacity style={s.modeBtn} onPress={() => setMode("local")}>
               <View style={s.modeBtnIcon}>
-                <Icon name="wifi-outline" size={24} color={colors.accent} />
+                <Icon name="wifi-outline" size={22} color={colors.textPrimary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.modeBtnTitle}>Same Network</Text>
-                <Text style={s.modeBtnDesc}>Connect when on the same WiFi as your PC</Text>
+                <Text style={s.modeBtnDesc}>Connect via local WiFi</Text>
               </View>
-              <Icon name="chevron-forward" size={20} color={colors.textMuted} />
+              <Icon name="chevron-forward" size={18} color={colors.textDim} />
             </TouchableOpacity>
 
             <TouchableOpacity style={s.modeBtn} onPress={() => setMode("relay")}>
               <View style={s.modeBtnIcon}>
-                <Icon name="globe-outline" size={24} color={colors.green} />
+                <Icon name="globe-outline" size={22} color={colors.textPrimary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.modeBtnTitle}>Remote Access</Text>
-                <Text style={s.modeBtnDesc}>Connect from anywhere via secure relay</Text>
+                <Text style={s.modeBtnDesc}>Connect via secure relay</Text>
               </View>
-              <Icon name="chevron-forward" size={20} color={colors.textMuted} />
+              <Icon name="chevron-forward" size={18} color={colors.textDim} />
             </TouchableOpacity>
           </View>
         </View>
@@ -301,18 +316,27 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border, alignSelf: "flex-start", marginBottom: 4,
   },
   serverBadgeText: { fontSize: 11, color: colors.textSecondary },
+  scanBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+    backgroundColor: colors.textPrimary, borderRadius: 14,
+    paddingVertical: 16,
+  },
+  scanBtnText: { fontSize: 17, fontWeight: "700", color: colors.bgPrimary },
+  dividerRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dividerText: { fontSize: 11, color: colors.textDim, fontWeight: "500" },
   modeBtn: {
     flexDirection: "row", alignItems: "center", gap: 14,
     backgroundColor: colors.bgCard, borderRadius: 14,
     borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: 16, paddingVertical: 16,
+    paddingHorizontal: 16, paddingVertical: 14,
   },
   modeBtnIcon: {
-    width: 44, height: 44, borderRadius: 12,
+    width: 40, height: 40, borderRadius: 10,
     backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
   },
-  modeBtnTitle: { fontSize: 16, fontWeight: "700", color: colors.textPrimary },
-  modeBtnDesc: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  modeBtnTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+  modeBtnDesc: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
   backBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     paddingVertical: 12, marginTop: 4,

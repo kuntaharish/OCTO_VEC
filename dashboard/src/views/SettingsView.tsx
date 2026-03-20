@@ -91,7 +91,7 @@ function deepClone<T>(obj: T): T { return JSON.parse(JSON.stringify(obj)); }
 
 // ── Settings section type ────────────────────────────────────────────────────
 
-type SettingsSection = "general" | "models" | "channels" | "integrations" | "mcp" | "versioning" | "chat" | "shortcuts";
+type SettingsSection = "general" | "models" | "channels" | "integrations" | "mcp" | "versioning" | "chat" | "shortcuts" | "mobile";
 
 const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode; color: string }[] = [
   { key: "general", label: "General", icon: <Settings2 size={15} />, color: "var(--text-secondary)" },
@@ -102,6 +102,7 @@ const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode;
   { key: "mcp", label: "MCP Servers", icon: <Server size={15} />, color: "var(--green)" },
   { key: "versioning", label: "Versioning", icon: <GitBranch size={15} />, color: "var(--cyan, #06b6d4)" },
   { key: "shortcuts", label: "Shortcuts", icon: <Keyboard size={15} />, color: "var(--yellow, #e2b93d)" },
+  { key: "mobile", label: "Mobile", icon: <Phone size={15} />, color: "var(--green)" },
 ];
 
 // ── Logo icon helper ─────────────────────────────────────────────────────────
@@ -2703,6 +2704,119 @@ export default function SettingsView() {
     );
   }
 
+  // ── Mobile Connect (QR) ──────────────────────────────────────────────────
+
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+  const [mobileQrInfo, setMobileQrInfo] = useState<{ url: string; key: string } | null>(null);
+
+  useEffect(() => {
+    if (activeSection !== "mobile") return;
+    // Fetch connection info from server (includes the actual API key)
+    fetch(apiUrl("/api/mobile-qr"), { credentials: "include" })
+      .then(r => r.json())
+      .then((data: { url: string; key: string }) => {
+        setMobileQrInfo(data);
+        const payload = JSON.stringify(data);
+        return import("qrcode").then((QRCode) =>
+          QRCode.toDataURL(payload, {
+            width: 220, margin: 1,
+            color: { dark: "#ffffff", light: "#000000" },
+            errorCorrectionLevel: "M",
+          })
+        );
+      })
+      .then((url: string) => setQrDataUrl(url))
+      .catch(() => {});
+  }, [activeSection]);
+
+  function renderMobile() {
+    const dashUrl = mobileQrInfo?.url || "";
+    const dashKey = mobileQrInfo?.key || "";
+
+    return (
+      <div style={{ padding: "24px 28px", maxWidth: 600, display: "flex", flexDirection: "column", gap: 24 }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Mobile Connect</h2>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
+            Scan this QR code with the OCTO VEC mobile app to connect instantly.
+          </p>
+        </div>
+
+        {/* QR Code */}
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 16,
+          background: "var(--bg-card)", borderRadius: 16, border: "1px solid var(--border)",
+          padding: 32,
+        }}>
+          <div style={{
+            width: 252, height: 252,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "#000", borderRadius: 12, border: "1px solid var(--border)",
+          }}>
+            {qrDataUrl ? (
+              <img src={qrDataUrl} alt="QR Code" width={220} height={220} style={{ borderRadius: 8 }} />
+            ) : (
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Generating...</div>
+            )}
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>Same Network</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+              Phone must be on the same WiFi as this PC
+            </div>
+          </div>
+        </div>
+
+        {/* Connection details */}
+        <div style={{
+          background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border)", padding: 16,
+          display: "flex", flexDirection: "column", gap: 8,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            Connection Details
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)", width: 60 }}>Server</span>
+            <code style={{ fontSize: 12, color: "var(--text-primary)", background: "var(--bg-tertiary)", padding: "4px 8px", borderRadius: 6 }}>
+              {dashUrl || "Loading..."}
+            </code>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)", width: 60 }}>Key</span>
+            <code style={{ fontSize: 12, color: "var(--text-primary)", background: "var(--bg-tertiary)", padding: "4px 8px", borderRadius: 6 }}>
+              {dashKey ? "••••••••" : "Not found in URL"}
+            </code>
+          </div>
+        </div>
+
+        {/* Instructions */}
+        <div style={{
+          background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border)", padding: 16,
+          display: "flex", flexDirection: "column", gap: 10,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            How to connect
+          </div>
+          {[
+            "Install the OCTO VEC app on your Android phone",
+            "Open the app and tap \"Scan QR Code\"",
+            "Point your camera at the QR code above",
+            "You'll be connected automatically",
+          ].map((step, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <span style={{
+                width: 20, height: 20, borderRadius: 10, background: "var(--bg-tertiary)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 11, fontWeight: 700, color: "var(--text-muted)", flexShrink: 0,
+              }}>{i + 1}</span>
+              <span style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: "20px" }}>{step}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const sectionRenderers: Record<SettingsSection, () => React.ReactNode> = {
@@ -2714,6 +2828,7 @@ export default function SettingsView() {
     versioning: renderVersioning,
     chat: renderChat,
     shortcuts: renderShortcuts,
+    mobile: renderMobile,
   };
 
   const customShortcutCount = shortcuts.filter((s, i) => s.keys !== DEFAULT_SHORTCUTS[i]?.keys).length;
@@ -2726,6 +2841,7 @@ export default function SettingsView() {
     versioning: gitCfg?.configured ? "✓" : null,
     chat: chatColors.userBubble ? "✓" : null,
     shortcuts: customShortcutCount > 0 ? String(customShortcutCount) : null,
+    mobile: null,
   };
 
   return (
