@@ -15,6 +15,7 @@
  */
 
 import express from "express";
+import { WebSocketServer, WebSocket } from "ws";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -48,6 +49,7 @@ import { getAllUsage as getFinanceAllUsage, getTotals as getFinanceTotals, reset
 import { getProviders, getModelConfig, setModelConfig, setAgentModel, getEffectiveModel, setProviderApiKey } from "../atp/modelConfig.js";
 import { saveChannelCredentials, getChannelConfigMasked, ALL_CHANNEL_IDS, isValidChannel, CHANNEL_LABELS, type ChannelId } from "../channels/channelConfig.js";
 import { channelManager } from "../channels/channelManager.js";
+import { createMobileRouter } from "./mobileApi.js";
 import {
   authMiddleware,
   getDashboardApiKey,
@@ -2520,6 +2522,9 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   });
   app.use(express.json());
 
+  // ── Mobile API (lightweight endpoints for mobile app) ──────────────────
+  app.use("/api/m", createMobileRouter(runtime));
+
   // ── Auth endpoints ─────────────────────────────────────────────────────
   const loginLimiter = rateLimit(getLoginRateLimitOptions());
 
@@ -4079,6 +4084,11 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
   });
 
   // â"€â"€ SSE: real-time agent streaming â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // Stream snapshot — polling fallback for mobile
+  app.get("/api/stream-snapshot", (_req, res) => {
+    res.json(getReplayBuffer());
+  });
+
   app.get("/api/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -4159,6 +4169,47 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     }
   });
 
+  // ── WebSocket server (real-time push for mobile) ─────────────────────
+  const wss = new WebSocketServer({ server, path: "/ws" });
+
+  wss.on("connection", (ws, req) => {
+    // Authenticate via ?key= query param
+    const url = new URL(req.url || "", `http://${req.headers.host}`);
+    const key = url.searchParams.get("key") || "";
+    if (key !== getDashboardApiKey()) {
+      ws.close(4001, "Unauthorized");
+      return;
+    }
+
+    // No replay buffer for mobile WS — loadLive() provides initial state.
+    // Only forward NEW live events going forward.
+
+    // Forward all stream events
+    const onToken = (tok: StreamToken) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ channel: "stream", data: tok })); } catch {}
+      }
+    };
+    agentStreamBus.on("token", onToken);
+
+    // Heartbeat
+    const hb = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.ping(); } catch {}
+      }
+    }, 15000);
+
+    ws.on("close", () => {
+      agentStreamBus.off("token", onToken);
+      clearInterval(hb);
+    });
+
+    ws.on("error", () => {
+      agentStreamBus.off("token", onToken);
+      clearInterval(hb);
+    });
+  });
+
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
       console.error(`[Dashboard] Port ${port} already in use — dashboard unavailable. Kill the other process or set VEC_DASHBOARD_PORT.`);
@@ -4176,6 +4227,8 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
 
     server.on("upgrade", (req, socket, head) => {
       const url = new URL(req.url ?? "", `http://${req.headers.host}`);
+      // Let /ws be handled by its own WebSocketServer
+      if (url.pathname === "/ws") return;
       if (url.pathname !== "/ws/terminal") { socket.destroy(); return; }
 
       // Auth check: JWT cookie OR legacy API key
