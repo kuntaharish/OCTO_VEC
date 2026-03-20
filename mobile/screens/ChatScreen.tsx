@@ -7,11 +7,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import type { RootStackParams } from "../App";
-import { colors } from "../lib/theme";
+import { colors, spacing } from "../lib/theme";
 import { getApi, postApi, createSSEStream } from "../lib/api";
 import Icon from "react-native-vector-icons/Ionicons";
-// Using plain Text instead of Markdown to avoid crash on some RN versions
-// import Markdown from "react-native-markdown-display";
 
 interface ChatEntry { id?: string; timestamp: string; from: string; to: string; message: string; }
 
@@ -32,7 +30,7 @@ function formatDate(ts: string) {
 }
 
 // ── Typing dots ─────────────────────────────────────────────────────────────
-function TypingDots({ color }: { color?: string }) {
+function TypingDots() {
   const d1 = useRef(new Animated.Value(0.3)).current;
   const d2 = useRef(new Animated.Value(0.3)).current;
   const d3 = useRef(new Animated.Value(0.3)).current;
@@ -48,7 +46,6 @@ function TypingDots({ color }: { color?: string }) {
   }, [d1, d2, d3]);
   return (
     <View style={{ flexDirection: "row", alignItems: "flex-end", marginVertical: 4, paddingRight: 50 }}>
-      <View style={[s.miniAvatar, { backgroundColor: color || colors.bgTertiary }]} />
       <View style={s.typingBubble}>
         <Animated.View style={[s.typingDot, { opacity: d1 }]} />
         <Animated.View style={[s.typingDot, { opacity: d2 }]} />
@@ -60,7 +57,7 @@ function TypingDots({ color }: { color?: string }) {
 
 // ── Main Screen ─────────────────────────────────────────────────────────────
 export default function ChatScreen({ navigation, route }: Props) {
-  const { agentKey, agentName, agentColor, agentInitials, agentRole } = route.params;
+  const { agentKey, agentName, agentInitials, agentRole } = route.params;
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -112,9 +109,9 @@ export default function ChatScreen({ navigation, route }: Props) {
       {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 4 }}>
-          <Icon name="chevron-back" size={24} color={colors.accent} />
+          <Icon name="chevron-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <View style={[s.headerAvatar, { backgroundColor: agentColor || colors.bgTertiary }]}>
+        <View style={s.headerAvatar}>
           <Text style={s.headerAvatarText}>{agentInitials || firstName[0]}</Text>
         </View>
         <View style={{ flex: 1 }}>
@@ -142,13 +139,8 @@ export default function ChatScreen({ navigation, route }: Props) {
                   </View>
                 )}
                 <View style={[s.bubbleRow, isUser ? s.bubbleRowUser : s.bubbleRowAgent]}>
-                  {!isUser && (
-                    <View style={[s.miniAvatar, { backgroundColor: agentColor || colors.bgTertiary }]}>
-                      <Text style={s.miniAvatarText}>{agentInitials || firstName[0]}</Text>
-                    </View>
-                  )}
                   <View style={[s.bubble, isUser ? s.bubbleUser : s.bubbleAgent]}>
-                    <Text style={isUser ? { color: "#fff", fontSize: 15, lineHeight: 21 } : { color: colors.textPrimary, fontSize: 15, lineHeight: 21 }}>{item.message}</Text>
+                    <Text style={isUser ? s.msgUser : s.msgAgent}>{item.message}</Text>
                     <Text style={[s.ts, isUser ? s.tsUser : s.tsAgent]}>{formatTime(item.timestamp)}</Text>
                   </View>
                 </View>
@@ -159,23 +151,23 @@ export default function ChatScreen({ navigation, route }: Props) {
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           ListEmptyComponent={
             <View style={s.empty}>
-              <Icon name="chatbubbles-outline" size={48} color={colors.bgTertiary} />
-              <Text style={{ color: colors.textMuted, fontSize: 16, fontWeight: "600", marginTop: 12 }}>No messages yet</Text>
-              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>Send a message to {firstName}</Text>
+              <Icon name="chatbubbles-outline" size={40} color={colors.textDim} />
+              <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: "600", marginTop: 12 }}>No messages yet</Text>
+              <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>Send a message to {firstName}</Text>
             </View>
           }
-          ListFooterComponent={isTyping ? <TypingDots color={agentColor} /> : null}
+          ListFooterComponent={isTyping ? <TypingDots /> : null}
         />
 
         {/* Input */}
         <View style={s.inputBar}>
           <TextInput value={input} onChangeText={setInput}
-            placeholder={`Message ${firstName}...`} placeholderTextColor={colors.textMuted}
+            placeholder={`Message ${firstName}...`} placeholderTextColor={colors.textDim}
             style={s.textInput} multiline maxLength={4000} />
           <TouchableOpacity onPress={send} disabled={!input.trim() || sending}
             style={[s.sendBtn, input.trim() && !sending ? s.sendActive : null]}>
-            {sending ? <ActivityIndicator color="#fff" size="small" />
-              : <Icon name="arrow-up" size={20} color={input.trim() ? "#fff" : colors.textMuted} />}
+            {sending ? <ActivityIndicator color={colors.bgPrimary} size="small" />
+              : <Icon name="arrow-up" size={18} color={input.trim() ? colors.bgPrimary : colors.textDim} />}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -183,50 +175,46 @@ export default function ChatScreen({ navigation, route }: Props) {
   );
 }
 
-const mdBase = { paragraph: { marginTop: 0, marginBottom: 0 }, bullet_list: { marginVertical: 4 }, ordered_list: { marginVertical: 4 }, list_item: { marginVertical: 1 } };
-const mdUser: any = { ...mdBase, body: { color: "#fff", fontSize: 15, lineHeight: 21 }, strong: { fontWeight: "700", color: "#fff" }, link: { color: "#c4b5fd" }, code_inline: { backgroundColor: "rgba(255,255,255,0.15)", color: "#fff", paddingHorizontal: 4, borderRadius: 4, fontSize: 13 }, fence: { backgroundColor: "rgba(0,0,0,0.2)", padding: 10, borderRadius: 8, marginVertical: 4, fontSize: 12, color: "#fff" } };
-const mdAgent: any = { ...mdBase, body: { color: colors.textPrimary, fontSize: 15, lineHeight: 21 }, strong: { fontWeight: "700", color: colors.textPrimary }, link: { color: colors.accent }, code_inline: { backgroundColor: colors.bgTertiary, color: colors.textPrimary, paddingHorizontal: 4, borderRadius: 4, fontSize: 13 }, fence: { backgroundColor: colors.bgPrimary, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.border, marginVertical: 4, fontSize: 12, color: colors.textPrimary } };
-
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   header: {
     flexDirection: "row", alignItems: "center", gap: 12,
     paddingHorizontal: 8, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.bgSecondary,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  headerAvatar: { width: 36, height: 36, borderRadius: 12, justifyContent: "center", alignItems: "center" },
-  headerAvatarText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  headerAvatar: { width: 34, height: 34, borderRadius: 11, backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center" },
+  headerAvatarText: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
   headerName: { fontSize: 16, fontWeight: "700", color: colors.textPrimary },
-  headerRole: { fontSize: 12, color: colors.textMuted },
-  headerTyping: { fontSize: 12, color: colors.green, fontWeight: "500" },
+  headerRole: { fontSize: 11, color: colors.textDim },
+  headerTyping: { fontSize: 11, color: colors.green, fontWeight: "500" },
 
   dateSep: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, paddingHorizontal: 8 },
   dateLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  dateText: { fontSize: 11, fontWeight: "600", color: colors.textMuted },
+  dateText: { fontSize: 10, fontWeight: "600", color: colors.textDim, letterSpacing: 0.5 },
 
   bubbleRow: { flexDirection: "row", marginVertical: 2, alignItems: "flex-end" },
   bubbleRowUser: { justifyContent: "flex-end", paddingLeft: 50 },
   bubbleRowAgent: { justifyContent: "flex-start", paddingRight: 50 },
-  miniAvatar: { width: 26, height: 26, borderRadius: 9, justifyContent: "center", alignItems: "center", marginRight: 6, marginBottom: 2 },
-  miniAvatarText: { fontSize: 10, fontWeight: "700", color: "#fff" },
   bubble: { maxWidth: "85%", paddingHorizontal: 14, paddingTop: 8, paddingBottom: 6, borderRadius: 18 },
-  bubbleUser: { backgroundColor: colors.accent, borderBottomRightRadius: 4 },
+  bubbleUser: { backgroundColor: colors.textPrimary, borderBottomRightRadius: 4 },
   bubbleAgent: { backgroundColor: colors.bgCard, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: colors.border },
+  msgUser: { color: colors.bgPrimary, fontSize: 15, lineHeight: 21 },
+  msgAgent: { color: colors.textPrimary, fontSize: 15, lineHeight: 21 },
   ts: { fontSize: 10, marginTop: 2, alignSelf: "flex-end" },
-  tsUser: { color: "rgba(255,255,255,0.5)" },
-  tsAgent: { color: colors.textMuted },
+  tsUser: { color: "rgba(0,0,0,0.35)" },
+  tsAgent: { color: colors.textDim },
   empty: { flex: 1, justifyContent: "center", alignItems: "center", paddingTop: 80 },
 
   typingBubble: {
     flexDirection: "row", gap: 4, backgroundColor: colors.bgCard, borderRadius: 18,
     borderBottomLeftRadius: 4, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: colors.border,
   },
-  typingDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: colors.textMuted },
+  typingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.textMuted },
 
   inputBar: {
     flexDirection: "row", alignItems: "flex-end", gap: 8,
     paddingHorizontal: 12, paddingVertical: 8,
-    borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bgSecondary,
+    borderTopWidth: 1, borderTopColor: colors.border,
   },
   textInput: {
     flex: 1, minHeight: 40, maxHeight: 120,
@@ -234,8 +222,8 @@ const s = StyleSheet.create({
     color: colors.textPrimary, fontSize: 15, borderWidth: 1, borderColor: colors.border,
   },
   sendBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
   },
-  sendActive: { backgroundColor: colors.accent },
+  sendActive: { backgroundColor: colors.textPrimary },
 });

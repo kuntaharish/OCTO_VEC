@@ -104,23 +104,22 @@ export async function logout() {
 
 export async function authFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const base = await getServerUrl();
+  if (!base) throw new Error("Not logged in");
   const relay = await getRelayMode();
 
   if (relay) {
-    // Relay mode: /relay/api/... with X-Relay-Secret header
     return fetch(`${base}/relay${path}`, {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        "X-Relay-Secret": _relaySecret,
-        "X-Session-Id": _sessionId,
+        "X-Relay-Secret": _relaySecret || "",
+        "X-Session-Id": _sessionId || "default",
         ...options.headers,
       },
     });
   } else {
-    // Direct mode: append ?key= to URL
     const key = await getApiKey();
-    const sep = path.includes("?") ? "&" : "?";
+    const sep = (path || "").includes("?") ? "&" : "?";
     return fetch(`${base}${path}${sep}key=${encodeURIComponent(key)}`, {
       ...options,
       headers: { "Content-Type": "application/json", ...options.headers },
