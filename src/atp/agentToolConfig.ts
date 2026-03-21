@@ -11,6 +11,7 @@ import { loadRoster, type RosterEntry } from "../ar/roster.js";
 
 const CONFIG_PATH = join(config.dataDir, "agent-tool-config.json");
 const MCP_CONFIG_PATH = join(config.dataDir, "agent-mcp-config.json");
+const APPROVAL_CONFIG_PATH = join(config.dataDir, "agent-approval-config.json");
 
 export interface ToolDef {
   id: string;
@@ -326,6 +327,40 @@ export function isMCPServerEnabled(agentId: string, serverName: string, allServe
   return getEnabledMCPServers(agentId, allServerNames).includes(serverName);
 }
 
+// ── Per-agent approval-required tools ────────────────────────────────────────
+// Stored as { [agentId]: string[] } — tools that require human approval before execution.
+
+export function readApprovalConfig(): Record<string, string[]> {
+  if (!existsSync(APPROVAL_CONFIG_PATH)) return {};
+  try {
+    return JSON.parse(readFileSync(APPROVAL_CONFIG_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+export function writeApprovalConfig(cfg: Record<string, string[]>): void {
+  writeFileSync(APPROVAL_CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf-8");
+}
+
+/** Returns list of tool IDs that require human approval for an agent. */
+export function getApprovalRequiredTools(agentId: string): string[] {
+  const stored = readApprovalConfig();
+  return stored[agentId] ?? [];
+}
+
+/** Persist which tools require human approval for an agent. */
+export function setApprovalRequiredTools(agentId: string, toolIds: string[]): void {
+  const cfg = readApprovalConfig();
+  cfg[agentId] = toolIds;
+  writeApprovalConfig(cfg);
+}
+
+/** Check if a specific tool requires human approval for an agent. */
+export function isApprovalRequired(agentId: string, toolName: string): boolean {
+  return getApprovalRequiredTools(agentId).includes(toolName);
+}
+
 /**
  * Apply tool enable/disable config to a list of AgentTool objects.
  * - Locked tools: always pass through unchanged.
@@ -333,10 +368,13 @@ export function isMCPServerEnabled(agentId: string, serverName: string, allServe
  * - Disabled tools: kept in schema (no hallucination) but execute returns a
  *   "disabled" error. A per-tool retry counter escalates the message on
  *   repeated calls to discourage the LLM from retrying.
+ * - Approval-required tools: wrapped with a gate that pauses execution
+ *   until a human approves or denies from the dashboard.
  */
 export function applyToolConfig(agentId: string, allTools: any[]): any[] {
   const stored = readToolConfig();
   const mcpCfg = readMCPConfig();
+  const approvalTools = new Set(getApprovalRequiredTools(agentId));
 
   const profile = getAgentProfiles().find((a) => a.agent_id === agentId);
   const locked = new Set(profile?.tools.filter((t) => t.locked).map((t) => t.id) ?? []);
@@ -354,8 +392,8 @@ export function applyToolConfig(agentId: string, allTools: any[]): any[] {
     }
   }
 
-  // No stored tool config AND no MCP restrictions = full access
-  if (!stored[agentId] && disabledMCPServers.size === 0) return allTools;
+  // No stored tool config AND no MCP restrictions AND no approval tools = full access
+  if (!stored[agentId] && disabledMCPServers.size === 0 && approvalTools.size === 0) return allTools;
 
   const enabled = new Set(getEnabledTools(agentId));
 
@@ -374,9 +412,12 @@ export function applyToolConfig(agentId: string, allTools: any[]): any[] {
     }
 
     // Tool-level config — check if enabled
-    if (!stored[agentId] || enabled.has(t.name)) return t;
+    if (stored[agentId] && !enabled.has(t.name)) return _softBlock(t);
 
-    return _softBlock(t);
+    // Approval-required gate — tool is enabled but needs human confirmation
+    if (approvalTools.has(t.name)) return _approvalGate(t, agentId);
+
+    return t;
   });
 }
 
@@ -391,6 +432,38 @@ function _softBlock(t: any) {
           ? `Tool '${t.name}' is disabled by the administrator. Do not retry — respond without it.`
           : `SYSTEM BLOCK: Tool '${t.name}' is disabled. You have called it ${callCount} times. Stop immediately and respond without it.`;
       return { content: [{ type: "text", text: msg }], details: {} };
+    },
+  };
+}
+
+/** Wrap a tool with a human-approval gate. The agent pauses until approved/denied. */
+function _approvalGate(t: any, agentId: string) {
+  const originalExecute = t.execute;
+  return {
+    ...t,
+    execute: async (ctx: any, params: any) => {
+      // Lazy-import to avoid circular dependency
+      const { requestApproval } = await import("../dashboard/mobileApi.js");
+
+      const toolArgs = typeof params === "object" ? JSON.stringify(params, null, 2) : String(params ?? "");
+      const result = await requestApproval(
+        agentId,
+        "tool_execution",
+        `Tool: ${t.name}`,
+        `Agent wants to execute '${t.name}'.\n\nArguments:\n${toolArgs.slice(0, 500)}`,
+        { toolName: t.name, args: params },
+      );
+
+      if (!result.approved) {
+        const reason = result.message || "Action denied by administrator.";
+        return {
+          content: [{ type: "text", text: `DENIED: Tool '${t.name}' was denied by the administrator. Reason: ${reason}. Do not retry this tool — adjust your approach.` }],
+          details: {},
+        };
+      }
+
+      // Approved — execute the original tool with both ctx and params
+      return originalExecute(ctx, params);
     },
   };
 }

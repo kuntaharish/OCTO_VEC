@@ -904,6 +904,138 @@ function AgentMCPServers({ profile }: { profile: AgentProfile }) {
   );
 }
 
+/* ── Approval-required tools per agent ── */
+
+function AgentApprovalConfig({ profile }: { profile: AgentProfile }) {
+  const [approvalSet, setApprovalSet] = useState<Set<string>>(
+    () => new Set(profile.approval_required_tools ?? [])
+  );
+  const [saving, setSaving] = useState(false);
+  const initial = profile.approval_required_tools ?? [];
+  const dirty = JSON.stringify([...approvalSet].sort()) !== JSON.stringify([...initial].sort());
+
+  // Only show enabled tools (minus locked) — you can only require approval on tools the agent can use
+  const enabledSet = new Set(profile.enabled_tools);
+  const eligible = profile.all_tools.filter((t) => enabledSet.has(t) && !LOCKED.has(t));
+
+  if (eligible.length === 0) return null;
+
+  function toggle(t: string) {
+    setApprovalSet((p) => { const n = new Set(p); n.has(t) ? n.delete(t) : n.add(t); return n; });
+  }
+
+  async function save() {
+    setSaving(true);
+    try { await postApi("/api/agent-approval-config", { agent_id: profile.agent_id, tools: Array.from(approvalSet) }); }
+    catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  }
+
+  const groups = groupTools(eligible);
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: 14,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <ShieldCheck size={14} style={{ color: "var(--orange)" }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>Action Required</span>
+          {approvalSet.size > 0 && (
+            <span style={{
+              fontSize: 11, color: "var(--orange)", background: "rgba(245,158,11,0.1)",
+              padding: "2px 8px", borderRadius: 5, fontFamily: "monospace",
+            }}>
+              {approvalSet.size} gated
+            </span>
+          )}
+        </div>
+        {dirty && (
+          <button onClick={save} disabled={saving} style={{
+            fontSize: 11, fontWeight: 500, padding: "4px 14px", borderRadius: 6, border: "none",
+            background: "var(--accent)", color: "#fff", cursor: "pointer", fontFamily: "inherit",
+            opacity: saving ? 0.5 : 1,
+          }}>
+            {saving ? "Saving..." : "Save changes"}
+          </button>
+        )}
+      </div>
+
+      <div style={{
+        fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5,
+        marginBottom: 12, padding: "8px 12px",
+        background: "rgba(245,158,11,0.05)", borderRadius: 8,
+        border: "1px solid rgba(245,158,11,0.12)",
+      }}>
+        Tools marked here will pause and wait for your approval before the agent can execute them.
+        The agent cannot proceed until you approve or deny from the dashboard.
+      </div>
+
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
+        gap: 10,
+      }}>
+        {groups.map((g) => (
+          <div key={g.label} style={{
+            border: "1px solid var(--border)",
+            borderRadius: 8, overflow: "hidden",
+          }}>
+            <div style={{
+              fontSize: 10, fontWeight: 600, color: "var(--text-muted)",
+              textTransform: "uppercase", letterSpacing: "0.05em",
+              padding: "7px 12px 5px",
+              background: "var(--bg-tertiary)",
+              borderBottom: "1px solid var(--border)",
+            }}>
+              {g.label}
+            </div>
+            {g.tools.map((tool, i) => {
+              const on = approvalSet.has(tool);
+              return (
+                <div key={tool}
+                  className="tool-row"
+                  onClick={() => toggle(tool)}
+                  style={{
+                    borderBottom: i < g.tools.length - 1 ? "1px solid var(--border)" : "none",
+                    height: 32,
+                  }}
+                >
+                  <span style={{
+                    flex: 1, fontSize: 11, fontFamily: "monospace",
+                    color: on ? "var(--orange)" : "var(--text-muted)",
+                    fontWeight: on ? 600 : 400,
+                  }}>
+                    {tool}
+                  </span>
+                  {/* Toggle — orange when gated */}
+                  <div style={{
+                    width: 28, height: 16, borderRadius: 8, flexShrink: 0,
+                    background: on ? "var(--orange)" : "var(--bg-tertiary)",
+                    border: on ? "none" : "1px solid var(--border)",
+                    position: "relative",
+                    transition: "background 0.15s",
+                    cursor: "pointer",
+                  }}>
+                    <div style={{
+                      width: 12, height: 12, borderRadius: "50%",
+                      background: on ? "#fff" : "var(--text-muted)",
+                      position: "absolute", top: 2,
+                      left: on ? 14 : 2,
+                      transition: "left 0.15s, background 0.15s",
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Main DirectoryView ── */
 
 export default function DirectoryView() {
@@ -1624,6 +1756,11 @@ export default function DirectoryView() {
                 {/* MCP server toggles */}
                 {expandedProfile && (
                   <AgentMCPServers key={`mcp-${expandedAgent}`} profile={expandedProfile} />
+                )}
+
+                {/* Approval-required tools */}
+                {expandedProfile && (
+                  <AgentApprovalConfig key={`approval-${expandedAgent}`} profile={expandedProfile} />
                 )}
 
               </div>

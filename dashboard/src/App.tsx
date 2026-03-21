@@ -161,6 +161,10 @@ function DashboardShell({ activeView, setActiveView, tourPhase, setTourPhase }: 
   const { data: reminders } = usePolling<{ scheduled_for: string; triggered_at: string | null }[]>("/api/reminders?all=false", 10000);
   const pendingReminders = (reminders ?? []).filter(r => !r.triggered_at).length;
 
+  // Pending approvals count for badge
+  const { data: pendingApprovals } = usePolling<any[]>("/api/approvals", 3000);
+  const approvalCount = (pendingApprovals ?? []).length;
+
   function handleToastClick(agentId: string) {
     sessionStorage.setItem("chat_selected_agent", agentId);
     setActiveView("chat");
@@ -257,7 +261,7 @@ function DashboardShell({ activeView, setActiveView, tourPhase, setTourPhase }: 
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg-primary)" }}>
-      <Sidebar activeView={activeView} setActiveView={setActiveView} chatBadge={unreadCount} reminderBadge={pendingReminders} />
+      <Sidebar activeView={activeView} setActiveView={setActiveView} chatBadge={unreadCount} reminderBadge={pendingReminders} approvalBadge={approvalCount} />
       <main style={{
         flex: 1, overflow: "hidden", display: "flex", flexDirection: "column",
         background: "var(--bg-card)",
