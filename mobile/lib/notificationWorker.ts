@@ -5,6 +5,7 @@ const CHANNEL_ID = "octo-vec-alerts";
 
 let _lastEventTs = "";
 let _lastMsgCount = 0;
+let _lastApprovalCount = 0;
 let _knownTaskStatuses: Record<string, string> = {};
 
 async function getCredentials() {
@@ -37,11 +38,12 @@ async function apiFetch(path: string) {
   return res.json();
 }
 
-async function notify(title: string, body: string, id?: string) {
+async function notify(title: string, body: string, id?: string, data?: Record<string, string>) {
   await notifee.displayNotification({
     id: id || undefined,
     title,
     body,
+    data: data ?? {},
     android: {
       channelId: CHANNEL_ID,
       smallIcon: "ic_launcher",
@@ -66,6 +68,7 @@ export async function seedState() {
     const summary = await apiFetch("/api/m/summary").catch(() => null);
     if (summary) {
       if (summary.events?.length > 0) _lastEventTs = summary.events[0].timestamp;
+      _lastApprovalCount = summary.pendingApprovals || 0;
       // Seed task statuses
       const tasks: any[] = await apiFetch("/api/m/tasks").catch(() => []);
       for (const t of tasks) _knownTaskStatuses[t.id] = t.status;
@@ -105,19 +108,79 @@ export async function poll() {
       }
     }
 
-    // Check unread chats — notify if new unreads
+    // Check unread chats — notify per agent with their name
     if (summary.unreadChats > _lastMsgCount && _lastMsgCount >= 0) {
       const diff = summary.unreadChats - _lastMsgCount;
       if (diff > 0 && _lastMsgCount > 0) {
-        await notify("New Messages", `${diff} new message${diff > 1 ? "s" : ""} from agents`, "msg-unread");
+        const chats: any[] = await apiFetch("/api/m/chats").catch(() => []);
+        const unreadChats = chats.filter((c: any) => c.unread > 0);
+
+        if (unreadChats.length === 1) {
+          const agent = unreadChats[0];
+          const firstName = (agent.name || "Agent").split(" ")[0];
+          await notify(
+            firstName,
+            `${firstName} messaged you`,
+            `msg-${agent.key}`,
+            {
+              action: "chat",
+              agentKey: agent.key || "",
+              agentName: agent.name || "",
+              agentInitials: agent.initials || "",
+              agentRole: agent.role || "",
+            },
+          );
+        } else if (unreadChats.length > 1) {
+          const names = unreadChats.slice(0, 3).map((c: any) => (c.name || "Agent").split(" ")[0]);
+          const nameStr = names.join(", ") + (unreadChats.length > 3 ? ` +${unreadChats.length - 3} more` : "");
+          await notify(
+            "New Messages",
+            `${nameStr} messaged you`,
+            "msg-unread",
+            {
+              action: "chat",
+              agentKey: unreadChats[0].key || "",
+              agentName: unreadChats[0].name || "",
+              agentInitials: unreadChats[0].initials || "",
+              agentRole: unreadChats[0].role || "",
+            },
+          );
+        }
       }
     }
     _lastMsgCount = summary.unreadChats;
 
-    // Check pending approvals
-    if (summary.pendingApprovals > 0) {
-      await notify("Approval Needed", `${summary.pendingApprovals} agent${summary.pendingApprovals > 1 ? "s" : ""} waiting for approval`, "approvals");
+    // Check pending approvals — notify per agent with their name
+    const currentApprovals = summary.pendingApprovals || 0;
+    if (currentApprovals > _lastApprovalCount) {
+      // Fetch actual approval details to get agent names
+      const approvalList: any[] = await apiFetch("/api/m/approvals").catch(() => []);
+
+      if (approvalList.length === 1) {
+        const a = approvalList[0];
+        const firstName = (a.agentName || "Agent").split(" ")[0];
+        const toolName = a.context?.toolName || a.title || "a tool";
+        await notify(
+          firstName,
+          `${firstName} requires approval for ${toolName}`,
+          "approvals",
+          { action: "live" },
+        );
+      } else if (approvalList.length > 1) {
+        // Group by agent name
+        const agentNames = [...new Set(approvalList.map((a: any) => (a.agentName || "Agent").split(" ")[0]))];
+        const nameStr = agentNames.slice(0, 3).join(", ") + (agentNames.length > 3 ? ` +${agentNames.length - 3}` : "");
+        await notify(
+          "Approval Needed",
+          `${nameStr} require${agentNames.length === 1 ? "s" : ""} approval`,
+          "approvals",
+          { action: "live" },
+        );
+      }
+    } else if (currentApprovals === 0 && _lastApprovalCount > 0) {
+      await notifee.cancelNotification("approvals");
     }
+    _lastApprovalCount = currentApprovals;
 
     // Check task status changes
     const tasks: any[] = await apiFetch("/api/m/tasks").catch(() => []);
@@ -125,9 +188,9 @@ export async function poll() {
       const prev = _knownTaskStatuses[t.id];
       if (prev && prev !== t.status) {
         if (t.status === "completed") {
-          await notify("Task Completed", t.title || t.id, `task-${t.id}`);
+          await notify("Task Completed", t.title || t.id, `task-${t.id}`, { action: "tasks" });
         } else if (t.status === "failed") {
-          await notify("Task Failed", t.title || t.id, `task-${t.id}`);
+          await notify("Task Failed", t.title || t.id, `task-${t.id}`, { action: "tasks" });
         }
       }
       _knownTaskStatuses[t.id] = t.status;

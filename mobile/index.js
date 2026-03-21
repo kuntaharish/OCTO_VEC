@@ -9,10 +9,12 @@ import notifee from '@notifee/react-native';
 
 AppRegistry.registerComponent(appName, () => App);
 
-// Register background handler so notifications work when app is killed
+// Register background handler — store pending nav action for when app resumes
 notifee.onBackgroundEvent(async ({ type, detail }) => {
-  // Handle notification press in background/killed state
-  return;
+  if (type === 1 /* EventType.PRESS */ && detail.notification?.data?.action) {
+    // Store in global so App.tsx can pick it up when nav is ready
+    global.__pendingNotifNav = detail.notification.data;
+  }
 });
 
 // Register headless task for react-native-background-actions
