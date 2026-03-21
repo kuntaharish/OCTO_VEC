@@ -42,3 +42,8 @@ TO-DOs/
 
 # Tests — local smoke tests, not CI
 tests/
+
+# Mobile build artifacts
+*.apk
+*.aab
+*.ipa
