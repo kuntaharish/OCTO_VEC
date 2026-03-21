@@ -22,6 +22,9 @@ dashboard/package-lock.json
 dashboard/.eslintrc*
 dashboard/components.json
 
+# Mobile app (separate distribution, not part of npm package)
+mobile/
+
 # Dev / personal files
 tests/
 TO-DOs/
