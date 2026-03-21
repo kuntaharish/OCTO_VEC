@@ -4,7 +4,7 @@ import {
   Plus, Trash2, Save, RefreshCw, Server, ChevronDown, ChevronRight,
   Shield, Search, MessageSquare, Cpu, Box, ExternalLink, Palette, RotateCcw,
   Zap, Settings2, Database, Eye, Star, Check, X, Package,
-  Hash, Globe, Radio, Gamepad2, FolderOpen, Phone, Users, Grid3X3,
+  Hash, Globe, Radio, Gamepad2, FolderOpen, Smartphone, Users, Grid3X3,
   GitBranch, Upload, Clock, CheckCircle, AlertCircle, EyeOff, Keyboard, Command, CornerDownLeft,
 } from "lucide-react";
 import { postApi, apiUrl } from "../hooks/useApi";
@@ -102,7 +102,7 @@ const SECTION_NAV: { key: SettingsSection; label: string; icon: React.ReactNode;
   { key: "mcp", label: "MCP Servers", icon: <Server size={15} />, color: "var(--green)" },
   { key: "versioning", label: "Versioning", icon: <GitBranch size={15} />, color: "var(--cyan, #06b6d4)" },
   { key: "shortcuts", label: "Shortcuts", icon: <Keyboard size={15} />, color: "var(--yellow, #e2b93d)" },
-  { key: "mobile", label: "Mobile", icon: <Phone size={15} />, color: "var(--green)" },
+  { key: "mobile", label: "Mobile", icon: <Smartphone size={15} />, color: "var(--green)" },
 ];
 
 // ── Logo icon helper ─────────────────────────────────────────────────────────
@@ -2708,6 +2708,7 @@ export default function SettingsView() {
 
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [mobileQrInfo, setMobileQrInfo] = useState<{ url: string; key: string } | null>(null);
+  const [connectedDevices, setConnectedDevices] = useState<{ id: string; platform: string; info: string; name: string; pairedAt: string; lastSeen: string; ip: string; online: boolean }[]>([]);
 
   useEffect(() => {
     if (activeSection !== "mobile") return;
@@ -2727,6 +2728,17 @@ export default function SettingsView() {
       })
       .then((url: string) => setQrDataUrl(url))
       .catch(() => {});
+
+    // Poll connected devices
+    function loadDevices() {
+      fetch(apiUrl("/api/mobile-devices"), { credentials: "include" })
+        .then(r => r.json())
+        .then(setConnectedDevices)
+        .catch(() => {});
+    }
+    loadDevices();
+    const poll = setInterval(loadDevices, 5000);
+    return () => clearInterval(poll);
   }, [activeSection]);
 
   function renderMobile() {
@@ -2787,6 +2799,104 @@ export default function SettingsView() {
               {dashKey ? "••••••••" : "Not found in URL"}
             </code>
           </div>
+        </div>
+
+        {/* Connected Devices */}
+        <div style={{
+          background: "var(--bg-card)", borderRadius: 12, border: "1px solid var(--border)", padding: 16,
+          display: "flex", flexDirection: "column", gap: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Connected Devices
+            </div>
+            {connectedDevices.length > 0 && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: "var(--green)",
+                background: "var(--green-bg)", padding: "2px 8px", borderRadius: 8,
+              }}>
+                {connectedDevices.length} active
+              </span>
+            )}
+          </div>
+          {connectedDevices.length === 0 ? (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10, padding: "12px 0",
+              color: "var(--text-muted)", fontSize: 13,
+            }}>
+              <Smartphone size={16} />
+              <span>No devices paired yet</span>
+            </div>
+          ) : (
+            connectedDevices.map((d, i) => {
+              const ago = Math.floor((Date.now() - new Date(d.lastSeen).getTime()) / 1000);
+              const lastSeenText = d.online
+                ? (ago < 10 ? "just now" : ago < 60 ? `${ago}s ago` : `${Math.floor(ago / 60)}m ago`)
+                : ago < 3600 ? `${Math.floor(ago / 60)}m ago`
+                : ago < 86400 ? `${Math.floor(ago / 3600)}h ago`
+                : `${Math.floor(ago / 86400)}d ago`;
+              const pairedDate = new Date(d.pairedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+              return (
+                <div key={d.id} style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "10px 0",
+                  borderTop: i > 0 ? "1px solid var(--border)" : "none",
+                }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 12,
+                    background: d.online ? "var(--green-bg)" : "var(--bg-tertiary)",
+                    border: `1px solid ${d.online ? "rgba(61,214,140,0.15)" : "var(--border)"}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <Smartphone size={18} style={{ color: d.online ? "var(--green)" : "var(--text-muted)" }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+                        {d.name}
+                      </span>
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 6,
+                        background: d.online ? "var(--green-bg)" : "var(--bg-tertiary)",
+                        color: d.online ? "var(--green)" : "var(--text-muted)",
+                      }}>
+                        {d.online ? "ONLINE" : "OFFLINE"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                      {d.info} · Paired {pairedDate}
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>
+                      Last active {lastSeenText} · {d.ip}
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Unlink ${d.name}? You'll need to scan the QR code again to reconnect.`)) return;
+                      try {
+                        await fetch(apiUrl("/api/mobile-devices/unlink"), {
+                          method: "POST", credentials: "include",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ id: d.id }),
+                        });
+                        setConnectedDevices(prev => prev.filter(x => x.id !== d.id));
+                      } catch {}
+                    }}
+                    title="Unlink device"
+                    style={{
+                      width: 28, height: 28, borderRadius: 7, border: "none", padding: 0,
+                      background: "var(--bg-tertiary)", color: "var(--text-muted)",
+                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                      transition: "background 0.1s, color 0.1s",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--red-bg)"; e.currentTarget.style.color = "var(--red)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-tertiary)"; e.currentTarget.style.color = "var(--text-muted)"; }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* Instructions */}

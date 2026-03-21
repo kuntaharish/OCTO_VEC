@@ -1,4 +1,5 @@
 import EncryptedStorage from "react-native-encrypted-storage";
+import { Platform } from "react-native";
 
 // ── Credentials ─────────────────────────────────────────────────────────────
 let _serverUrl = "";
@@ -112,31 +113,65 @@ export async function logout() {
   await EncryptedStorage.removeItem("relay_session");
 }
 
+// ── Device unlink listener ──────────────────────────────────────────────────
+
+let _onDeviceUnlinked: (() => void) | null = null;
+
+/** Register a callback that fires when the server reports this device was unlinked. */
+export function onDeviceUnlinked(cb: () => void) { _onDeviceUnlinked = cb; }
+
 // ── Fetch with auth ─────────────────────────────────────────────────────────
+
+const _deviceInfo = `${Platform.OS === "android" ? "Android" : "iOS"} ${Platform.Version}`;
+const _deviceName = `${Platform.OS === "android" ? "Android" : "iPhone"}`;
 
 export async function authFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const base = await getServerUrl();
   if (!base) throw new Error("Not logged in");
   const relay = await getRelayMode();
 
+  const deviceHeaders: Record<string, string> = {
+    "X-Device-Platform": Platform.OS,
+    "X-Device-Info": _deviceInfo,
+    "X-Device-Name": _deviceName,
+  };
+
+  let res: Response;
   if (relay) {
-    return fetch(`${base}/relay${path}`, {
+    res = await fetch(`${base}/relay${path}`, {
       ...options,
       headers: {
         "Content-Type": "application/json",
         "X-Relay-Secret": _relaySecret || "",
         "X-Session-Id": _sessionId || "default",
+        ...deviceHeaders,
         ...options.headers,
       },
     });
   } else {
     const key = await getApiKey();
     const sep = (path || "").includes("?") ? "&" : "?";
-    return fetch(`${base}${path}${sep}key=${encodeURIComponent(key)}`, {
+    res = await fetch(`${base}${path}${sep}key=${encodeURIComponent(key)}`, {
       ...options,
-      headers: { "Content-Type": "application/json", ...options.headers },
+      headers: { "Content-Type": "application/json", ...deviceHeaders, ...options.headers },
     });
   }
+
+  // Detect device unlinked — server returns 403 with { error: "device_unlinked" }
+  if (res.status === 403) {
+    try {
+      const body = await res.clone().json();
+      if (body?.error === "device_unlinked") {
+        await logout();
+        if (_onDeviceUnlinked) _onDeviceUnlinked();
+        throw new Error("Device unlinked");
+      }
+    } catch (e: any) {
+      if (e?.message === "Device unlinked") throw e;
+    }
+  }
+
+  return res;
 }
 
 export async function getApi<T>(path: string): Promise<T> {

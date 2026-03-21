@@ -38,7 +38,8 @@ import { UserChatLog } from "../atp/chatLog.js";
 import { agentStreamBus, getReplayBuffer } from "../atp/agentStreamBus.js";
 import type { StreamToken } from "../atp/agentStreamBus.js";
 import { getAllAgentTodos, getAgentTodos } from "../tools/shared/todoTools.js";
-import { getAgentProfiles, getEnabledTools, setAgentTools, getEnabledMCPServers, setAgentMCPServers } from "../atp/agentToolConfig.js";
+import { getAgentProfiles, getEnabledTools, setAgentTools, getEnabledMCPServers, setAgentMCPServers, getApprovalRequiredTools, setApprovalRequiredTools } from "../atp/agentToolConfig.js";
+import { _pendingApprovals, resolveApproval } from "./mobileApi.js";
 import { getAllGroups, getGroup, addGroup, deleteGroup, markActiveGroupConversation, clearActiveGroup } from "../atp/agentGroups.js";
 import { getRosterEntry, getRoleTemplates } from "../ar/roster.js";
 import { AgentRuntime } from "../atp/agentRuntime.js";
@@ -49,7 +50,7 @@ import { getAllUsage as getFinanceAllUsage, getTotals as getFinanceTotals, reset
 import { getProviders, getModelConfig, setModelConfig, setAgentModel, getEffectiveModel, setProviderApiKey } from "../atp/modelConfig.js";
 import { saveChannelCredentials, getChannelConfigMasked, ALL_CHANNEL_IDS, isValidChannel, CHANNEL_LABELS, type ChannelId } from "../channels/channelConfig.js";
 import { channelManager } from "../channels/channelManager.js";
-import { createMobileRouter } from "./mobileApi.js";
+import { createMobileRouter, getConnectedDevices, removePairedDevice, clearDeviceBlock } from "./mobileApi.js";
 import {
   authMiddleware,
   getDashboardApiKey,
@@ -2539,6 +2540,10 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
       res.status(401).json({ error: "Invalid dashboard key" });
       return;
     }
+    // Clear device block if re-pairing from mobile
+    const platform = req.headers["x-device-platform"] as string;
+    if (platform) clearDeviceBlock(platform);
+
     setAuthCookies(res);
     res.json({ ok: true });
   });
@@ -2846,6 +2851,7 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
       enabled_tools: getEnabledTools(profile.agent_id),
       all_mcp_servers: allMCPServers,
       enabled_mcp_servers: getEnabledMCPServers(profile.agent_id, allMCPServers),
+      approval_required_tools: getApprovalRequiredTools(profile.agent_id),
     }));
     res.json({ agents: data });
   });
@@ -2863,6 +2869,41 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     const safeTools = [...new Set([...(tools as string[]), ...lockedIds])];
     setAgentTools(id, safeTools);
     res.json({ ok: true, agent_id: id, tools: safeTools });
+  });
+
+  // -- Approval-required tool config ------------------------------------------------
+  app.post("/api/agent-approval-config", (req, res) => {
+    const { agent_id, tools } = req.body ?? {};
+    if (!agent_id || typeof agent_id !== "string" || !Array.isArray(tools)) {
+      res.status(400).json({ error: "agent_id (string) and tools (string[]) are required" });
+      return;
+    }
+    const id = agent_id.trim().toLowerCase();
+    setApprovalRequiredTools(id, tools as string[]);
+    res.json({ ok: true, agent_id: id, tools });
+  });
+
+  // -- Pending approvals (dashboard) -----------------------------------------------
+  app.get("/api/approvals", (_req, res) => {
+    const pending = _pendingApprovals
+      .filter(a => a.status === "pending")
+      .map(a => ({
+        id: a.id, agentId: a.agentId, agentName: a.agentName,
+        type: a.type, title: a.title, description: a.description,
+        context: a.context, createdAt: a.createdAt,
+      }));
+    res.json(pending);
+  });
+
+  app.post("/api/approve", (req, res) => {
+    const { id, approved, message } = req.body ?? {};
+    if (!id || typeof id !== "string" || typeof approved !== "boolean") {
+      res.status(400).json({ error: "id (string) and approved (boolean) required" });
+      return;
+    }
+    const ok = resolveApproval(id, approved, message);
+    if (!ok) { res.status(404).json({ error: "Approval not found or already resolved" }); return; }
+    res.json({ ok: true });
   });
 
   // -- MCP config -----------------------------------------------------------------
@@ -3129,6 +3170,17 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
       url: `http://${dashHost}:${port}`,
       key: apiKey,
     });
+  });
+
+  app.get("/api/mobile-devices", (_req, res) => {
+    res.json(getConnectedDevices());
+  });
+
+  app.post("/api/mobile-devices/unlink", (req, res) => {
+    const { id } = req.body ?? {};
+    if (!id) return res.status(400).json({ error: "id required" });
+    const ok = removePairedDevice(id);
+    res.json({ ok });
   });
 
   app.get("/api/settings", (_req, res) => {

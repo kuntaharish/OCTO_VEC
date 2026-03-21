@@ -13,6 +13,9 @@
  */
 
 import { Router } from "express";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { join } from "path";
+import { config } from "../config.js";
 import { ATPDatabase } from "../atp/database.js";
 import { EventLog } from "../atp/eventLog.js";
 import { UserChatLog } from "../atp/chatLog.js";
@@ -34,7 +37,7 @@ interface PendingApproval {
   id: string;
   agentId: string;
   agentName: string;
-  type: "dangerous_action" | "deploy" | "delete" | "external_api" | "cost_limit" | "general";
+  type: "dangerous_action" | "deploy" | "delete" | "external_api" | "cost_limit" | "general" | "tool_execution";
   title: string;
   description: string;
   context?: Record<string, unknown>;
@@ -43,7 +46,7 @@ interface PendingApproval {
   resolvedAt?: string;
 }
 
-const _pendingApprovals: PendingApproval[] = [];
+export const _pendingApprovals: PendingApproval[] = [];
 let _approvalCounter = 0;
 
 /** Called by agent tools to request human approval. Returns a promise that resolves when user decides. */
@@ -70,7 +73,7 @@ export function requestApproval(
 }
 
 /** Resolve a pending approval. */
-function resolveApproval(id: string, approved: boolean, message?: string): boolean {
+export function resolveApproval(id: string, approved: boolean, message?: string): boolean {
   const idx = _pendingApprovals.findIndex(a => a.id === id && a.status === "pending");
   if (idx === -1) return false;
   const approval = _pendingApprovals[idx];
@@ -99,11 +102,99 @@ function getCompactAgents() {
     });
 }
 
+// ── Paired device tracking (persisted) ───────────────────────────────────────
+
+interface PairedDevice {
+  id: string;
+  platform: string;
+  info: string;
+  name: string;
+  pairedAt: string;
+  lastSeen: string;
+  ip: string;
+}
+
+const DEVICES_PATH = join(config.dataDir, "mobile-devices.json");
+
+function readDevices(): PairedDevice[] {
+  if (!existsSync(DEVICES_PATH)) return [];
+  try { return JSON.parse(readFileSync(DEVICES_PATH, "utf-8")); } catch { return []; }
+}
+
+function writeDevices(devices: PairedDevice[]) {
+  if (!existsSync(config.dataDir)) mkdirSync(config.dataDir, { recursive: true });
+  writeFileSync(DEVICES_PATH, JSON.stringify(devices, null, 2), "utf-8");
+}
+
+export function getConnectedDevices(): (PairedDevice & { online: boolean })[] {
+  const devices = readDevices();
+  const cutoff = Date.now() - 2 * 60 * 1000; // 2 min = online
+  return devices.map(d => ({
+    ...d,
+    online: new Date(d.lastSeen).getTime() > cutoff,
+  }));
+}
+
+// Unlinked platforms — keeps returning 403 until device re-pairs via login
+const _unlinkedPlatforms = new Set<string>();
+
+export function removePairedDevice(id: string): boolean {
+  const devices = readDevices();
+  const device = devices.find(d => d.id === id);
+  if (!device) return false;
+  _unlinkedPlatforms.add(device.platform);
+  writeDevices(devices.filter(d => d.id !== id));
+  return true;
+}
+
+function isDeviceUnlinked(req: any): boolean {
+  const platform = req.headers["x-device-platform"];
+  return platform ? _unlinkedPlatforms.has(platform) : false;
+}
+
+function trackDevice(req: any) {
+  const platform = req.headers["x-device-platform"];
+  // Don't track unlinked platforms — they'll get 403 before reaching here,
+  // but guard anyway to prevent race conditions with concurrent requests
+  if (!platform || _unlinkedPlatforms.has(platform)) return;
+  const info = req.headers["x-device-info"] || platform;
+  const name = req.headers["x-device-name"] || platform;
+  const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown";
+
+  const devices = readDevices();
+  const existing = devices.find(d => d.platform === platform);
+  const now = new Date().toISOString();
+  if (existing) {
+    existing.lastSeen = now;
+    existing.ip = ip;
+    existing.info = info;
+    existing.name = name;
+  } else {
+    devices.push({ id: `${platform}-${Date.now()}`, platform, info, name, pairedAt: now, lastSeen: now, ip });
+  }
+  writeDevices(devices);
+}
+
+// Clear unlink flag when device re-pairs via login/QR
+export function clearDeviceBlock(platform: string) {
+  _unlinkedPlatforms.delete(platform);
+}
+
 // ── Router factory ───────────────────────────────────────────────────────────
 
 export function createMobileRouter(runtime: AgentRuntime): Router {
   const router = Router();
   const agents = runtime.allAgents;
+
+  // Check if device was unlinked from dashboard — signal logout, then let it re-pair freely
+  router.use((req, res, next) => {
+    if (isDeviceUnlinked(req)) {
+      res.status(403).json({ error: "device_unlinked" });
+      return;
+    }
+    trackDevice(req);
+    next();
+  });
 
   // ────────────────────────────────────────────────────────────────────────────
   // GET /api/m/summary — Everything the home screen needs in ONE call
@@ -505,6 +596,13 @@ export function createMobileRouter(runtime: AgentRuntime): Router {
   // ────────────────────────────────────────────────────────────────────────────
   router.get("/ping", (_req, res) => {
     res.json({ ok: true, ts: Date.now() });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // GET /api/m/devices — Paired mobile devices
+  // ────────────────────────────────────────────────────────────────────────────
+  router.get("/devices", (_req, res) => {
+    res.json(getConnectedDevices());
   });
 
   return router;
