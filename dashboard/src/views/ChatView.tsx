@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { ArrowUp, Search, X, Plus, Users, Trash2, Edit3, Check } from "lucide-react";
+import { ArrowUp, Search, X, Plus, Users, Trash2, Edit3, Check, ShieldAlert } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { usePolling, postApi, deleteApi } from "../hooks/useApi";
@@ -8,6 +8,13 @@ import { useEmployees } from "../context/EmployeesContext";
 import type { ChatEntry, Employee } from "../types";
 
 const SYSTEM_PREFIXES = ["SUNSET_COMPLETE", "SUNRISE_", "NO_ACTION_REQUIRED", "MEMORY_UPDATED", "JOURNAL_"];
+
+interface PendingApproval {
+  id: string; agentId: string; agentName: string;
+  type: string; title: string; description: string;
+  context?: { toolName?: string; args?: any };
+  createdAt: string;
+}
 
 // ── Group types ──────────────────────────────────────────────────────────────
 
@@ -63,6 +70,27 @@ export default function ChatView({ perAgentUnread = {}, onAgentRead }: {
   const { data: allEntries, refresh } = usePolling<ChatEntry[]>("/api/chat-log", 2000);
   const { employees } = useEmployees();
   const { activeAgents } = useAgentStream();
+
+  // ── Approvals ──
+  const { data: approvals, refresh: refreshApprovals } = usePolling<PendingApproval[]>("/api/approvals", 2000);
+  const [actingApproval, setActingApproval] = useState<string | null>(null);
+
+  const approvalsByAgent = useMemo(() => {
+    const map = new Map<string, PendingApproval[]>();
+    for (const a of approvals ?? []) {
+      const list = map.get(a.agentId) ?? [];
+      list.push(a);
+      map.set(a.agentId, list);
+    }
+    return map;
+  }, [approvals]);
+
+  async function respondApproval(id: string, approved: boolean) {
+    setActingApproval(id);
+    try { await postApi("/api/approve", { id, approved }); refreshApprovals(); }
+    catch (e) { console.error(e); }
+    finally { setActingApproval(null); }
+  }
 
   const agents = useMemo(() => {
     const emps = employees ?? [];
@@ -305,6 +333,7 @@ export default function ChatView({ perAgentUnread = {}, onAgentRead }: {
                   const color = ag.color || "var(--text-muted)";
                   const initials = ag.initials || getInitials(ag.name);
                   const unread = perAgentUnread[ag.agent_key] ?? 0;
+                  const hasApproval = (approvalsByAgent.get(ag.agent_key) ?? []).length > 0;
 
                   return (
                     <button
@@ -320,13 +349,23 @@ export default function ChatView({ perAgentUnread = {}, onAgentRead }: {
                       onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "var(--bg-hover)"; }}
                       onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
                     >
-                      <div style={{
-                        width: 36, height: 36, borderRadius: 10,
-                        background: color, opacity: 0.9,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 12, fontWeight: 600, color: "#fff", flexShrink: 0,
-                      }}>
-                        {initials}
+                      <div style={{ position: "relative", flexShrink: 0 }}>
+                        <div style={{
+                          width: 36, height: 36, borderRadius: 10,
+                          background: color, opacity: 0.9,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 12, fontWeight: 600, color: "#fff",
+                        }}>
+                          {initials}
+                        </div>
+                        {hasApproval && (
+                          <span style={{
+                            position: "absolute", top: -2, right: -2,
+                            width: 10, height: 10, borderRadius: 5,
+                            background: "var(--orange)", border: "2px solid var(--bg-primary)",
+                            boxShadow: "0 0 4px rgba(245,158,11,0.5)",
+                          }} />
+                        )}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
@@ -566,6 +605,63 @@ export default function ChatView({ perAgentUnread = {}, onAgentRead }: {
             )}
           </div>
         )}
+
+        {/* Pending approvals for selected agent */}
+        {(() => {
+          const agentApprovals = isGroupMode
+            ? (activeGroup!.members.flatMap(m => approvalsByAgent.get(m) ?? []))
+            : (approvalsByAgent.get(selectedAgent) ?? []);
+          if (agentApprovals.length === 0) return null;
+          return (
+            <div style={{
+              padding: "8px 24px", borderBottom: "1px solid var(--border)",
+              background: "rgba(245,158,11,0.06)", flexShrink: 0,
+            }}>
+              {agentApprovals.map((a) => (
+                <div key={a.id} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "4px 0",
+                }}>
+                  <ShieldAlert size={14} style={{ color: "var(--orange)", flexShrink: 0 }} />
+                  <span style={{
+                    flex: 1, fontSize: 12, color: "var(--text-primary)",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--orange)" }}>
+                      {a.context?.toolName || a.title}
+                    </span>
+                    <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>requires approval</span>
+                  </span>
+                  <button
+                    onClick={() => respondApproval(a.id, true)}
+                    disabled={actingApproval === a.id}
+                    title="Allow"
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      width: 24, height: 24, borderRadius: 6, border: "none", padding: 0,
+                      background: "rgba(61,214,140,0.15)", color: "var(--green)",
+                      cursor: "pointer", opacity: actingApproval === a.id ? 0.5 : 1,
+                    }}
+                  >
+                    <Check size={13} />
+                  </button>
+                  <button
+                    onClick={() => respondApproval(a.id, false)}
+                    disabled={actingApproval === a.id}
+                    title="Deny"
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      width: 24, height: 24, borderRadius: 6, border: "none", padding: 0,
+                      background: "rgba(239,68,68,0.12)", color: "var(--red, #ef4444)",
+                      cursor: "pointer", opacity: actingApproval === a.id ? 0.5 : 1,
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Messages */}
         <div style={{

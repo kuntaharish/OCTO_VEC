@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
-import { Monitor, Waypoints, Building2, ZoomIn, ZoomOut, RotateCcw, Navigation, StopCircle } from "lucide-react";
+import { Monitor, Waypoints, Building2, ZoomIn, ZoomOut, RotateCcw, Navigation, StopCircle, ShieldAlert, Check, X } from "lucide-react";
 import { usePolling, postApi } from "../hooks/useApi";
 import { useAgentStream, type ActivityEntry, type TodoItem, type TodoSnapshot } from "../hooks/useSSE";
 import { useEmployees } from "../context/EmployeesContext";
@@ -114,14 +114,23 @@ function TimelineItem({ entry, isLast, color }: { entry: ActivityEntry; isLast: 
 }
 
 /* ── Per-agent card with timeline inside ── */
-function AgentTimelineCard({ name, role, items, active, color, agentKey, todos, taskId }: {
+function AgentTimelineCard({ name, role, items, active, color, agentKey, todos, taskId, pendingApprovals, onApprovalAction }: {
   name: string; role: string; items: ActivityEntry[]; active: boolean; color: string; agentKey: string;
   todos: TodoItem[]; taskId?: string;
+  pendingApprovals: PendingApproval[]; onApprovalAction: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [steerMsg, setSteerMsg] = useState("");
   const [showSteer, setShowSteer] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [actingApproval, setActingApproval] = useState<string | null>(null);
+
+  async function respondApproval(id: string, approved: boolean) {
+    setActingApproval(id);
+    try { await postApi("/api/approve", { id, approved }); onApprovalAction(); }
+    catch (e) { console.error(e); }
+    finally { setActingApproval(null); }
+  }
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -145,9 +154,12 @@ function AgentTimelineCard({ name, role, items, active, color, agentKey, todos, 
 
   return (
     <div style={{
-      background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8,
+      background: "var(--bg-card)",
+      border: pendingApprovals.length > 0 ? "1px solid var(--orange)" : "1px solid var(--border)",
+      borderRadius: 8,
       display: "flex", flexDirection: "column", overflow: "hidden",
       minHeight: 160, maxHeight: 360,
+      boxShadow: pendingApprovals.length > 0 ? "0 0 8px rgba(245,158,11,0.15)" : "none",
     }}>
       <div style={{
         padding: "7px 12px", borderBottom: "1px solid var(--border)",
@@ -163,9 +175,9 @@ function AgentTimelineCard({ name, role, items, active, color, agentKey, todos, 
         <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{role}</span>
         <span style={{
           marginLeft: "auto", fontSize: 9, fontWeight: 500,
-          color: active ? "var(--blue)" : "var(--text-muted)",
+          color: pendingApprovals.length > 0 ? "var(--orange)" : active ? "var(--blue)" : "var(--text-muted)",
         }}>
-          {active ? "streaming" : "idle"}
+          {pendingApprovals.length > 0 ? "awaiting approval" : active ? "streaming" : "idle"}
         </span>
         {/* Steer + Interrupt buttons — only when active */}
         {active && (
@@ -235,6 +247,55 @@ function AgentTimelineCard({ name, role, items, active, color, agentKey, todos, 
           </button>
         </div>
       )}
+      {/* Pending approvals */}
+      {pendingApprovals.length > 0 && (
+        <div style={{
+          padding: "6px 10px", borderBottom: "1px solid var(--border)",
+          background: "var(--orange-bg)", flexShrink: 0,
+        }}>
+          {pendingApprovals.map((a) => (
+            <div key={a.id} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "3px 0",
+            }}>
+              <ShieldAlert size={12} style={{ color: "var(--orange)", flexShrink: 0 }} />
+              <span style={{
+                flex: 1, fontSize: 11, color: "var(--text-primary)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--orange)" }}>
+                  {a.context?.toolName || a.title}
+                </span>
+              </span>
+              <button
+                onClick={() => respondApproval(a.id, true)}
+                disabled={actingApproval === a.id}
+                title="Allow"
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 22, height: 22, borderRadius: 5, border: "none", padding: 0,
+                  background: "rgba(61,214,140,0.15)", color: "var(--green)",
+                  cursor: "pointer", opacity: actingApproval === a.id ? 0.5 : 1,
+                }}
+              >
+                <Check size={12} />
+              </button>
+              <button
+                onClick={() => respondApproval(a.id, false)}
+                disabled={actingApproval === a.id}
+                title="Deny"
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 22, height: 22, borderRadius: 5, border: "none", padding: 0,
+                  background: "rgba(240,68,68,0.1)", color: "var(--red)",
+                  cursor: "pointer", opacity: actingApproval === a.id ? 0.5 : 1,
+                }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {/* Todo checklist */}
       {todos.length > 0 && (
         <div style={{
@@ -290,6 +351,8 @@ function LiveMode({ activity, activeAgents, agents, agentTodos }: {
   activity: ActivityEntry[]; activeAgents: Record<string, boolean>; agents: Employee[];
   agentTodos: Record<string, TodoSnapshot>;
 }) {
+  const { data: approvals, refresh: refreshApprovals } = usePolling<PendingApproval[]>("/api/approvals", 2000);
+
   const items = activity.filter((e) =>
     e.type === "text" || e.type === "tool_start" || e.type === "tool_end" ||
     e.type === "thinking" || e.type === "agent_end"
@@ -302,7 +365,19 @@ function LiveMode({ activity, activeAgents, agents, agentTodos }: {
     byAgent.set(entry.agentId, list);
   }
 
+  // Group approvals by agent
+  const approvalsByAgent = new Map<string, PendingApproval[]>();
+  for (const a of (approvals ?? [])) {
+    const list = approvalsByAgent.get(a.agentId) ?? [];
+    list.push(a);
+    approvalsByAgent.set(a.agentId, list);
+  }
+
   const sorted = [...agents].sort((a, b) => {
+    // Agents with pending approvals always on top
+    const aApproval = approvalsByAgent.has(a.agent_key) ? 2 : 0;
+    const bApproval = approvalsByAgent.has(b.agent_key) ? 2 : 0;
+    if (aApproval !== bApproval) return bApproval - aApproval;
     const aActive = activeAgents[a.agent_key] ? 1 : 0;
     const bActive = activeAgents[b.agent_key] ? 1 : 0;
     if (aActive !== bActive) return bActive - aActive;
@@ -329,6 +404,8 @@ function LiveMode({ activity, activeAgents, agents, agentTodos }: {
           agentKey={emp.agent_key}
           todos={agentTodos[emp.agent_key]?.todos ?? []}
           taskId={agentTodos[emp.agent_key]?.taskId}
+          pendingApprovals={approvalsByAgent.get(emp.agent_key) ?? []}
+          onApprovalAction={refreshApprovals}
         />
       ))}
     </div>
@@ -977,6 +1054,88 @@ function ModeBar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) 
 }
 
 /* ── Main LiveView ── */
+/* ── Approval Banner — shows pending tool approvals ── */
+
+interface PendingApproval {
+  id: string; agentId: string; agentName: string;
+  type: string; title: string; description: string;
+  context?: { toolName?: string; args?: any };
+  createdAt: string;
+}
+
+function ApprovalBanner() {
+  const { data: approvals, refresh } = usePolling<PendingApproval[]>("/api/approvals", 2000);
+  const [acting, setActing] = useState<string | null>(null);
+
+  if (!approvals || approvals.length === 0) return null;
+
+  async function respond(id: string, approved: boolean) {
+    setActing(id);
+    try {
+      await postApi("/api/approve", { id, approved });
+      refresh();
+    } catch (e) { console.error(e); }
+    finally { setActing(null); }
+  }
+
+  return (
+    <div style={{ padding: "0 16px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
+      {approvals.map((a) => (
+        <div key={a.id} style={{
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "10px 14px", borderRadius: 10,
+          background: "var(--orange-bg)",
+          border: "1px solid rgba(245,158,11,0.2)",
+        }}>
+          <ShieldAlert size={16} style={{ color: "var(--orange)", flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>
+              {a.agentName} wants to execute <span style={{ fontFamily: "monospace", color: "var(--orange)" }}>{a.context?.toolName || a.title}</span>
+            </div>
+            {a.description && (
+              <div style={{
+                fontSize: 11, color: "var(--text-muted)", marginTop: 3,
+                whiteSpace: "pre-wrap", maxHeight: 60, overflow: "hidden",
+                fontFamily: "monospace", lineHeight: 1.4,
+              }}>
+                {a.description.slice(0, 200)}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <button
+              onClick={() => respond(a.id, true)}
+              disabled={acting === a.id}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "5px 12px", borderRadius: 6, border: "none",
+                background: "var(--green)", color: "#fff",
+                fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                opacity: acting === a.id ? 0.5 : 1,
+              }}
+            >
+              <Check size={12} /> Allow
+            </button>
+            <button
+              onClick={() => respond(a.id, false)}
+              disabled={acting === a.id}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "5px 12px", borderRadius: 6, border: "none",
+                background: "var(--red)", color: "#fff",
+                fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                opacity: acting === a.id ? 0.5 : 1,
+              }}
+            >
+              <X size={12} /> Deny
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function LiveView() {
   const [mode, setMode] = useState<Mode>("live");
   const { tokens, activity, connected, activeAgents, agentTodos } = useAgentStream();

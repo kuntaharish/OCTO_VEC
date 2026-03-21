@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParams } from "../App";
-import { colors, spacing } from "../lib/theme";
-import { getApi } from "../lib/api";
+import { useTheme, spacing } from "../lib/theme";
+import { getApi, postApi } from "../lib/api";
 import { startBackgroundSync, stopBackgroundSync, isBackgroundRunning } from "../lib/notifications";
 import Icon from "react-native-vector-icons/Ionicons";
 
@@ -18,12 +18,22 @@ interface SummaryData {
   unreadChats: number;
 }
 
+interface PendingApproval {
+  id: string; agentId: string; agentName: string;
+  type: string; title: string; description: string;
+  context?: { toolName?: string; args?: any };
+  createdAt: string;
+}
+
 export default function HomeScreen() {
+  const { colors } = useTheme();
   const nav = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const [data, setData] = useState<SummaryData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [bgSync, setBgSync] = useState(isBackgroundRunning());
   const [connError, setConnError] = useState("");
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [actingApproval, setActingApproval] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -35,15 +45,136 @@ export default function HomeScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  const loadApprovals = useCallback(async () => {
+    try { setApprovals(await getApi<PendingApproval[]>("/api/m/approvals")); } catch {}
+  }, []);
 
-  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+  useFocusEffect(useCallback(() => {
+    load(); loadApprovals();
+    const poll = setInterval(loadApprovals, 3000);
+    return () => clearInterval(poll);
+  }, [load, loadApprovals]));
+
+  async function respondApproval(id: string, approved: boolean) {
+    setActingApproval(id);
+    try { await postApi("/api/m/approve", { id, approved }); loadApprovals(); }
+    catch {}
+    finally { setActingApproval(null); }
+  }
+
+  const onRefresh = async () => { setRefreshing(true); await load(); await loadApprovals(); setRefreshing(false); };
 
   const agents = data?.agents ?? [];
   const tasks = data?.tasks ?? { total: 0, in_progress: 0, completed: 0, failed: 0, todo: 0 };
   const events = data?.events ?? [];
   const recentTasks = data?.recentTasks ?? [];
   const activeAgents = agents.filter(a => a.running).length;
+
+  const s = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bgPrimary },
+    header: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingHorizontal: spacing.xl, paddingVertical: spacing.lg,
+      borderBottomWidth: 1, borderBottomColor: colors.border,
+    },
+    headerBtns: { flexDirection: "row", alignItems: "center", gap: 8 },
+    syncBtn: {
+      width: 38, height: 38, borderRadius: 12,
+      backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border,
+      justifyContent: "center", alignItems: "center",
+    },
+    syncBtnActive: {
+      backgroundColor: colors.textPrimary, borderColor: colors.textPrimary,
+    },
+    errorBanner: {
+      flexDirection: "row", alignItems: "center", gap: 8,
+      paddingHorizontal: 16, paddingVertical: 10,
+      backgroundColor: "rgba(240,68,68,0.08)", borderBottomWidth: 1, borderBottomColor: "rgba(240,68,68,0.15)",
+    },
+    errorText: { fontSize: 12, color: colors.red, flex: 1 },
+    errorRetry: { fontSize: 11, color: colors.textMuted, fontWeight: "600" },
+    logo: { fontSize: 22, fontWeight: "800", color: colors.textPrimary, letterSpacing: 1.5 },
+    subtitle: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+
+    statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: spacing.xl },
+    statCard: {
+      flex: 1, minWidth: "45%",
+      backgroundColor: colors.bgCard, borderRadius: 14,
+      borderWidth: 1, borderColor: colors.border,
+      padding: spacing.lg, alignItems: "center",
+    },
+    statValue: { fontSize: 28, fontWeight: "800", color: colors.textPrimary },
+    statLabel: { fontSize: 11, color: colors.textMuted, marginTop: 4, fontWeight: "600", letterSpacing: 0.3 },
+
+    section: { marginBottom: spacing.xl },
+    sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.md },
+    sectionTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary, marginBottom: spacing.md },
+    sectionBadge: { fontSize: 11, color: colors.green, fontWeight: "600", backgroundColor: "rgba(61,214,140,0.1)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+
+    agentChip: {
+      flexDirection: "row", alignItems: "center", gap: 6,
+      backgroundColor: colors.bgCard, borderRadius: 20,
+      borderWidth: 1, borderColor: colors.border,
+      paddingHorizontal: 14, paddingVertical: 8, marginRight: 8,
+    },
+    agentDot: { width: 6, height: 6, borderRadius: 3 },
+    agentChipName: { fontSize: 13, fontWeight: "600", color: colors.textPrimary },
+
+    emptyCard: {
+      backgroundColor: colors.bgCard, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+      padding: spacing.xl, alignItems: "center",
+    },
+    emptyText: { color: colors.textMuted, fontSize: 13 },
+
+    eventRow: {
+      flexDirection: "row", alignItems: "center", gap: 10,
+      paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
+    },
+    eventDot: { width: 6, height: 6, borderRadius: 3 },
+    eventText: { fontSize: 13, color: colors.textPrimary },
+    eventType: { color: colors.textMuted },
+    eventMsg: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+    eventTime: { fontSize: 10, color: colors.textDim },
+
+    taskRow: {
+      flexDirection: "row", alignItems: "center", gap: 10,
+      paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
+    },
+    taskDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.yellow },
+    taskTitle: { fontSize: 13, fontWeight: "500", color: colors.textPrimary },
+    taskAssignee: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+    taskPriority: { fontSize: 10, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase" },
+
+    approvalCard: {
+      backgroundColor: colors.bgCard, borderRadius: 14,
+      borderWidth: 1, borderColor: colors.orange,
+      padding: 14, marginBottom: spacing.xl,
+    },
+    approvalHeader: {
+      flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10,
+    },
+    approvalTitle: { fontSize: 14, fontWeight: "700", color: colors.orange, flex: 1 },
+    approvalCount: {
+      backgroundColor: colors.orange, borderRadius: 10,
+      minWidth: 20, height: 20, justifyContent: "center", alignItems: "center",
+      paddingHorizontal: 6,
+    },
+    approvalCountText: { fontSize: 11, fontWeight: "800", color: "#fff" },
+    approvalRow: {
+      flexDirection: "row", alignItems: "center", gap: 10,
+      paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border,
+    },
+    approvalAgent: { fontSize: 13, fontWeight: "600", color: colors.textPrimary },
+    approvalTool: { fontSize: 11, color: colors.orange, fontFamily: "monospace", fontWeight: "700" },
+    approvalAllow: {
+      width: 30, height: 30, borderRadius: 8,
+      backgroundColor: "rgba(61,214,140,0.12)", justifyContent: "center", alignItems: "center",
+    },
+    approvalDeny: {
+      width: 30, height: 30, borderRadius: 8,
+      backgroundColor: "rgba(240,68,68,0.1)", justifyContent: "center", alignItems: "center",
+    },
+  }), [colors]);
 
   return (
     <SafeAreaView style={s.container} edges={["top"]}>
@@ -52,20 +183,25 @@ export default function HomeScreen() {
           <Text style={s.logo}>OCTO VEC</Text>
           <Text style={s.subtitle}>Workspace Overview</Text>
         </View>
-        <TouchableOpacity
-          style={[s.syncBtn, bgSync && s.syncBtnActive]}
-          onPress={async () => {
-            if (bgSync) {
-              await stopBackgroundSync();
-              setBgSync(false);
-            } else {
-              await startBackgroundSync();
-              setBgSync(true);
-            }
-          }}
-        >
-          <Icon name={bgSync ? "notifications" : "notifications-outline"} size={18} color={bgSync ? colors.bgPrimary : colors.textMuted} />
-        </TouchableOpacity>
+        <View style={s.headerBtns}>
+          <TouchableOpacity
+            style={[s.syncBtn, bgSync && s.syncBtnActive]}
+            onPress={async () => {
+              if (bgSync) {
+                await stopBackgroundSync();
+                setBgSync(false);
+              } else {
+                await startBackgroundSync();
+                setBgSync(true);
+              }
+            }}
+          >
+            <Icon name={bgSync ? "notifications" : "notifications-outline"} size={18} color={bgSync ? colors.bgPrimary : colors.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity style={s.syncBtn} onPress={() => nav.navigate("Settings")}>
+            <Icon name="settings-outline" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {connError ? (
@@ -123,6 +259,39 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
+        {/* Pending Approvals */}
+        {approvals.length > 0 && (
+          <View style={s.approvalCard}>
+            <View style={s.approvalHeader}>
+              <Icon name="shield-checkmark-outline" size={18} color={colors.orange} />
+              <Text style={s.approvalTitle}>Action Required</Text>
+              <View style={s.approvalCount}>
+                <Text style={s.approvalCountText}>{approvals.length}</Text>
+              </View>
+            </View>
+            {approvals.map(a => {
+              const firstName = (a.agentName || "Agent").split(" ")[0];
+              const toolName = a.context?.toolName || a.title;
+              return (
+                <View key={a.id} style={s.approvalRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.approvalAgent}>{firstName}</Text>
+                    <Text style={s.approvalTool} numberOfLines={1}>{toolName}</Text>
+                  </View>
+                  <TouchableOpacity style={s.approvalAllow} onPress={() => respondApproval(a.id, true)}
+                    disabled={actingApproval === a.id} activeOpacity={0.6}>
+                    <Icon name="checkmark" size={16} color={colors.green} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={s.approvalDeny} onPress={() => respondApproval(a.id, false)}
+                    disabled={actingApproval === a.id} activeOpacity={0.6}>
+                    <Icon name="close" size={16} color={colors.red} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         {/* Recent Activity */}
         <View style={s.section}>
           <Text style={s.sectionTitle}>Recent Activity</Text>
@@ -177,78 +346,3 @@ function formatTimeAgo(ts: string): string {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
   return `${Math.floor(diff / 86400)}d`;
 }
-
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgPrimary },
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: spacing.xl, paddingVertical: spacing.lg,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  syncBtn: {
-    width: 38, height: 38, borderRadius: 12,
-    backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border,
-    justifyContent: "center", alignItems: "center",
-  },
-  syncBtnActive: {
-    backgroundColor: colors.textPrimary, borderColor: colors.textPrimary,
-  },
-  errorBanner: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 16, paddingVertical: 10,
-    backgroundColor: "rgba(240,68,68,0.08)", borderBottomWidth: 1, borderBottomColor: "rgba(240,68,68,0.15)",
-  },
-  errorText: { fontSize: 12, color: colors.red, flex: 1 },
-  errorRetry: { fontSize: 11, color: colors.textMuted, fontWeight: "600" },
-  logo: { fontSize: 22, fontWeight: "800", color: colors.textPrimary, letterSpacing: 1.5 },
-  subtitle: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: spacing.xl },
-  statCard: {
-    flex: 1, minWidth: "45%",
-    backgroundColor: colors.bgCard, borderRadius: 14,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.lg, alignItems: "center",
-  },
-  statValue: { fontSize: 28, fontWeight: "800", color: colors.textPrimary },
-  statLabel: { fontSize: 11, color: colors.textMuted, marginTop: 4, fontWeight: "600", letterSpacing: 0.3 },
-
-  section: { marginBottom: spacing.xl },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.md },
-  sectionTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary, marginBottom: spacing.md },
-  sectionBadge: { fontSize: 11, color: colors.green, fontWeight: "600", backgroundColor: "rgba(61,214,140,0.1)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-
-  agentChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: colors.bgCard, borderRadius: 20,
-    borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: 14, paddingVertical: 8, marginRight: 8,
-  },
-  agentDot: { width: 6, height: 6, borderRadius: 3 },
-  agentChipName: { fontSize: 13, fontWeight: "600", color: colors.textPrimary },
-
-  emptyCard: {
-    backgroundColor: colors.bgCard, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
-    padding: spacing.xl, alignItems: "center",
-  },
-  emptyText: { color: colors.textMuted, fontSize: 13 },
-
-  eventRow: {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  eventDot: { width: 6, height: 6, borderRadius: 3 },
-  eventText: { fontSize: 13, color: colors.textPrimary },
-  eventType: { color: colors.textMuted },
-  eventMsg: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  eventTime: { fontSize: 10, color: colors.textDim },
-
-  taskRow: {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  taskDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.yellow },
-  taskTitle: { fontSize: 13, fontWeight: "500", color: colors.textPrimary },
-  taskAssignee: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  taskPriority: { fontSize: 10, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase" },
-});

@@ -61,9 +61,10 @@ interface Props {
   setActiveView: (v: View) => void;
   chatBadge?: number;
   reminderBadge?: number;
+  approvalBadge?: number;
 }
 
-export default function Sidebar({ activeView, setActiveView, chatBadge = 0, reminderBadge = 0 }: Props) {
+export default function Sidebar({ activeView, setActiveView, chatBadge = 0, reminderBadge = 0, approvalBadge = 0 }: Props) {
   const [showTheme, setShowTheme] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     localStorage.getItem("sidebar-collapsed") === "true"
@@ -187,9 +188,12 @@ export default function Sidebar({ activeView, setActiveView, chatBadge = 0, remi
               >
                 {(() => {
                   const badge = item.id === "chat" ? chatBadge
-                    : item.id === "reminders" ? reminderBadge : 0;
-                  const badgeColor = item.id === "reminders" ? "var(--orange, var(--yellow))" : "var(--red, #ef4444)";
-                  const badgeShadow = item.id === "reminders" ? "0 0 4px rgba(212,168,50,0.5)" : "0 0 4px rgba(239,68,68,0.5)";
+                    : item.id === "reminders" ? reminderBadge
+                    : item.id === "live" ? approvalBadge : 0;
+                  const badgeColor = item.id === "reminders" ? "var(--orange, var(--yellow))"
+                    : item.id === "live" ? "var(--orange)" : "var(--red, #ef4444)";
+                  const badgeShadow = item.id === "reminders" ? "0 0 4px rgba(212,168,50,0.5)"
+                    : item.id === "live" ? "0 0 4px rgba(245,158,11,0.5)" : "0 0 4px rgba(239,68,68,0.5)";
                   return (<>
                     <span style={{ display: "flex", flexShrink: 0, position: "relative" }}>
                       {item.icon}

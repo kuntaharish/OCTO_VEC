@@ -56,6 +56,7 @@ export interface AgentProfile {
   all_tools: string[];
   all_mcp_servers: string[];
   enabled_mcp_servers: string[];
+  approval_required_tools: string[];
 }
 
 export interface ErrorEntry {

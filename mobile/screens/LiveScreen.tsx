@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, RefreshControl, Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
-import { colors, spacing } from "../lib/theme";
+import { useTheme, spacing } from "../lib/theme";
+import type { ColorPalette } from "../lib/theme";
 import { getApi, postApi, subscribeStream } from "../lib/api";
 import Icon from "react-native-vector-icons/Ionicons";
 
@@ -16,13 +17,21 @@ interface ActivityEntry {
   toolName?: string; toolArgs?: any; toolResult?: string;
   isError?: boolean; timestamp: number;
 }
+interface PendingApproval {
+  id: string; agentId: string; agentName: string;
+  type: string; title: string; description: string;
+  context?: { toolName?: string; args?: any };
+  createdAt: string;
+}
 interface TodoItem { id: string; content: string; status: string; priority?: string; }
 interface AgentInfo { agent_key: string; name: string; role: string; color?: string; initials?: string; }
 interface AgentState { active: boolean; tokens: string; activity: ActivityEntry[]; todos: TodoItem[]; thinking: boolean; }
 
 // ── Pulse Dot ────────────────────────────────────────────────────────────────
 
-function PulseDot({ color = colors.green, size = 8 }: { color?: string; size?: number }) {
+function PulseDot({ color, size = 8 }: { color?: string; size?: number }) {
+  const { colors } = useTheme();
+  const resolvedColor = color ?? colors.green;
   const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const anim = Animated.loop(Animated.sequence([
@@ -32,12 +41,13 @@ function PulseDot({ color = colors.green, size = 8 }: { color?: string; size?: n
     anim.start();
     return () => anim.stop();
   }, [opacity]);
-  return <Animated.View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, opacity }} />;
+  return <Animated.View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: resolvedColor, opacity }} />;
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export default function LiveScreen() {
+  const { colors } = useTheme();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentStates, setAgentStates] = useState<Record<string, AgentState>>({});
   const [filter, setFilter] = useState<string>("all");
@@ -45,6 +55,8 @@ export default function LiveScreen() {
   const [steerMsg, setSteerMsg] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [connected, setConnected] = useState(false);
+
+  const s = useMemo(() => createStyles(colors), [colors]);
 
   const loadLive = useCallback(async () => {
     try {
@@ -129,6 +141,37 @@ export default function LiveScreen() {
     return () => { unsub(); };
   }, [loadLive]));
 
+  // ── Approvals polling ──
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [actingApproval, setActingApproval] = useState<string | null>(null);
+
+  const loadApprovals = useCallback(async () => {
+    try { setApprovals(await getApi<PendingApproval[]>("/api/m/approvals")); } catch {}
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    loadApprovals();
+    const poll = setInterval(loadApprovals, 2000);
+    return () => clearInterval(poll);
+  }, [loadApprovals]));
+
+  const approvalsByAgent = useMemo(() => {
+    const map = new Map<string, PendingApproval[]>();
+    for (const a of approvals) {
+      const list = map.get(a.agentId) ?? [];
+      list.push(a);
+      map.set(a.agentId, list);
+    }
+    return map;
+  }, [approvals]);
+
+  async function respondApproval(id: string, approved: boolean) {
+    setActingApproval(id);
+    try { await postApi("/api/m/approve", { id, approved }); loadApprovals(); }
+    catch {}
+    finally { setActingApproval(null); }
+  }
+
   async function handleSteer() {
     if (!steerAgent || !steerMsg.trim()) return;
     try {
@@ -140,7 +183,7 @@ export default function LiveScreen() {
     try { await postApi("/api/m/interrupt", { agent_id: agentId, reason: "Stopped from mobile" }); } catch {}
   }
 
-  const onRefresh = async () => { setRefreshing(true); await loadLive(); setRefreshing(false); };
+  const onRefresh = async () => { setRefreshing(true); await loadLive(); await loadApprovals(); setRefreshing(false); };
 
   const activeCount = Object.values(agentStates).filter(s => s.active).length;
 
@@ -224,6 +267,10 @@ export default function LiveScreen() {
             onInterrupt={() => handleInterrupt(item.agent_key)}
             showSteer={steerAgent === item.agent_key}
             steerMsg={steerMsg} setSteerMsg={setSteerMsg} handleSteer={handleSteer}
+            pendingApprovals={approvalsByAgent.get(item.agent_key) ?? []}
+            onApprovalAction={respondApproval}
+            actingApproval={actingApproval}
+            s={s}
           />
         )}
         contentContainerStyle={s.listContent}
@@ -243,17 +290,20 @@ export default function LiveScreen() {
 
 // ── Agent Card ───────────────────────────────────────────────────────────────
 
-function AgentCard({ agent, state, onSteer, onInterrupt, showSteer, steerMsg, setSteerMsg, handleSteer }: {
+function AgentCard({ agent, state, onSteer, onInterrupt, showSteer, steerMsg, setSteerMsg, handleSteer, pendingApprovals, onApprovalAction, actingApproval, s }: {
   agent: AgentInfo; state: AgentState;
   onSteer: () => void; onInterrupt: () => void;
   showSteer: boolean; steerMsg: string; setSteerMsg: (v: string) => void; handleSteer: () => void;
+  pendingApprovals: PendingApproval[]; onApprovalAction: (id: string, approved: boolean) => void; actingApproval: string | null;
+  s: ReturnType<typeof createStyles>;
 }) {
+  const { colors } = useTheme();
   const initials = agent.initials || (agent.name || "?").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-  const statusColor = state.active ? colors.green : state.thinking ? colors.cyan : colors.textDim;
+  const statusColor = pendingApprovals.length > 0 ? colors.orange : state.active ? colors.green : state.thinking ? colors.cyan : colors.textDim;
   const hasActivity = state.activity.length > 0;
 
   return (
-    <View style={s.card}>
+    <View style={[s.card, pendingApprovals.length > 0 && { borderColor: colors.orange }]}>
       {/* Header row */}
       <View style={s.cardHead}>
         <View style={s.cardLeft}>
@@ -306,6 +356,34 @@ function AgentCard({ agent, state, onSteer, onInterrupt, showSteer, steerMsg, se
         </View>
       )}
 
+      {/* Pending approvals */}
+      {pendingApprovals.length > 0 && (
+        <View style={s.approvalSection}>
+          {pendingApprovals.map(a => (
+            <View key={a.id} style={s.approvalRow}>
+              <Icon name="shield-checkmark-outline" size={14} color={colors.orange} />
+              <Text style={s.approvalTool} numberOfLines={1}>
+                {a.context?.toolName || a.title}
+              </Text>
+              <TouchableOpacity
+                style={s.approvalAllow}
+                onPress={() => onApprovalAction(a.id, true)}
+                disabled={actingApproval === a.id} activeOpacity={0.6}
+              >
+                <Icon name="checkmark" size={14} color={colors.green} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.approvalDeny}
+                onPress={() => onApprovalAction(a.id, false)}
+                disabled={actingApproval === a.id} activeOpacity={0.6}
+              >
+                <Icon name="close" size={14} color={colors.red} />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Live output */}
       {state.active && state.tokens.length > 0 && (
         <View style={s.liveOutput}>
@@ -350,7 +428,7 @@ function AgentCard({ agent, state, onSteer, onInterrupt, showSteer, steerMsg, se
         <ScrollView style={s.timelineScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
           <View style={s.timeline}>
             {state.activity.slice(-10).map((entry, i, arr) => {
-              const cfg = getEntryConfig(entry);
+              const cfg = getEntryConfig(entry, colors);
               const isLast = i === arr.length - 1;
               return (
                 <View key={`${entry.timestamp}-${i}`} style={s.tlRow}>
@@ -389,7 +467,7 @@ function AgentCard({ agent, state, onSteer, onInterrupt, showSteer, steerMsg, se
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function getEntryConfig(e: ActivityEntry): { label: string; color: string } {
+function getEntryConfig(e: ActivityEntry, colors: ColorPalette): { label: string; color: string } {
   switch (e.type) {
     case "agent_start": return { label: "Started", color: colors.green };
     case "agent_end": return { label: "Finished", color: colors.textMuted };
@@ -407,165 +485,189 @@ function trunc(s: string, n: number) { return s.length > n ? s.slice(0, n) + "..
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bgPrimary },
+function createStyles(colors: ColorPalette) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.bgPrimary },
 
-  // Header
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.md,
-  },
-  title: { fontSize: 24, fontWeight: "800", color: colors.textPrimary, letterSpacing: -0.5 },
-  headerRight: { flexDirection: "row", alignItems: "center" },
-  connPill: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
-  },
-  connOn: { backgroundColor: "rgba(61,214,140,0.15)" },
-  connOff: { backgroundColor: "rgba(240,68,68,0.15)" },
-  connText: { fontSize: 10, fontWeight: "700", color: colors.textSecondary, letterSpacing: 0.3 },
+    // Header
+    header: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.md,
+    },
+    title: { fontSize: 24, fontWeight: "800", color: colors.textPrimary, letterSpacing: -0.5 },
+    headerRight: { flexDirection: "row", alignItems: "center" },
+    connPill: {
+      flexDirection: "row", alignItems: "center", gap: 5,
+      paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+    },
+    connOn: { backgroundColor: "rgba(61,214,140,0.15)" },
+    connOff: { backgroundColor: "rgba(240,68,68,0.15)" },
+    connText: { fontSize: 10, fontWeight: "700", color: colors.textSecondary, letterSpacing: 0.3 },
 
-  // Status bar
-  statusBar: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    marginHorizontal: spacing.xl, marginBottom: spacing.sm,
-    backgroundColor: colors.bgCard, borderRadius: 12,
-    paddingVertical: 10, borderWidth: 1, borderColor: colors.border,
-  },
-  statusItem: { flex: 1, alignItems: "center" },
-  statusNum: { fontSize: 18, fontWeight: "800", color: colors.textPrimary },
-  statusLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "500", marginTop: 1 },
-  statusDivider: { width: 1, height: 24, backgroundColor: colors.border },
+    // Status bar
+    statusBar: {
+      flexDirection: "row", alignItems: "center", justifyContent: "center",
+      marginHorizontal: spacing.xl, marginBottom: spacing.sm,
+      backgroundColor: colors.bgCard, borderRadius: 12,
+      paddingVertical: 10, borderWidth: 1, borderColor: colors.border,
+    },
+    statusItem: { flex: 1, alignItems: "center" },
+    statusNum: { fontSize: 18, fontWeight: "800", color: colors.textPrimary },
+    statusLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "500", marginTop: 1 },
+    statusDivider: { width: 1, height: 24, backgroundColor: colors.border },
 
-  // Tab filters
-  tabBar: { marginBottom: 4 },
-  tabContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 6 },
-  tab: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
-    backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border,
-  },
-  tabSelected: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
-  tabActiveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.green },
-  tabText: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
-  tabTextSelected: { color: colors.bgPrimary },
+    // Tab filters
+    tabBar: { marginBottom: 4 },
+    tabContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 6 },
+    tab: {
+      flexDirection: "row", alignItems: "center", gap: 5,
+      paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+      backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border,
+    },
+    tabSelected: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
+    tabActiveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.green },
+    tabText: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
+    tabTextSelected: { color: colors.bgPrimary },
 
-  // List
-  listContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: 40, gap: 10 },
+    // List
+    listContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: 40, gap: 10 },
 
-  // Card
-  card: {
-    backgroundColor: colors.bgCard, borderRadius: 14,
-    borderWidth: 1, borderColor: colors.border, overflow: "hidden",
-  },
-  cardGlow: { borderColor: "rgba(61,214,140,0.25)", backgroundColor: "#0d1a12" },
-  cardHead: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    padding: 14,
-  },
-  cardLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  cardRight: { flexDirection: "row", alignItems: "center", gap: 6 },
-  avatar: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
-    borderWidth: 1.5, borderColor: colors.border,
-  },
-  avatarText: { fontSize: 12, fontWeight: "800", color: colors.textPrimary },
-  avatarDot: {
-    position: "absolute", bottom: -2, right: -2,
-    width: 10, height: 10, borderRadius: 5,
-    borderWidth: 2, borderColor: colors.bgCard,
-  },
-  cardName: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
-  cardRole: { fontSize: 10, color: colors.textMuted, marginTop: 1 },
+    // Card
+    card: {
+      backgroundColor: colors.bgCard, borderRadius: 14,
+      borderWidth: 1, borderColor: colors.border, overflow: "hidden",
+    },
+    cardGlow: { borderColor: "rgba(61,214,140,0.25)", backgroundColor: "#0d1a12" },
+    cardHead: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      padding: 14,
+    },
+    cardLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+    cardRight: { flexDirection: "row", alignItems: "center", gap: 6 },
+    avatar: {
+      width: 36, height: 36, borderRadius: 10,
+      backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
+      borderWidth: 1.5, borderColor: colors.border,
+    },
+    avatarText: { fontSize: 12, fontWeight: "800", color: colors.textPrimary },
+    avatarDot: {
+      position: "absolute", bottom: -2, right: -2,
+      width: 10, height: 10, borderRadius: 5,
+      borderWidth: 2, borderColor: colors.bgCard,
+    },
+    cardName: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+    cardRole: { fontSize: 10, color: colors.textMuted, marginTop: 1 },
 
-  // Badges
-  thinkBadge: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-    backgroundColor: "rgba(34,211,238,0.08)",
-  },
-  thinkText: { fontSize: 9, fontWeight: "700", color: colors.cyan, letterSpacing: 0.3 },
-  doneBadge: {
-    flexDirection: "row", alignItems: "center", gap: 3,
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.04)",
-  },
-  doneText: { fontSize: 9, fontWeight: "600", color: colors.textDim },
+    // Badges
+    thinkBadge: {
+      flexDirection: "row", alignItems: "center", gap: 4,
+      paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+      backgroundColor: "rgba(34,211,238,0.08)",
+    },
+    thinkText: { fontSize: 9, fontWeight: "700", color: colors.cyan, letterSpacing: 0.3 },
+    doneBadge: {
+      flexDirection: "row", alignItems: "center", gap: 3,
+      paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+      backgroundColor: colors.bgTertiary,
+    },
+    doneText: { fontSize: 9, fontWeight: "600", color: colors.textDim },
 
-  // Actions
-  actionRow: { flexDirection: "row", gap: 4 },
-  actionBtn: {
-    width: 32, height: 32, borderRadius: 10,
-    backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
-  },
-  stopAction: { backgroundColor: "rgba(240,68,68,0.08)" },
+    // Actions
+    actionRow: { flexDirection: "row", gap: 4 },
+    actionBtn: {
+      width: 32, height: 32, borderRadius: 10,
+      backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
+    },
+    stopAction: { backgroundColor: "rgba(240,68,68,0.08)" },
 
-  // Steer
-  steerRow: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 14, paddingBottom: 12,
-  },
-  steerInput: {
-    flex: 1, backgroundColor: colors.bgPrimary, borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 8, color: colors.textPrimary, fontSize: 13,
-    borderWidth: 1, borderColor: colors.border,
-  },
-  steerSend: {
-    width: 32, height: 32, borderRadius: 10,
-    backgroundColor: colors.textPrimary, justifyContent: "center", alignItems: "center",
-  },
+    // Approvals
+    approvalSection: {
+      marginHorizontal: 14, marginBottom: 10, padding: 10,
+      backgroundColor: "rgba(245,158,11,0.06)", borderRadius: 10,
+      borderWidth: 1, borderColor: "rgba(245,158,11,0.2)",
+      gap: 6,
+    },
+    approvalRow: {
+      flexDirection: "row", alignItems: "center", gap: 8,
+    },
+    approvalTool: {
+      flex: 1, fontSize: 12, fontWeight: "700", color: colors.orange, fontFamily: "monospace",
+    },
+    approvalAllow: {
+      width: 28, height: 28, borderRadius: 8,
+      backgroundColor: "rgba(61,214,140,0.12)", justifyContent: "center", alignItems: "center",
+    },
+    approvalDeny: {
+      width: 28, height: 28, borderRadius: 8,
+      backgroundColor: "rgba(240,68,68,0.1)", justifyContent: "center", alignItems: "center",
+    },
 
-  // Live output
-  liveOutput: {
-    marginHorizontal: 14, marginBottom: 10, padding: 10,
-    backgroundColor: colors.bgPrimary, borderRadius: 10,
-    borderWidth: 1, borderColor: "rgba(61,214,140,0.1)",
-  },
-  liveLabel: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 4 },
-  liveLabelText: { fontSize: 9, fontWeight: "700", color: colors.green, letterSpacing: 0.5, textTransform: "uppercase" },
-  liveText: { fontSize: 11, color: colors.textSecondary, fontFamily: "monospace", lineHeight: 16 },
+    // Steer
+    steerRow: {
+      flexDirection: "row", alignItems: "center", gap: 8,
+      paddingHorizontal: 14, paddingBottom: 12,
+    },
+    steerInput: {
+      flex: 1, backgroundColor: colors.bgPrimary, borderRadius: 10,
+      paddingHorizontal: 12, paddingVertical: 8, color: colors.textPrimary, fontSize: 13,
+      borderWidth: 1, borderColor: colors.border,
+    },
+    steerSend: {
+      width: 32, height: 32, borderRadius: 10,
+      backgroundColor: colors.textPrimary, justifyContent: "center", alignItems: "center",
+    },
 
-  // Todos
-  todoSection: {
-    marginHorizontal: 14, marginBottom: 10, padding: 10,
-    backgroundColor: colors.bgPrimary, borderRadius: 10,
-    borderWidth: 1, borderColor: colors.border,
-  },
-  todoHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
-  todoTitle: { fontSize: 11, fontWeight: "700", color: colors.textPrimary, flex: 1 },
-  todoProgress: { fontSize: 10, color: colors.green, fontWeight: "700" },
-  progressBar: { height: 3, backgroundColor: colors.bgTertiary, borderRadius: 2, marginBottom: 8, overflow: "hidden" },
-  progressFill: { height: 3, backgroundColor: colors.green, borderRadius: 2 },
-  todoRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 2 },
-  todoText: { fontSize: 11, color: colors.textSecondary, flex: 1 },
-  todoDone: { textDecorationLine: "line-through", opacity: 0.4 },
-  todoMore: { fontSize: 10, color: colors.textDim, marginTop: 4, textAlign: "center" },
+    // Live output
+    liveOutput: {
+      marginHorizontal: 14, marginBottom: 10, padding: 10,
+      backgroundColor: colors.bgPrimary, borderRadius: 10,
+      borderWidth: 1, borderColor: "rgba(61,214,140,0.1)",
+    },
+    liveLabel: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 4 },
+    liveLabelText: { fontSize: 9, fontWeight: "700", color: colors.green, letterSpacing: 0.5, textTransform: "uppercase" },
+    liveText: { fontSize: 11, color: colors.textSecondary, fontFamily: "monospace", lineHeight: 16 },
 
-  // Timeline
-  timelineScroll: { maxHeight: 180, marginHorizontal: 14, marginBottom: 12 },
-  timeline: { },
-  tlRow: { flexDirection: "row", minHeight: 26 },
-  tlRail: { width: 18, alignItems: "center" },
-  tlDot: { width: 6, height: 6, borderRadius: 3, marginTop: 5 },
-  tlLine: { width: 1, flex: 1, backgroundColor: colors.border, marginVertical: 2 },
-  tlBody: { flex: 1, paddingLeft: 8, paddingBottom: 6 },
-  tlTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  tlLabel: { fontSize: 10, fontWeight: "700" },
-  tlTime: { fontSize: 8, color: colors.textDim, fontFamily: "monospace" },
-  tlDetail: { fontSize: 10, color: colors.textMuted, marginTop: 1, fontFamily: "monospace", lineHeight: 14 },
+    // Todos
+    todoSection: {
+      marginHorizontal: 14, marginBottom: 10, padding: 10,
+      backgroundColor: colors.bgPrimary, borderRadius: 10,
+      borderWidth: 1, borderColor: colors.border,
+    },
+    todoHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+    todoTitle: { fontSize: 11, fontWeight: "700", color: colors.textPrimary, flex: 1 },
+    todoProgress: { fontSize: 10, color: colors.green, fontWeight: "700" },
+    progressBar: { height: 3, backgroundColor: colors.bgTertiary, borderRadius: 2, marginBottom: 8, overflow: "hidden" },
+    progressFill: { height: 3, backgroundColor: colors.green, borderRadius: 2 },
+    todoRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 2 },
+    todoText: { fontSize: 11, color: colors.textSecondary, flex: 1 },
+    todoDone: { textDecorationLine: "line-through", opacity: 0.4 },
+    todoMore: { fontSize: 10, color: colors.textDim, marginTop: 4, textAlign: "center" },
 
-  // Idle
-  idleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingBottom: 14 },
-  idleText: { fontSize: 11, color: colors.textDim },
+    // Timeline
+    timelineScroll: { maxHeight: 180, marginHorizontal: 14, marginBottom: 12 },
+    timeline: { },
+    tlRow: { flexDirection: "row", minHeight: 26 },
+    tlRail: { width: 18, alignItems: "center" },
+    tlDot: { width: 6, height: 6, borderRadius: 3, marginTop: 5 },
+    tlLine: { width: 1, flex: 1, backgroundColor: colors.border, marginVertical: 2 },
+    tlBody: { flex: 1, paddingLeft: 8, paddingBottom: 6 },
+    tlTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    tlLabel: { fontSize: 10, fontWeight: "700" },
+    tlTime: { fontSize: 8, color: colors.textDim, fontFamily: "monospace" },
+    tlDetail: { fontSize: 10, color: colors.textMuted, marginTop: 1, fontFamily: "monospace", lineHeight: 14 },
 
-  // Empty
-  empty: { alignItems: "center", paddingTop: 80, gap: 8 },
-  emptyIcon: {
-    width: 56, height: 56, borderRadius: 16,
-    backgroundColor: colors.bgCard, justifyContent: "center", alignItems: "center",
-    borderWidth: 1, borderColor: colors.border, marginBottom: 4,
-  },
-  emptyTitle: { fontSize: 15, fontWeight: "700", color: colors.textSecondary },
-  emptySub: { fontSize: 12, color: colors.textDim },
-});
+    // Idle
+    idleRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingBottom: 14 },
+    idleText: { fontSize: 11, color: colors.textDim },
+
+    // Empty
+    empty: { alignItems: "center", paddingTop: 80, gap: 8 },
+    emptyIcon: {
+      width: 56, height: 56, borderRadius: 16,
+      backgroundColor: colors.bgCard, justifyContent: "center", alignItems: "center",
+      borderWidth: 1, borderColor: colors.border, marginBottom: 4,
+    },
+    emptyTitle: { fontSize: 15, fontWeight: "700", color: colors.textSecondary },
+    emptySub: { fontSize: 12, color: colors.textDim },
+  });
+}
