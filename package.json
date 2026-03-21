@@ -30,8 +30,7 @@
   "files": [
     "dist/",
     "core/",
-    "dashboard/dist/",
-    "scripts/"
+    "dashboard/dist/"
   ],
   "scripts": {
     "start": "tsx src/tower.ts",

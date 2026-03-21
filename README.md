@@ -4,7 +4,7 @@
 
 ### Your AI Team, Not Just Another AI Tool
 
-**A virtual software company — 9 autonomous AI agents that collaborate like real employees.**
+**A virtual software company — 24 autonomous AI agents that collaborate like real employees.**
 You talk to the PM. They handle the rest. No meetings. Just tentacles.
 
 [![Open Source](https://img.shields.io/badge/status-open%20source-3fb950?style=for-the-badge)](https://github.com/akhil2129/octo-vec)
@@ -34,9 +34,9 @@ You talk to the PM. They handle the rest. No meetings. Just tentacles.
 
 ## What is OCTO VEC?
 
-OCTO VEC is an **open-source virtual software company** — 9 autonomous AI agents that simulate a real dev team. Give a task to the Project Manager and it breaks it down, delegates to specialists, and they collaborate to deliver tested, scanned, documented code.
+OCTO VEC is an **open-source virtual software company** — 24 autonomous AI agents that simulate a real dev team. Give a task to the Project Manager and it breaks it down, delegates to specialists, and they collaborate to deliver tested, scanned, documented code.
 
-Not a coding assistant. Not a copilot. A **full team** — with a PM, Developer, BA, QA, Security Engineer, DevOps, Architect, Researcher, and Tech Writer.
+Not a coding assistant. Not a copilot. A **full team** — with a PM, Developer, BA, QA, Security Engineer, DevOps, Architect, Researcher, Tech Writer, and 15 more specialist roles you can hire on demand.
 
 ```
 you > Build a REST API with auth and write tests
@@ -59,23 +59,60 @@ All tasks completed. Your coffee is getting cold.
 
 ## Meet the Team
 
-Your default roster — 9 agents ready to work:
+9 agents active by default, 15 more available to hire from the Dashboard > Directory.
 
-| Agent | Name | Role | What They Do |
-|:---:|---|---|---|
-| PM | **Arjun Sharma** | Project Manager | The octopus in charge. Breaks down tasks, assigns work, keeps everyone on track |
-| Architect | **Priya Nair** | Solutions Architect | System design, database schemas, API contracts, tech stack decisions |
-| BA | **Kavya Nair** | Business Analyst | Turns vague requests into crystal-clear requirements and user stories |
-| Researcher | **Shreya Joshi** | Research Specialist | Technology research, best practices, benchmarks, comparison reports |
-| Developer | **Rohan Mehta** | Senior Developer | Writes production code (Python, JS, TS), runs tests, fixes bugs |
-| QA | **Preethi Raj** | QA Engineer | Test plans, test cases, reviews scan reports, validates deliverables |
-| Security | **Vikram Singh** | Security Engineer | Vulnerability scans, code audits, OWASP compliance |
-| DevOps | **Aditya Kumar** | DevOps Engineer | CI/CD pipelines, Dockerfiles, Kubernetes, deployment configs |
-| Tech Writer | **Anjali Patel** | Technical Writer | API docs, READMEs, user guides, architecture decision records |
+#### Management
 
-**15 more agents available** — enable from the Dashboard > Directory view:
+| Role | What They Do |
+|---|---|
+| **Project Manager** | The octopus in charge. Breaks down tasks, assigns work, tracks progress |
+| **Product Owner** | Backlog prioritization, user stories, stakeholder alignment |
+| **Scrum Master** | Sprint planning, standup facilitation, agile process management |
 
-Frontend Developer, Backend Developer, Mobile Developer, Data Engineer, DBA, ML Engineer, SRE, Product Owner, UI/UX Designer, Scrum Master, Data Analyst, Release Manager, Compliance Officer, Support Engineer.
+#### Engineering
+
+| Role | What They Do |
+|---|---|
+| **Senior Developer** | Full-stack production code (Python, JS, TS), tests, bug fixes |
+| **Frontend Developer** | React, Vue, Angular — UI components, responsive layouts, state management |
+| **Backend Developer** | APIs, microservices, databases, server-side logic |
+| **Mobile Developer** | React Native, Flutter — cross-platform mobile apps |
+| **Solutions Architect** | System design, database schemas, API contracts, tech stack decisions |
+| **DevOps Engineer** | CI/CD pipelines, Dockerfiles, Kubernetes, deployment configs |
+| **SRE** | Monitoring, incident response, reliability, performance optimization |
+
+#### Data & AI
+
+| Role | What They Do |
+|---|---|
+| **Data Engineer** | ETL pipelines, data warehousing, streaming architectures |
+| **Database Administrator** | Schema design, query optimization, backup strategies, migrations |
+| **ML/AI Engineer** | Model training, inference pipelines, embeddings, RAG systems |
+| **Data Analyst** | Dashboards, metrics, SQL queries, business intelligence reports |
+
+#### Quality & Security
+
+| Role | What They Do |
+|---|---|
+| **QA Engineer** | Test plans, test cases, reviews scan reports, validates deliverables |
+| **Security Engineer** | Vulnerability scans, code audits, OWASP compliance, threat modeling |
+| **Compliance Officer** | Regulatory compliance, policy enforcement, audit trails |
+
+#### Research & Documentation
+
+| Role | What They Do |
+|---|---|
+| **Business Analyst** | Turns vague requests into crystal-clear requirements and user stories |
+| **Research Specialist** | Technology research, best practices, benchmarks, comparison reports |
+| **Technical Writer** | API docs, READMEs, user guides, architecture decision records |
+| **UI/UX Designer** | Wireframes, design systems, user flows, accessibility audits |
+
+#### Operations
+
+| Role | What They Do |
+|---|---|
+| **Release Manager** | Release planning, versioning, changelog, deployment coordination |
+| **Support Engineer** | Issue triage, customer debugging, runbook creation |
 
 ---
 
@@ -88,6 +125,11 @@ Frontend Developer, Backend Developer, Mobile Developer, Data Engineer, DBA, ML 
 - **Task Delegation** — PM automatically breaks requests into tasks and assigns specialists
 - **Agent Sandbox** — Each agent has a private workspace. Shared workspace for cross-team deliverables
 - **Git Integration** — Agents commit code with their own identity (per-agent git name + email)
+- **Dynamic Agent Directory** — Hire, fire, rename, enable/disable agents at runtime from the dashboard
+- **24 Role Templates** — PM, Dev, BA, QA, Security, DevOps, Architect, Researcher, Tech Writer, Frontend, Backend, Mobile, Data Engineer, DBA, ML/AI, SRE, Product Owner, UI/UX Designer, Scrum Master, Data Analyst, Release Manager, Compliance Officer, Support Engineer, and more
+- **Agent Groups** — Create team groups for multi-agent conversations
+- **Web Terminal** — Full terminal access from the dashboard (bash, PowerShell, cmd)
+- **Interrupt & Steer** — Stop or redirect a running agent mid-task from the dashboard
 
 ### Memory
 
@@ -101,9 +143,16 @@ Frontend Developer, Backend Developer, Mobile Developer, Data Engineer, DBA, ML 
 - **Live Streaming** — Watch agents think, call tools, and generate responses in real time (SSE)
 - **Three Themes** — Dark, Light, Midnight
 
+### Mobile App
+
+- **Android App** — Full mobile dashboard with chat, tasks, agents, and live activity
+- **QR Code Pairing** — Scan from mobile to connect instantly, no manual config
+- **Push Notifications** — Get notified when agents complete tasks or need attention
+- **Device Management** — Link/unlink devices, auto-logout on unlink (WhatsApp-style)
+
 ### Communication
 
-- **4 Channels** — CLI, Telegram, Slack, Discord — all route to the same PM
+- **17 Channels** — CLI, Telegram, Slack, Discord, WhatsApp, Teams, Matrix, Signal, LINE, IRC, Twitch, Nostr, Google Chat, Mattermost, Feishu, Nextcloud, Synology — all route to the same PM
 - **DM Support** — Slack and Discord bots respond to direct messages too
 - **Hot-Reload** — Change channel credentials from dashboard without restarting
 
@@ -128,17 +177,22 @@ Most AI coding tools give you a fast code generator. OCTO VEC gives you **a whol
 
 | Feature | Copilot | Cursor | Devin | OpenHands | MetaGPT | ChatDev | **OCTO VEC** |
 |---------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Multi-agent team | — | Yes | — | Yes | Yes | Yes | **Yes (9+ roles)** |
+| Multi-agent team | — | Yes | — | Yes | Yes | Yes | **Yes (24 roles)** |
 | Named role simulation (PM, BA, QA, Security…) | — | — | — | — | Partial | Partial | **Yes** |
 | Three-tier memory (STM/LTM/SLTM) | — | — | — | — | — | — | **Yes** |
 | Daily lifecycle (Sunset/Sunrise) | — | — | — | — | — | — | **Yes** |
 | Built-in security scanning (SAST/SCA/Secrets) | Yes | — | — | — | — | — | **Yes** |
 | Auto-compaction | — | Yes | — | Partial | — | — | **Yes** |
-| Multi-channel (CLI + Telegram + Slack + Discord) | — | — | Slack | Slack | — | — | **Yes (4)** |
+| Multi-channel (CLI + 16 platforms) | — | — | Slack | Slack | — | — | **Yes (17)** |
 | Real-time web dashboard | — | — | Yes | Yes | — | — | **Yes (10 views)** |
+| Mobile app (Android) | — | — | — | — | — | — | **Yes** |
 | Self-hosted, vendor-agnostic | — | — | — | Yes | Yes | Yes | **Yes** |
 | MCP support | Yes | Yes | Yes | Yes | — | — | **Yes** |
 | Per-agent cost tracking | — | — | — | — | — | — | **Yes** |
+| Dynamic agent hiring/firing | — | — | — | — | — | — | **Yes** |
+| Agent groups & team chat | — | — | — | — | — | — | **Yes** |
+| Web terminal in dashboard | — | — | Yes | Yes | — | — | **Yes** |
+| QR code mobile pairing | — | — | — | — | — | — | **Yes** |
 
 ---
 
@@ -177,13 +231,23 @@ Most AI coding tools give you a fast code generator. OCTO VEC gives you **a whol
 
 ## Quick Start
 
-### Prerequisites
+### One-liner Install
 
-- **Node.js** 18+
-- An LLM API key (Groq free tier works great to start)
-- Docker (optional — for security scanning)
+Works on macOS, Windows & Linux. Installs Node.js and everything else for you.
 
-### Install from npm
+**macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/akhil2129/OCTO_VEC/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+powershell -c "irm https://raw.githubusercontent.com/akhil2129/OCTO_VEC/main/scripts/install.ps1 | iex"
+```
+
+### Or install via npm
+
+**Prerequisites:** Node.js 20+ and an LLM API key (Groq free tier works great to start)
 
 ```bash
 npm install -g octo-vec
@@ -193,8 +257,8 @@ octo-vec start
 ### Or run from source
 
 ```bash
-git clone https://github.com/akhil2129/octo-vec.git
-cd octo-vec
+git clone https://github.com/akhil2129/OCTO_VEC.git
+cd OCTO_VEC
 npm install
 npm start
 ```
@@ -244,7 +308,27 @@ Three built-in themes — switch from the sidebar:
 
 ## Communication Channels
 
-Talk to your PM from anywhere. All channels support the same commands and route messages to the same PM agent.
+Talk to your PM from anywhere. All 17 channels route messages to the same PM agent. Configure any channel from **Dashboard > Settings > Channels** or via `.env` variables.
+
+| Channel | Protocol | Status |
+|---------|----------|--------|
+| **CLI** | Built-in terminal | Default |
+| **Telegram** | grammy | Stable |
+| **Slack** | Bolt (Socket Mode) | Stable |
+| **Discord** | discord.js (Gateway) | Stable |
+| **WhatsApp** | Baileys (Web) | Stable |
+| **Microsoft Teams** | Bot Framework | Stable |
+| **Matrix** | matrix-bot-sdk | Stable |
+| **Signal** | signal-cli REST | Stable |
+| **LINE** | @line/bot-sdk | Stable |
+| **IRC** | irc-framework | Stable |
+| **Twitch** | tmi.js | Stable |
+| **Nostr** | nostr-tools | Stable |
+| **Google Chat** | Webhook | Stable |
+| **Mattermost** | REST API | Stable |
+| **Feishu / Lark** | Bot API | Stable |
+| **Nextcloud Talk** | REST API | Stable |
+| **Synology Chat** | Webhook | Stable |
 
 ### CLI (Default)
 
