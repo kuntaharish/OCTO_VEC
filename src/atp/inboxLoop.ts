@@ -339,7 +339,11 @@ export function startInboxLoop(
         // Auto-forward the captured text so the user actually receives the reply.
         // Covers: (a) user messages to any agent, (b) PM task-management mode.
         // Skip NO_ACTION_REQUIRED responses — those are intentionally silent.
-        if ((hadUserMessage || isPmTaskMode) && !messageAgentCalled && capturedText.trim()) {
+        // Skip PM: attachPmStreaming() in tower.ts already handles PM text capture
+        // and UserChatLog logging. Without this guard, both fallbacks fire for
+        // non-Anthropic providers (Groq, etc.) that narrate instead of tool-calling,
+        // producing duplicate responses in the chat.
+        if (agentId !== "pm" && (hadUserMessage || isPmTaskMode) && !messageAgentCalled && capturedText.trim()) {
           const text = capturedText.trim();
           if (!text.startsWith("NO_ACTION_REQUIRED")) {
             agent.inbox.send("user", text, "", "normal");

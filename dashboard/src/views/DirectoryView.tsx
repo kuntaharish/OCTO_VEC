@@ -1151,17 +1151,21 @@ export default function DirectoryView() {
       await postApi(`/api/agents/${agentId}/toggle`, { enabled });
       refreshRuntime();
       refreshEmployees();
+      refreshCompany();
     } catch (e) { console.error(e); }
     finally { setBusy((p) => ({ ...p, [agentId]: null })); }
   }
 
   async function doRemove(agentId: string) {
     setConfirmRemove(null);
+    // Close expanded panel if the deleted agent is open
+    if (expandedAgent === agentId) closeSettings();
     setBusy((p) => ({ ...p, [agentId]: "remove" }));
     try {
       await deleteApi(`/api/agents/${agentId}`);
       refreshRuntime();
       refreshEmployees();
+      refreshCompany();
     } catch (e) { console.error(e); }
     finally { setBusy((p) => ({ ...p, [agentId]: null })); }
   }
@@ -1170,6 +1174,7 @@ export default function DirectoryView() {
     await postApi("/api/agents", { template, name });
     refreshRuntime();
     refreshEmployees();
+    refreshCompany();
   }
 
   /* ── Render a single employee card (shared by grid & department views) ── */
@@ -1602,6 +1607,7 @@ export default function DirectoryView() {
                           try {
                             await patchApi(`/api/agents/${expandedAgent}`, { name: trimmed });
                             refreshRuntime();
+                            refreshEmployees();
                             refreshCompany();
                           } catch { /* ignore */ }
                           setSavingName(false);

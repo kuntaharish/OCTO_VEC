@@ -358,6 +358,20 @@ class ATPDatabaseClass {
     return this.getEmployeeByAgentId(agent_id);
   }
 
+  updateEmployeeName(agent_id: string, name: string): Employee | undefined {
+    this.db
+      .prepare("UPDATE employees SET name = ? WHERE agent_id = ?")
+      .run(name.trim(), agent_id.trim().toLowerCase());
+    return this.getEmployeeByAgentId(agent_id);
+  }
+
+  removeEmployee(agent_id: string): boolean {
+    const result = this.db
+      .prepare("DELETE FROM employees WHERE agent_id = ?")
+      .run(agent_id.trim().toLowerCase());
+    return result.changes > 0;
+  }
+
   getDirectReports(employee_id: string): Employee[] {
     const rows = this.db
       .prepare("SELECT * FROM employees WHERE reports_to = ? ORDER BY hierarchy_level, employee_id")

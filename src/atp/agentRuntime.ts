@@ -177,8 +177,8 @@ export class AgentRuntime {
       ATPDatabase.updateTaskStatus(task.task_id, "failed", `Agent '${agentId}' was removed.`);
     }
 
-    // 5. Mark employee offline
-    ATPDatabase.updateEmployeeStatus(agentId, "offline");
+    // 5. Remove employee from database
+    ATPDatabase.removeEmployee(agentId);
 
     // 6. Clear conversation history
     clearAgentHistory(agentId);
@@ -237,6 +237,10 @@ export class AgentRuntime {
     // Update roster.json
     const entry = toggleAgentInRoster(agentId, enabled);
 
+    // Sync cached handle entry so getStatus() reflects the new enabled state
+    const existingHandle = this.handles.get(agentId);
+    if (existingHandle) existingHandle.entry = entry;
+
     if (enabled) {
       // If agent exists in memory, just resume it
       if (this.handles.has(agentId)) {
@@ -285,6 +289,8 @@ export class AgentRuntime {
     // Update in-memory handle if exists
     const handle = this.handles.get(agentId);
     if (handle) handle.entry = entry;
+    // Sync name to employee database
+    if (updates.name) ATPDatabase.updateEmployeeName(agentId, updates.name);
     refreshAgentMeta();
     return entry;
   }
