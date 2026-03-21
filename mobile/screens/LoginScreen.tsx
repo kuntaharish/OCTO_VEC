@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView,
   Platform, Alert, ActivityIndicator, StyleSheet, ScrollView,
@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParams } from "../App";
-import { colors } from "../lib/theme";
+import { useTheme } from "../lib/theme";
 import { login, loginRelay } from "../lib/api";
 import { startBackgroundSync } from "../lib/notifications";
 import Icon from "react-native-vector-icons/Ionicons";
@@ -14,6 +14,7 @@ import Icon from "react-native-vector-icons/Ionicons";
 type Props = { navigation: NativeStackNavigationProp<RootStackParams, "Login"> };
 
 export default function LoginScreen({ navigation }: Props) {
+  const { colors } = useTheme();
   const [mode, setMode] = useState<"choose" | "local" | "relay">("choose");
 
   // Local mode
@@ -29,6 +30,66 @@ export default function LoginScreen({ navigation }: Props) {
   const [showSecret, setShowSecret] = useState(false);
 
   const [loading, setLoading] = useState(false);
+
+  const s = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bgPrimary },
+    inner: { flex: 1, justifyContent: "center", paddingHorizontal: 28 },
+    logoWrap: { alignItems: "center", marginBottom: 40 },
+    logoCircle: {
+      width: 72, height: 72, borderRadius: 20,
+      backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border,
+      justifyContent: "center", alignItems: "center", marginBottom: 16,
+    },
+    title: { fontSize: 28, fontWeight: "800", color: colors.textPrimary, letterSpacing: 1 },
+    subtitle: { fontSize: 14, color: colors.textMuted, marginTop: 4 },
+    formWrap: { gap: 12 },
+    label: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.5 },
+    inputRow: {
+      flexDirection: "row", alignItems: "center",
+      backgroundColor: colors.bgCard, borderRadius: 12,
+      borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14,
+    },
+    input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 14 },
+    hint: { fontSize: 12, color: colors.textMuted, lineHeight: 18, paddingHorizontal: 2 },
+    btn: {
+      flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+      backgroundColor: colors.textPrimary, borderRadius: 12, paddingVertical: 14, marginTop: 8,
+    },
+    btnText: { fontSize: 16, fontWeight: "700", color: colors.bgPrimary },
+    serverBadge: {
+      flexDirection: "row", alignItems: "center", gap: 6,
+      backgroundColor: colors.bgCard, borderRadius: 8,
+      paddingHorizontal: 10, paddingVertical: 6,
+      borderWidth: 1, borderColor: colors.border, alignSelf: "flex-start", marginBottom: 4,
+    },
+    serverBadgeText: { fontSize: 11, color: colors.textSecondary },
+    scanBtn: {
+      flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+      backgroundColor: colors.textPrimary, borderRadius: 14,
+      paddingVertical: 16,
+    },
+    scanBtnText: { fontSize: 17, fontWeight: "700", color: colors.bgPrimary },
+    dividerRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
+    dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+    dividerText: { fontSize: 11, color: colors.textDim, fontWeight: "500" },
+    modeBtn: {
+      flexDirection: "row", alignItems: "center", gap: 14,
+      backgroundColor: colors.bgCard, borderRadius: 14,
+      borderWidth: 1, borderColor: colors.border,
+      paddingHorizontal: 16, paddingVertical: 14,
+    },
+    modeBtnIcon: {
+      width: 40, height: 40, borderRadius: 10,
+      backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
+    },
+    modeBtnTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+    modeBtnDesc: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
+    backBtn: {
+      flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+      paddingVertical: 12, marginTop: 4,
+    },
+    backBtnText: { fontSize: 14, color: colors.textMuted },
+  }), [colors]);
 
   // ── Local connect ─────────────────────────────────────────────────────
   async function handleConnect() {
@@ -283,63 +344,3 @@ export default function LoginScreen({ navigation }: Props) {
     </SafeAreaView>
   );
 }
-
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgPrimary },
-  inner: { flex: 1, justifyContent: "center", paddingHorizontal: 28 },
-  logoWrap: { alignItems: "center", marginBottom: 40 },
-  logoCircle: {
-    width: 72, height: 72, borderRadius: 20,
-    backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border,
-    justifyContent: "center", alignItems: "center", marginBottom: 16,
-  },
-  title: { fontSize: 28, fontWeight: "800", color: colors.textPrimary, letterSpacing: 1 },
-  subtitle: { fontSize: 14, color: colors.textMuted, marginTop: 4 },
-  formWrap: { gap: 12 },
-  label: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.5 },
-  inputRow: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: colors.bgCard, borderRadius: 12,
-    borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14,
-  },
-  input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 14 },
-  hint: { fontSize: 12, color: colors.textMuted, lineHeight: 18, paddingHorizontal: 2 },
-  btn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: colors.textPrimary, borderRadius: 12, paddingVertical: 14, marginTop: 8,
-  },
-  btnText: { fontSize: 16, fontWeight: "700", color: colors.bgPrimary },
-  serverBadge: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: colors.bgCard, borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderWidth: 1, borderColor: colors.border, alignSelf: "flex-start", marginBottom: 4,
-  },
-  serverBadgeText: { fontSize: 11, color: colors.textSecondary },
-  scanBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
-    backgroundColor: colors.textPrimary, borderRadius: 14,
-    paddingVertical: 16,
-  },
-  scanBtnText: { fontSize: 17, fontWeight: "700", color: colors.bgPrimary },
-  dividerRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  dividerText: { fontSize: 11, color: colors.textDim, fontWeight: "500" },
-  modeBtn: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: colors.bgCard, borderRadius: 14,
-    borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: 16, paddingVertical: 14,
-  },
-  modeBtnIcon: {
-    width: 40, height: 40, borderRadius: 10,
-    backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
-  },
-  modeBtnTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
-  modeBtnDesc: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
-  backBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    paddingVertical: 12, marginTop: 4,
-  },
-  backBtnText: { fontSize: 14, color: colors.textMuted },
-});

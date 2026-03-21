@@ -1,8 +1,8 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
-import { colors, spacing } from "../lib/theme";
+import { useTheme, spacing } from "../lib/theme";
 import { getApi } from "../lib/api";
 import Icon from "react-native-vector-icons/Ionicons";
 
@@ -11,14 +11,6 @@ interface Task {
   agentName?: string; agentInitials?: string; agentColor?: string;
   priority?: string; result?: string; created?: string; updated?: string;
 }
-
-const COLUMNS = [
-  { key: "todo", label: "To Do", color: colors.textMuted, icon: "radio-button-off" },
-  { key: "in_progress", label: "In Progress", color: colors.blue, icon: "time-outline" },
-  { key: "completed", label: "Done", color: colors.green, icon: "checkmark-circle" },
-  { key: "failed", label: "Failed", color: colors.red, icon: "close-circle" },
-  { key: "cancelled", label: "Cancelled", color: colors.textDim, icon: "ban-outline" },
-] as const;
 
 function timeAgo(iso?: string): string {
   if (!iso) return "";
@@ -32,11 +24,121 @@ function timeAgo(iso?: string): string {
 }
 
 export default function TasksScreen() {
+  const { colors } = useTheme();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<"kanban" | "list">("kanban");
   const [filter, setFilter] = useState<string>("all");
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  const COLUMNS = useMemo(() => [
+    { key: "todo", label: "To Do", color: colors.textMuted, icon: "radio-button-off" },
+    { key: "in_progress", label: "In Progress", color: colors.blue, icon: "time-outline" },
+    { key: "completed", label: "Done", color: colors.green, icon: "checkmark-circle" },
+    { key: "failed", label: "Failed", color: colors.red, icon: "close-circle" },
+    { key: "cancelled", label: "Cancelled", color: colors.textDim, icon: "ban-outline" },
+  ] as const, [colors]);
+
+  const s = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bgPrimary },
+    header: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingHorizontal: spacing.xl, paddingVertical: spacing.lg,
+      borderBottomWidth: 1, borderBottomColor: colors.border,
+    },
+    headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+    title: { fontSize: 22, fontWeight: "800", color: colors.textPrimary },
+    count: { fontSize: 14, fontWeight: "700", color: colors.textMuted, backgroundColor: colors.bgCard, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, overflow: "hidden" },
+    viewToggle: {
+      width: 32, height: 32, borderRadius: 8, backgroundColor: colors.bgCard,
+      borderWidth: 1, borderColor: colors.border,
+      justifyContent: "center", alignItems: "center",
+    },
+
+    // Kanban
+    kanbanScroll: { paddingHorizontal: spacing.sm, paddingTop: spacing.md, paddingBottom: 40 },
+    column: { width: 260, marginHorizontal: 4 },
+    colHeader: {
+      flexDirection: "row", alignItems: "center", gap: 6,
+      paddingHorizontal: 10, paddingVertical: 8,
+    },
+    colDot: { width: 8, height: 8, borderRadius: 4 },
+    colTitle: { fontSize: 12, fontWeight: "700", color: colors.textSecondary, flex: 1 },
+    colCount: {
+      fontSize: 10, fontWeight: "700", color: colors.textMuted,
+      backgroundColor: colors.bgTertiary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+    },
+    colScroll: { flex: 1 },
+    colEmpty: { fontSize: 11, color: colors.textDim, textAlign: "center", paddingVertical: 20 },
+
+    // Kanban card
+    kCard: {
+      backgroundColor: colors.bgCard, borderRadius: 10,
+      borderWidth: 1, borderColor: colors.border,
+      padding: 10, marginBottom: 6, marginHorizontal: 2,
+    },
+    kCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+    kTaskId: { fontSize: 10, fontWeight: "600", color: colors.textDim, fontFamily: "monospace" },
+    kTime: { fontSize: 9, color: colors.textDim },
+    kTitle: { fontSize: 12, fontWeight: "600", color: colors.textPrimary, lineHeight: 17 },
+    kResult: {
+      marginTop: 6, padding: 6, backgroundColor: colors.bgPrimary,
+      borderRadius: 6, borderWidth: 1, borderColor: colors.border,
+    },
+    kResultText: { fontSize: 10, color: colors.textMuted, lineHeight: 14 },
+    kCardBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
+    kAgent: { flexDirection: "row", alignItems: "center", gap: 5 },
+    kAvatar: {
+      width: 18, height: 18, borderRadius: 5,
+      backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
+    },
+    kAvatarText: { fontSize: 8, fontWeight: "700", color: colors.textSecondary },
+    kAgentName: { fontSize: 10, color: colors.textMuted },
+    kPriority: {
+      fontSize: 9, fontWeight: "700", textTransform: "uppercase",
+      paddingHorizontal: 5, paddingVertical: 1, borderRadius: 3,
+      overflow: "hidden",
+    },
+    kPriorityHigh: { backgroundColor: "rgba(240,68,68,0.1)", color: colors.red },
+    kPriorityLow: { backgroundColor: "rgba(102,102,102,0.1)", color: colors.textMuted },
+
+    // List filters
+    filterRow: {
+      paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+      borderBottomWidth: 1, borderBottomColor: colors.border,
+    },
+    filterBtn: {
+      flexDirection: "row", alignItems: "center", gap: 4,
+      paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+      backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border,
+    },
+    filterActive: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
+    filterText: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
+    filterTextActive: { color: colors.bgPrimary },
+    filterCount: { fontSize: 10, fontWeight: "700", color: colors.textDim },
+    filterCountActive: { color: colors.bgPrimary },
+
+    // List card
+    card: {
+      backgroundColor: colors.bgCard, borderRadius: 14,
+      borderWidth: 1, borderColor: colors.border,
+      padding: spacing.lg, marginBottom: 10,
+    },
+    cardHeader: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+    cardTitle: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.textPrimary, lineHeight: 20 },
+    cardResult: {
+      marginTop: 8, padding: 8, backgroundColor: colors.bgPrimary,
+      borderRadius: 8, borderWidth: 1, borderColor: colors.border,
+    },
+    cardResultLabel: { fontSize: 9, fontWeight: "700", color: colors.textDim, textTransform: "uppercase", marginBottom: 4 },
+    cardResultText: { fontSize: 11, color: colors.textMuted, lineHeight: 16 },
+    cardFooter: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
+    taskId: { fontSize: 9, color: colors.textDim, fontFamily: "monospace", marginLeft: "auto" },
+    date: { fontSize: 10, color: colors.textDim },
+
+    empty: { alignItems: "center", paddingTop: 80 },
+    emptyText: { color: colors.textMuted, fontSize: 14, marginTop: 10 },
+  }), [colors]);
 
   const load = useCallback(async () => {
     try {
@@ -219,104 +321,3 @@ export default function TasksScreen() {
     </SafeAreaView>
   );
 }
-
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgPrimary },
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: spacing.xl, paddingVertical: spacing.lg,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
-  title: { fontSize: 22, fontWeight: "800", color: colors.textPrimary },
-  count: { fontSize: 14, fontWeight: "700", color: colors.textMuted, backgroundColor: colors.bgCard, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, overflow: "hidden" },
-  viewToggle: {
-    width: 32, height: 32, borderRadius: 8, backgroundColor: colors.bgCard,
-    borderWidth: 1, borderColor: colors.border,
-    justifyContent: "center", alignItems: "center",
-  },
-
-  // Kanban
-  kanbanScroll: { paddingHorizontal: spacing.sm, paddingTop: spacing.md, paddingBottom: 40 },
-  column: { width: 260, marginHorizontal: 4 },
-  colHeader: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 10, paddingVertical: 8,
-  },
-  colDot: { width: 8, height: 8, borderRadius: 4 },
-  colTitle: { fontSize: 12, fontWeight: "700", color: colors.textSecondary, flex: 1 },
-  colCount: {
-    fontSize: 10, fontWeight: "700", color: colors.textMuted,
-    backgroundColor: colors.bgTertiary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
-  },
-  colScroll: { flex: 1 },
-  colEmpty: { fontSize: 11, color: colors.textDim, textAlign: "center", paddingVertical: 20 },
-
-  // Kanban card
-  kCard: {
-    backgroundColor: colors.bgCard, borderRadius: 10,
-    borderWidth: 1, borderColor: colors.border,
-    padding: 10, marginBottom: 6, marginHorizontal: 2,
-  },
-  kCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  kTaskId: { fontSize: 10, fontWeight: "600", color: colors.textDim, fontFamily: "monospace" },
-  kTime: { fontSize: 9, color: colors.textDim },
-  kTitle: { fontSize: 12, fontWeight: "600", color: colors.textPrimary, lineHeight: 17 },
-  kResult: {
-    marginTop: 6, padding: 6, backgroundColor: colors.bgPrimary,
-    borderRadius: 6, borderWidth: 1, borderColor: colors.border,
-  },
-  kResultText: { fontSize: 10, color: colors.textMuted, lineHeight: 14 },
-  kCardBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
-  kAgent: { flexDirection: "row", alignItems: "center", gap: 5 },
-  kAvatar: {
-    width: 18, height: 18, borderRadius: 5,
-    backgroundColor: colors.bgTertiary, justifyContent: "center", alignItems: "center",
-  },
-  kAvatarText: { fontSize: 8, fontWeight: "700", color: colors.textSecondary },
-  kAgentName: { fontSize: 10, color: colors.textMuted },
-  kPriority: {
-    fontSize: 9, fontWeight: "700", textTransform: "uppercase",
-    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 3,
-    overflow: "hidden",
-  },
-  kPriorityHigh: { backgroundColor: "rgba(240,68,68,0.1)", color: colors.red },
-  kPriorityLow: { backgroundColor: "rgba(102,102,102,0.1)", color: colors.textMuted },
-
-  // List filters
-  filterRow: {
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  filterBtn: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-    backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border,
-  },
-  filterActive: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
-  filterText: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
-  filterTextActive: { color: colors.bgPrimary },
-  filterCount: { fontSize: 10, fontWeight: "700", color: colors.textDim },
-  filterCountActive: { color: colors.bgPrimary },
-
-  // List card
-  card: {
-    backgroundColor: colors.bgCard, borderRadius: 14,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.lg, marginBottom: 10,
-  },
-  cardHeader: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  cardTitle: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.textPrimary, lineHeight: 20 },
-  cardResult: {
-    marginTop: 8, padding: 8, backgroundColor: colors.bgPrimary,
-    borderRadius: 8, borderWidth: 1, borderColor: colors.border,
-  },
-  cardResultLabel: { fontSize: 9, fontWeight: "700", color: colors.textDim, textTransform: "uppercase", marginBottom: 4 },
-  cardResultText: { fontSize: 11, color: colors.textMuted, lineHeight: 16 },
-  cardFooter: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
-  taskId: { fontSize: 9, color: colors.textDim, fontFamily: "monospace", marginLeft: "auto" },
-  date: { fontSize: 10, color: colors.textDim },
-
-  empty: { alignItems: "center", paddingTop: 80 },
-  emptyText: { color: colors.textMuted, fontSize: 14, marginTop: 10 },
-});

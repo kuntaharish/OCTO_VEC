@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, PermissionsAndroid, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import type { RootStackParams } from "../App";
-import { colors } from "../lib/theme";
+import { useTheme } from "../lib/theme";
 import { login, loginRelay } from "../lib/api";
 import { startBackgroundSync } from "../lib/notifications";
 import Icon from "react-native-vector-icons/Ionicons";
@@ -17,9 +17,36 @@ type Props = {
 };
 
 export default function ScanScreen({ navigation }: Props) {
+  const { colors } = useTheme();
   const [processing, setProcessing] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
+
+  const s = useMemo(() => StyleSheet.create({
+    container: { flex: 1, backgroundColor: "#000" },
+    overlay: { position: "absolute", top: 0, left: 0, right: 0 },
+    header: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingHorizontal: 16, paddingVertical: 12,
+    },
+    backBtn: {
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center",
+    },
+    title: { fontSize: 16, fontWeight: "700", color: "#fff" },
+    bottom: {
+      position: "absolute", bottom: 0, left: 0, right: 0,
+      paddingHorizontal: 20, paddingBottom: 40,
+    },
+    hintCard: {
+      flexDirection: "row", alignItems: "center", gap: 10,
+      backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 14,
+      paddingHorizontal: 16, paddingVertical: 14,
+      borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    },
+    hintRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+    hintText: { fontSize: 13, color: "rgba(255,255,255,0.7)", flex: 1, lineHeight: 18 },
+  }), [colors]);
 
   useEffect(() => {
     (async () => {
@@ -152,29 +179,3 @@ export default function ScanScreen({ navigation }: Props) {
     </View>
   );
 }
-
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
-  overlay: { position: "absolute", top: 0, left: 0, right: 0 },
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 16, paddingVertical: 12,
-  },
-  backBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center",
-  },
-  title: { fontSize: 16, fontWeight: "700", color: "#fff" },
-  bottom: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    paddingHorizontal: 20, paddingBottom: 40,
-  },
-  hintCard: {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 14,
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
-  },
-  hintRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  hintText: { fontSize: 13, color: "rgba(255,255,255,0.7)", flex: 1, lineHeight: 18 },
-});
