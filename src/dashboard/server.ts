@@ -47,7 +47,7 @@ import { getMCPTools, reloadMCP } from "../mcp/mcpBridge.js";
 import { ActiveChannelState, EditorChannelState } from "../channels/activeChannel.js";
 import type { VECAgent } from "../atp/inboxLoop.js";
 import { getAllUsage as getFinanceAllUsage, getTotals as getFinanceTotals, resetUsage as resetFinanceUsage, getBudgetConfig, setBudgetConfig, getBudgetStatus, setDepartmentMap } from "../atp/tokenTracker.js";
-import { getProviders, getModelConfig, setModelConfig, setAgentModel, getEffectiveModel, setProviderApiKey } from "../atp/modelConfig.js";
+import { getProviders, getModelConfig, setModelConfig, setAgentModel, getEffectiveModel, setProviderApiKey, getOllamaConfig, setOllamaConfig } from "../atp/modelConfig.js";
 import { saveChannelCredentials, getChannelConfigMasked, ALL_CHANNEL_IDS, isValidChannel, CHANNEL_LABELS, type ChannelId } from "../channels/channelConfig.js";
 import { channelManager } from "../channels/channelManager.js";
 import { createMobileRouter, getConnectedDevices, removePairedDevice, clearDeviceBlock } from "./mobileApi.js";
@@ -3753,6 +3753,40 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
     res.json({ ok: true, providers: getProviders() });
   });
 
+  // ── Ollama (local) endpoints ──────────────────────────────────────────────
+
+  app.get("/api/ollama/models", async (_req, res) => {
+    const cfg = getOllamaConfig();
+    const baseUrl = cfg?.baseUrl ?? "http://localhost:11434";
+    try {
+      const resp = await fetch(`${baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!resp.ok) {
+        res.status(502).json({ error: `Ollama returned ${resp.status}` });
+        return;
+      }
+      const data = await resp.json() as { models: { name: string }[] };
+      const models = (data.models ?? []).map((m) => m.name);
+      res.json({ ok: true, models, baseUrl });
+    } catch (err: any) {
+      res.status(502).json({ error: `Cannot reach Ollama at ${baseUrl}: ${err.message}` });
+    }
+  });
+
+  app.post("/api/ollama/config", (req, res) => {
+    const { baseUrl, models } = req.body ?? {};
+    if (typeof baseUrl !== "string" || !baseUrl.trim()) {
+      res.status(400).json({ error: "baseUrl is required" });
+      return;
+    }
+    setOllamaConfig({
+      baseUrl: baseUrl.trim().replace(/\/$/, ""),
+      models: Array.isArray(models) ? models : [],
+    });
+    res.json({ ok: true, config: getOllamaConfig() });
+  });
+
   // ── Channel configuration (all 16 channels) ──────────────────────────────
 
   function connectedMap(): Record<ChannelId, boolean> {
@@ -3883,70 +3917,95 @@ export function startDashboardServer(runtime: AgentRuntime, port = config.dashbo
 
   // Teams outgoing webhook
   app.post("/api/teams-webhook", async (req, res) => {
-    const teamsChannel = channelManager.getChannel("teams");
-    if (!teamsChannel) { res.status(503).json({ type: "message", text: "Teams channel not configured" }); return; }
-    const { TeamsChannel } = await import("../channels/teams.js");
-    if (!(teamsChannel instanceof TeamsChannel)) { res.status(503).json({ type: "message", text: "Teams channel unavailable" }); return; }
-    const rawBody = JSON.stringify(req.body);
-    const authHeader = req.headers["authorization"] as string | undefined;
-    if (!teamsChannel.verifySignature(rawBody, authHeader)) { res.status(401).json({ type: "message", text: "Unauthorized" }); return; }
-    const reply = await teamsChannel.handleIncoming(req.body?.text ?? "");
-    res.json({ type: "message", text: reply });
+    try {
+      const teamsChannel = channelManager.getChannel("teams");
+      if (!teamsChannel) { res.status(503).json({ type: "message", text: "Teams channel not configured" }); return; }
+      const { TeamsChannel } = await import("../channels/teams.js");
+      if (!(teamsChannel instanceof TeamsChannel)) { res.status(503).json({ type: "message", text: "Teams channel unavailable" }); return; }
+      const rawBody = JSON.stringify(req.body);
+      const authHeader = req.headers["authorization"] as string | undefined;
+      if (!teamsChannel.verifySignature(rawBody, authHeader)) { res.status(401).json({ type: "message", text: "Unauthorized" }); return; }
+      const reply = await teamsChannel.handleIncoming(req.body?.text ?? "");
+      res.json({ type: "message", text: reply });
+    } catch (err) {
+      console.error("[teams-webhook] Error:", err);
+      if (!res.headersSent) res.status(500).json({ type: "message", text: "Internal server error" });
+    }
   });
 
   // Google Chat webhook
   app.post("/api/googlechat-webhook", async (req, res) => {
-    const ch = channelManager.getChannel("googlechat");
-    if (!ch) { res.status(503).json({ text: "Google Chat not configured" }); return; }
-    const { GoogleChatChannel } = await import("../channels/googlechat.js");
-    if (!(ch instanceof GoogleChatChannel)) { res.status(503).json({ text: "Google Chat unavailable" }); return; }
-    const text = req.body?.message?.text ?? req.body?.text ?? "";
-    const reply = await ch.handleIncoming(text);
-    res.json({ text: reply });
+    try {
+      const ch = channelManager.getChannel("googlechat");
+      if (!ch) { res.status(503).json({ text: "Google Chat not configured" }); return; }
+      const { GoogleChatChannel } = await import("../channels/googlechat.js");
+      if (!(ch instanceof GoogleChatChannel)) { res.status(503).json({ text: "Google Chat unavailable" }); return; }
+      const text = req.body?.message?.text ?? req.body?.text ?? "";
+      const reply = await ch.handleIncoming(text);
+      res.json({ text: reply });
+    } catch (err) {
+      console.error("[googlechat-webhook] Error:", err);
+      if (!res.headersSent) res.status(500).json({ text: "Internal server error" });
+    }
   });
 
   // LINE webhook
   app.post("/api/line-webhook", async (req, res) => {
-    const ch = channelManager.getChannel("line");
-    if (!ch) { res.status(503).send("LINE not configured"); return; }
-    const { LINEChannel } = await import("../channels/line.js");
-    if (!(ch instanceof LINEChannel)) { res.status(503).send("LINE unavailable"); return; }
-    await ch.handleWebhookEvents(req.body?.events ?? []);
-    res.status(200).send("OK");
+    try {
+      const ch = channelManager.getChannel("line");
+      if (!ch) { res.status(503).send("LINE not configured"); return; }
+      const { LINEChannel } = await import("../channels/line.js");
+      if (!(ch instanceof LINEChannel)) { res.status(503).send("LINE unavailable"); return; }
+      await ch.handleWebhookEvents(req.body?.events ?? []);
+      res.status(200).send("OK");
+    } catch (err) {
+      console.error("[line-webhook] Error:", err);
+      if (!res.headersSent) res.status(500).send("Internal server error");
+    }
   });
 
   // Synology Chat outgoing webhook
   app.post("/api/synology-webhook", async (req, res) => {
-    const ch = channelManager.getChannel("synology");
-    if (!ch) { res.status(503).json({ text: "Synology Chat not configured" }); return; }
-    const { SynologyChannel } = await import("../channels/synology.js");
-    if (!(ch instanceof SynologyChannel)) { res.status(503).json({ text: "Synology Chat unavailable" }); return; }
-    const token = req.body?.token ?? req.query?.token;
-    if (!ch.verifyToken(token)) { res.status(401).json({ text: "Unauthorized" }); return; }
-    const text = req.body?.text ?? "";
-    const reply = await ch.handleIncoming(text);
-    res.json({ text: reply });
+    try {
+      const ch = channelManager.getChannel("synology");
+      if (!ch) { res.status(503).json({ text: "Synology Chat not configured" }); return; }
+      const { SynologyChannel } = await import("../channels/synology.js");
+      if (!(ch instanceof SynologyChannel)) { res.status(503).json({ text: "Synology Chat unavailable" }); return; }
+      const token = req.body?.token ?? req.query?.token;
+      if (!ch.verifyToken(token)) { res.status(401).json({ text: "Unauthorized" }); return; }
+      const text = req.body?.text ?? "";
+      const reply = await ch.handleIncoming(text);
+      res.json({ text: reply });
+    } catch (err) {
+      console.error("[synology-webhook] Error:", err);
+      if (!res.headersSent) res.status(500).json({ text: "Internal server error" });
+    }
   });
 
   // Feishu/Lark event webhook
   app.post("/api/feishu-webhook", async (req, res) => {
-    // Feishu URL verification challenge
-    if (req.body?.type === "url_verification") {
-      res.json({ challenge: req.body.challenge });
-      return;
+    try {
+      // Feishu URL verification challenge
+      if (req.body?.type === "url_verification") {
+        res.json({ challenge: req.body.challenge });
+        return;
+      }
+      const ch = channelManager.getChannel("feishu");
+      if (!ch) { res.status(503).json({ msg: "Feishu not configured" }); return; }
+      const { FeishuChannel } = await import("../channels/feishu.js");
+      if (!(ch instanceof FeishuChannel)) { res.status(503).json({ msg: "Feishu unavailable" }); return; }
+      const token = req.body?.header?.token ?? req.body?.token;
+      if (!ch.verifyRequest(token)) { res.status(401).json({ msg: "Unauthorized" }); return; }
+      const text = req.body?.event?.message?.content ?? req.body?.text ?? "";
+      // Parse Feishu message content (JSON string with "text" field)
+      let msgText = text;
+      try { const parsed = JSON.parse(text); msgText = parsed.text ?? text; } catch { /* use raw */ }
+      const reply = await ch.handleIncoming(msgText);
+      res.json({ msg: reply });
+    } catch (err) {
+      console.error("[feishu-webhook] Error:", err);
+      if (!res.headersSent) res.status(500).json({ msg: "Internal server error" });
     }
-    const ch = channelManager.getChannel("feishu");
-    if (!ch) { res.status(503).json({ msg: "Feishu not configured" }); return; }
-    const { FeishuChannel } = await import("../channels/feishu.js");
-    if (!(ch instanceof FeishuChannel)) { res.status(503).json({ msg: "Feishu unavailable" }); return; }
-    const token = req.body?.header?.token ?? req.body?.token;
-    if (!ch.verifyRequest(token)) { res.status(401).json({ msg: "Unauthorized" }); return; }
-    const text = req.body?.event?.message?.content ?? req.body?.text ?? "";
-    // Parse Feishu message content (JSON string with "text" field)
-    let msgText = text;
-    try { const parsed = JSON.parse(text); msgText = parsed.text ?? text; } catch { /* use raw */ }
-    const reply = await ch.handleIncoming(msgText);
-    res.json({ msg: reply });
   });
 
   // ── Integration config (SearXNG, SonarQube, Gitleaks, Semgrep, Trivy) ──

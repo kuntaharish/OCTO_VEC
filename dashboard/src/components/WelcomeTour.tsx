@@ -109,7 +109,7 @@ function Spotlight({ rect }: { rect: DOMRect | null }) {
 
 // ── Tooltip with arrow ──────────────────────────────────────────────────────
 function Tooltip({ rect, step, stepIdx, total, onNext, onPrev, onSkip }: {
-  rect: DOMRect; step: TourStep; stepIdx: number; total: number;
+  rect: DOMRect | null; step: TourStep; stepIdx: number; total: number;
   onNext: () => void; onPrev: () => void; onSkip: () => void;
 }) {
   const tooltipW = 320;
@@ -119,7 +119,12 @@ function Tooltip({ rect, step, stepIdx, total, onNext, onPrev, onSkip }: {
   let left: number;
   let arrowStyle: React.CSSProperties;
 
-  if (step.position === "right") {
+  if (!rect) {
+    // Target element not found — center tooltip in viewport
+    top = window.innerHeight / 2 - 80;
+    left = window.innerWidth / 2 - tooltipW / 2;
+    arrowStyle = {};
+  } else if (step.position === "right") {
     top = rect.top + rect.height / 2 - 60;
     left = rect.right + gap;
     arrowStyle = {
@@ -478,27 +483,24 @@ export default function WelcomeTour({ onDone, setActiveView }: { onDone: () => v
   return (
     <>
       <Spotlight rect={targetRect} />
-      {targetRect && (
-        <Tooltip
-          rect={targetRect}
-          step={step}
-          stepIdx={stepIdx}
-          total={TOUR_STEPS.length}
-          onNext={() => {
-            if (stepIdx < TOUR_STEPS.length - 1) goToStep(stepIdx + 1);
-            else finishTour();
-          }}
-          onPrev={() => goToStep(Math.max(0, stepIdx - 1))}
-          onSkip={finishTour}
-        />
-      )}
+      <Tooltip
+        rect={targetRect}
+        step={step}
+        stepIdx={stepIdx}
+        total={TOUR_STEPS.length}
+        onNext={() => {
+          if (stepIdx < TOUR_STEPS.length - 1) goToStep(stepIdx + 1);
+          else finishTour();
+        }}
+        onPrev={() => goToStep(Math.max(0, stepIdx - 1))}
+        onSkip={finishTour}
+      />
 
-      {/* Click blocker behind tooltip */}
+      {/* Click blocker behind tooltip — pointer-events:none so underlying UI stays interactive */}
       <div
-        onClick={finishTour}
         style={{
           position: "fixed", inset: 0, zIndex: 9999,
-          cursor: "default",
+          cursor: "default", pointerEvents: "none",
         }}
       />
 

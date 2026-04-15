@@ -12,6 +12,7 @@ import { config } from "../config.js";
 // pi-ai's generated model registry — the single source of truth
 import { MODELS } from "@mariozechner/pi-ai/dist/models.generated.js";
 import { getEnvApiKey } from "@mariozechner/pi-ai/dist/env-api-keys.js";
+import type { Model } from "@mariozechner/pi-ai/dist/types.js";
 
 const CONFIG_PATH = join(config.dataDir, "model-config.json");
 const KEYS_PATH = join(config.dataDir, "api-keys.json");
@@ -19,6 +20,7 @@ const KEYS_PATH = join(config.dataDir, "api-keys.json");
 // ── Provider display names ──────────────────────────────────────────────────
 
 const PROVIDER_LABELS: Record<string, string> = {
+  ollama: "Ollama (Local)",
   "amazon-bedrock": "Amazon Bedrock",
   anthropic: "Anthropic",
   "azure-openai-responses": "Azure OpenAI",
@@ -72,6 +74,7 @@ const ENV_KEY_HINTS: Record<string, string> = {
 // ── Provider icon domains (gstatic colored favicon service) ─────────────────
 
 const PROVIDER_ICON_DOMAINS: Record<string, string> = {
+  ollama: "ollama.com",
   "amazon-bedrock": "aws.amazon.com",
   anthropic: "anthropic.com",
   "azure-openai-responses": "azure.microsoft.com",
@@ -105,12 +108,18 @@ export interface ProviderInfo {
   envKey: string;
   models: string[];
   iconUrl: string;
+  baseUrl?: string;
+}
+
+export interface OllamaConfig {
+  baseUrl: string;
+  models: string[];
 }
 
 /** Build the full provider list dynamically from pi-ai's model registry. */
 export function getProviders(): ProviderInfo[] {
   const providerIds = Object.keys(MODELS as Record<string, Record<string, unknown>>);
-  return providerIds.map((id) => {
+  const result: ProviderInfo[] = providerIds.map((id) => {
     const modelsMap = (MODELS as Record<string, Record<string, unknown>>)[id] ?? {};
     const modelIds = Object.keys(modelsMap);
     const configured = !!getEnvApiKey(id);
@@ -127,6 +136,20 @@ export function getProviders(): ProviderInfo[] {
       iconUrl,
     };
   });
+
+  // Append synthetic Ollama entry — not in pi-ai registry, managed locally
+  const ollama = store.ollamaConfig;
+  result.push({
+    id: "ollama",
+    name: "Ollama (Local)",
+    configured: !!(ollama && ollama.models.length > 0),
+    envKey: "",
+    models: ollama?.models ?? [],
+    iconUrl: `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://ollama.com&size=32`,
+    baseUrl: ollama?.baseUrl ?? "http://localhost:11434",
+  });
+
+  return result;
 }
 
 // ── Config types ─────────────────────────────────────────────────────────────
@@ -141,6 +164,7 @@ export interface ModelConfigStore {
   secondary: ModelSlot | null;
   fallback: ModelSlot | null;
   agentModels: Record<string, ModelSlot>;
+  ollamaConfig?: OllamaConfig;
 }
 
 // ── Load / Save ──────────────────────────────────────────────────────────────
@@ -165,6 +189,7 @@ function loadConfig(): ModelConfigStore {
         secondary: raw.secondary ?? null,
         fallback: raw.fallback ?? null,
         agentModels: raw.agentModels ?? {},
+        ollamaConfig: raw.ollamaConfig ?? undefined,
       };
     }
   } catch { /* ignore */ }
@@ -206,9 +231,53 @@ export function getEffectiveModel(agentId: string): ModelSlot {
   return store.agentModels[agentId] ?? store.primary;
 }
 
+/**
+ * Returns true if the provider for the given agent has a usable API key
+ * (or requires no key, like Ollama). Used to skip agent prompts when the
+ * provider is not configured, preventing "No API key for provider: X" crashes.
+ */
+export function isProviderReady(agentId: string): boolean {
+  const slot = getEffectiveModel(agentId);
+  if (slot.provider === "ollama") return true;
+  const envVar = ENV_KEY_HINTS[slot.provider];
+  if (!envVar) return true; // unknown provider — let it try
+  return !!(process.env[envVar]);
+}
+
 export function resetModelConfig(): void {
   store = defaultConfig();
   saveConfig();
+}
+
+export function getOllamaConfig(): OllamaConfig | null {
+  return store.ollamaConfig ?? null;
+}
+
+export function setOllamaConfig(cfg: OllamaConfig): void {
+  store.ollamaConfig = cfg;
+  saveConfig();
+}
+
+/** Build a Model<"openai-completions"> object for Ollama (not in pi-ai's static registry). */
+export function buildOllamaModel(modelId: string, baseUrl?: string): Model<"openai-completions"> {
+  const url = (baseUrl ?? store.ollamaConfig?.baseUrl ?? "http://localhost:11434").replace(/\/$/, "");
+  return {
+    id: modelId,
+    name: modelId,
+    api: "openai-completions",
+    provider: "ollama",
+    baseUrl: `${url}/v1`,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 32000,
+    compat: {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+    },
+  };
 }
 
 // ── API Key store ─────────────────────────────────────────────────────────────

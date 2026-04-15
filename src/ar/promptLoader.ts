@@ -18,7 +18,12 @@ export function loadPrompt(
   vars: Record<string, string>
 ): string {
   const filePath = join(PROMPTS_DIR, filename);
-  const template = readFileSync(filePath, "utf-8");
+  let template: string;
+  try {
+    template = readFileSync(filePath, "utf-8");
+  } catch (err) {
+    throw new Error(`Cannot load prompt template '${filename}' from ${filePath}: ${(err as Error).message}`);
+  }
   return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
     if (key in vars) return vars[key];
     return match; // leave unresolved — makes missing vars visible

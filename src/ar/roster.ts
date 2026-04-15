@@ -71,8 +71,18 @@ let _cached: Roster | null = null;
 
 export function loadRoster(): Roster {
   if (_cached) return _cached;
-  const raw = readFileSync(getRosterPath(), "utf-8");
-  const roster = JSON.parse(raw) as Roster;
+  let raw: string;
+  try {
+    raw = readFileSync(getRosterPath(), "utf-8");
+  } catch (err) {
+    throw new Error(`Cannot read roster.json at ${getRosterPath()}: ${(err as Error).message}`);
+  }
+  let roster: Roster;
+  try {
+    roster = JSON.parse(raw) as Roster;
+  } catch (err) {
+    throw new Error(`roster.json is not valid JSON: ${(err as Error).message}`);
+  }
 
   // Validate: every agent must have an employee_id
   for (const entry of roster.agents) {

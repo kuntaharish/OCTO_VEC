@@ -22,7 +22,16 @@ const DB_PATH = path.join(config.dataDir, "atp.db");
 
 function openDb(): Database.Database {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  const db = new Database(DB_PATH);
+  let db: Database.Database;
+  try {
+    db = new Database(DB_PATH);
+  } catch (err) {
+    // Corrupt database — rename and start fresh
+    const backup = `${DB_PATH}.corrupt.${Date.now()}`;
+    console.warn(`  [DB] Database corrupt, backing up to ${backup} and starting fresh: ${(err as Error).message}`);
+    try { fs.renameSync(DB_PATH, backup); } catch { /* ignore rename failure */ }
+    db = new Database(DB_PATH);
+  }
   db.pragma("journal_mode = WAL");
   return db;
 }
