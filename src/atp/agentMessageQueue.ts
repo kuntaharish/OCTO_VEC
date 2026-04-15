@@ -9,6 +9,9 @@ import { config } from "../config.js";
 import { founder } from "../identity.js";
 import { loadRoster, clearRosterCache } from "../ar/roster.js";
 import type { AgentMessage } from "./models.js";
+import { log } from "./logger.js";
+
+const L = log.for("agentMessageQueue");
 
 const QUEUE_PATH = path.join(config.dataDir, "agent_messages.json");
 const FLOW_LOG_PATH = path.join(config.dataDir, "message_flow.json");
@@ -83,14 +86,23 @@ function ensureFile(): void {
 
 function read(): AgentMessage[] {
   ensureFile();
-  const text = fs.readFileSync(QUEUE_PATH, "utf-8").trim();
-  if (!text) return [];
-  return JSON.parse(text) as AgentMessage[];
+  try {
+    const text = fs.readFileSync(QUEUE_PATH, "utf-8").trim();
+    if (!text) return [];
+    return JSON.parse(text) as AgentMessage[];
+  } catch (err) {
+    L.error("Failed to read agent message queue — returning empty queue", err, { path: QUEUE_PATH });
+    return [];
+  }
 }
 
 function write(data: AgentMessage[]): void {
   ensureFile();
-  fs.writeFileSync(QUEUE_PATH, JSON.stringify(data, null, 2), "utf-8");
+  try {
+    fs.writeFileSync(QUEUE_PATH, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    L.error("Failed to write agent message queue — messages may be lost", err, { path: QUEUE_PATH, count: data.length });
+  }
 }
 
 function logFlow(from_agent: string, to_agent: string, priority: string, task_id: string): void {
@@ -104,8 +116,9 @@ function logFlow(from_agent: string, to_agent: string, priority: string, task_id
     data.push({ from: from_agent, to: to_agent, priority, task_id, ts: new Date().toISOString() });
     if (data.length > MAX_FLOW_ENTRIES) data = data.slice(-MAX_FLOW_ENTRIES);
     fs.writeFileSync(FLOW_LOG_PATH, JSON.stringify(data, null, 2), "utf-8");
-  } catch {
-    // Never break messaging due to flow logging
+  } catch (err) {
+    // Never break messaging due to flow logging — but do log the failure
+    L.warn("Failed to write message flow log (non-fatal)", { from: from_agent, to: to_agent, task_id, error: String(err) });
   }
 }
 

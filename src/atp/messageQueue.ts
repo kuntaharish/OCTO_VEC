@@ -8,26 +8,41 @@ import path from "path";
 import { config } from "../config.js";
 import type { Message } from "./models.js";
 import { MessageType } from "./models.js";
+import { log } from "./logger.js";
 
+const L = log.for("messageQueue");
 const QUEUE_PATH = path.join(config.dataDir, "pm_queue.json");
 
 function ensureFile(): void {
   if (!fs.existsSync(QUEUE_PATH)) {
-    fs.mkdirSync(path.dirname(QUEUE_PATH), { recursive: true });
-    fs.writeFileSync(QUEUE_PATH, "[]", "utf-8");
+    try {
+      fs.mkdirSync(path.dirname(QUEUE_PATH), { recursive: true });
+      fs.writeFileSync(QUEUE_PATH, "[]", "utf-8");
+    } catch (err) {
+      L.error("Failed to create PM queue file", err, { path: QUEUE_PATH });
+    }
   }
 }
 
 function read(): Message[] {
   ensureFile();
-  const text = fs.readFileSync(QUEUE_PATH, "utf-8").trim();
-  if (!text) return [];
-  return JSON.parse(text) as Message[];
+  try {
+    const text = fs.readFileSync(QUEUE_PATH, "utf-8").trim();
+    if (!text) return [];
+    return JSON.parse(text) as Message[];
+  } catch (err) {
+    L.error("Failed to read PM queue — returning empty queue", err, { path: QUEUE_PATH });
+    return [];
+  }
 }
 
 function write(data: Message[]): void {
   ensureFile();
-  fs.writeFileSync(QUEUE_PATH, JSON.stringify(data, null, 2), "utf-8");
+  try {
+    fs.writeFileSync(QUEUE_PATH, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    L.error("Failed to write PM queue — messages may be lost", err, { path: QUEUE_PATH, count: data.length });
+  }
 }
 
 export const MessageQueue = {

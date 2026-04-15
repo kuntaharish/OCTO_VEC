@@ -17,6 +17,8 @@ import { config } from "../config.js";
 import { founder } from "../identity.js";
 import { loadAgentMemory } from "../memory/agentMemory.js";
 import { MessageDebouncer } from "./messageDebouncer.js";
+import { isProviderReady } from "./modelConfig.js";
+import { log } from "./logger.js";
 
 export const POLL_INTERVAL_MS = 15_000; // 15 seconds between inbox checks
 export const PM_PROACTIVE_INTERVAL_MS = 30_000; // 30 seconds between PM proactive checks
@@ -210,6 +212,15 @@ export function startInboxLoop(
       const hasPriority = messages.some((m) => m.priority === "priority");
       const hasFounderPriority = messages.some(isFounderPriorityMessage);
 
+      // Guard: skip if provider has no API key configured
+      if (!isProviderReady(agentId)) {
+        const { getEffectiveModel } = await import("./modelConfig.js");
+        const slot = getEffectiveModel(agentId);
+        console.warn(`  [${agentId}] Skipping inbox — provider '${slot.provider}' has no API key. Configure one in Settings → Models.`);
+        cooldownUntil = Date.now() + 60_000; // back off 60s before warning again
+        return;
+      }
+
       EventLog.log(
         EventType.AGENT_THINKING,
         agentId,
@@ -399,14 +410,42 @@ export function startInboxLoop(
         // failure. Without a cooldown we'd retry every 15 s — which could spam
         // the user with error acks if the problem is persistent.
         cooldownUntil = Date.now() + backoffMs;
+
+        // Determine error category for logging
+        const errCategory = isRL ? "rate_limit" : isTimeout ? "timeout" : "crash";
+        const triggeringMessages = messages.map((m) => ({
+          from: m.from_agent,
+          subject: m.subject ?? "",
+          preview: String(m.body ?? "").slice(0, 120),
+        }));
+
         // Use TASK_FAILED only for real errors (rate limits, crashes).
         // Plain timeouts are not failures — the task may still be running fine.
         EventLog.log(
           isTimeout ? EventType.AGENT_THINKING : EventType.TASK_FAILED,
           agentId,
           "",
-          `${agentId.toUpperCase()} inbox ${isTimeout ? "timeout" : "error"}: ${err} | cooling down ${Math.round(backoffMs / 1000)}s`
+          `${agentId.toUpperCase()} inbox ${errCategory}: ${err} | cooling down ${Math.round(backoffMs / 1000)}s`
         );
+
+        // Structured log with full stack trace and message context
+        const L = log.for(`inbox-${agentId}`);
+        if (isTimeout) {
+          L.warn(`Inbox timeout — will retry in ${Math.round(backoffMs / 1000)}s`, {
+            agent: agentId,
+            category: errCategory,
+            cooldownSec: Math.round(backoffMs / 1000),
+            triggeringMessages,
+          });
+        } else {
+          L.error(`Inbox ${errCategory} — will retry in ${Math.round(backoffMs / 1000)}s`, err, {
+            agent: agentId,
+            category: errCategory,
+            cooldownSec: Math.round(backoffMs / 1000),
+            triggeringMessages,
+          });
+        }
+
         // Acknowledge the human sender once so they know something went wrong.
         try {
           if (messages.some((m) => m.from_agent.trim().toLowerCase() === "user")) {
@@ -424,7 +463,8 @@ export function startInboxLoop(
         unsub?.(); // Always unsubscribe the event listener
       }
     } catch (err) {
-      console.error(`[inbox-${agentId}]`, err);
+      // Outer guard: catches any unexpected error in the tick() scaffolding itself
+      log.for(`inbox-${agentId}`).error("Unexpected inbox loop error", err, { agent: agentId });
     } finally {
       running = false;
     }
@@ -506,6 +546,15 @@ export function startPmLiveLoop(
       // Skip proactive if PM is already active — avoid concurrent LLM calls.
       if (pmAgent.isRunning) {
         EventLog.log(EventType.AGENT_THINKING, "pm", "", "PM proactive skipped — PM is already active");
+        return;
+      }
+
+      // Guard: skip if provider has no API key configured
+      if (!isProviderReady("pm")) {
+        const { getEffectiveModel } = await import("./modelConfig.js");
+        const slot = getEffectiveModel("pm");
+        console.warn(`  [pm-proactive] Skipping — provider '${slot.provider}' has no API key. Configure one in Settings → Models.`);
+        cooldownUntil = Date.now() + 60_000;
         return;
       }
 

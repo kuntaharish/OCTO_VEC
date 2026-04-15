@@ -12,6 +12,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { config } from "../config.js";
+import { log } from "../atp/logger.js";
+
+const L = log.for("integrationConfig");
 
 const CONFIG_PATH = join(config.dataDir, "integration-config.json");
 
@@ -68,7 +71,8 @@ export function loadIntegrationConfig(): IntegrationConfig {
     if (!existsSync(CONFIG_PATH)) return {};
     const raw = readFileSync(CONFIG_PATH, "utf-8").trim();
     return raw ? JSON.parse(raw) : {};
-  } catch {
+  } catch (err) {
+    L.error("Failed to load integration config — all integrations disabled until fixed", err, { path: CONFIG_PATH });
     return {};
   }
 }

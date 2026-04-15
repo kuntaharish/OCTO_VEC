@@ -13,6 +13,9 @@
 import fs from "fs";
 import path from "path";
 import { config } from "../config.js";
+import { log } from "../atp/logger.js";
+
+const L = log.for("agentMemory");
 
 function agentDir(agentId: string): string {
   return path.join(config.memoryDir, agentId);
@@ -34,7 +37,8 @@ function readIfExists(filePath: string): string {
     const content = fs.readFileSync(filePath, "utf-8").trim();
     // Skip empty or header-only files
     return content.split("\n").filter((l) => l.trim()).length > 3 ? content : "";
-  } catch {
+  } catch (err) {
+    L.warn("Failed to read memory file — skipping", { path: filePath, error: String(err) });
     return "";
   }
 }
@@ -53,12 +57,16 @@ export function isFirstInteraction(agentId: string): boolean {
  */
 export function markFirstInteractionDone(agentId: string): void {
   const dir = agentDir(agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, ".first_contact_done"),
-    new Date().toISOString(),
-    "utf-8"
-  );
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".first_contact_done"),
+      new Date().toISOString(),
+      "utf-8"
+    );
+  } catch (err) {
+    L.error("Failed to mark first interaction done", err, { agentId });
+  }
 }
 
 /**

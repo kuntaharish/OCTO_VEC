@@ -53,7 +53,16 @@ export const channelManager = {
     _pmAgent = pmAgent;
     for (const id of ALL_CHANNEL_IDS) {
       _channels[id] = CREATORS[id](pmAgent);
-      if (_channels[id]) await _channels[id]!.start();
+      if (_channels[id]) {
+        try {
+          await _channels[id]!.start();
+          console.log(`  [Channel] Started: ${id}`);
+        } catch (err) {
+          console.error(`  [Channel] Failed to start '${id}' — channel disabled for this session. Error: ${(err as Error).message}`);
+          console.error(`  [Channel] Stack: ${(err as Error).stack?.split("\n").slice(0, 3).join(" | ")}`);
+          _channels[id] = null;
+        }
+      }
     }
   },
 

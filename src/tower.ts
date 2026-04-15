@@ -45,6 +45,18 @@ import { initMCP, shutdownMCP } from "./mcp/mcpBridge.js";
 import os from "os";
 import { execSync } from "child_process";
 
+// ── Global error safety net ───────────────────────────────────────────────
+// Prevents uncaught exceptions and unhandled promise rejections from silently
+// crashing the process. Logs the error and keeps the server running.
+
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException] Unhandled error (process kept alive):", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection] Unhandled promise rejection (process kept alive):", reason);
+});
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function ensureDirs(): void {
@@ -399,7 +411,9 @@ async function startServer(doStartupReset: boolean): Promise<void> {
   const sunsetCheck = shouldRunSunset("pm");
   if (sunsetCheck.should && sunsetCheck.sessionDate) {
     suppressChatLog = true;
-    try { await pmAgent.runSunset(sunsetCheck.sessionDate); } finally { suppressChatLog = false; }
+    try { await pmAgent.runSunset(sunsetCheck.sessionDate); } catch (err) {
+      console.warn("  [Sunset] Sunset prompt failed — skipping:", (err as Error).message);
+    } finally { suppressChatLog = false; }
   }
 
   // 7. Start background inbox loops via AgentRuntime.

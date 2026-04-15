@@ -18,6 +18,9 @@ import { AgentMessageQueue, AGENT_DISPLAY_NAMES } from "./agentMessageQueue.js";
 import { EventLog } from "./eventLog.js";
 import { EventType } from "./models.js";
 import { config } from "../config.js";
+import { log } from "./logger.js";
+
+const L = log.for("postTaskHooks");
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +65,7 @@ export async function runPostTaskScans(
       });
       results.push({ flowName, result });
     } catch (err) {
+      L.error("Post-task scan failed", err, { flowName, taskId, agentId, projectDir });
       results.push({
         flowName,
         result: { success: false, summary: `Hook error: ${err}` },

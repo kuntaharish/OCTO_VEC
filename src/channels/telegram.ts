@@ -48,8 +48,8 @@ function splitMessage(text: string): string[] {
 async function tgSend(fn: () => Promise<unknown>): Promise<void> {
   try {
     await fn();
-  } catch {
-    // Swallow — don't let Telegram errors crash the agent loop
+  } catch (err) {
+    console.warn(`  [Telegram] Send failed (non-fatal): ${(err as Error)?.message ?? err}`);
   }
 }
 

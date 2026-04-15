@@ -1,11 +1,13 @@
 /**
- * Codex OAuth credential manager.
+ * API key resolver for pi-agent-core.
  *
  * Usage:
- *   new Agent({ getApiKey: codexApiKeyResolver() })
+ *   new Agent({ getApiKey: apiKeyResolver() })
  *
- * Returns undefined for non-codex providers — safe to always pass in AgentOptions.
- * Returns undefined (no-op) when VEC_MODEL_PROVIDER is not "openai-codex".
+ * Handles:
+ * - Ollama: returns "ollama" placeholder (Ollama's OpenAI-compat API accepts any non-empty key)
+ * - Codex OAuth: returns a refreshed OAuth token
+ * - All other providers: returns undefined (pi-ai falls back to env vars)
  */
 import { getOAuthApiKey } from "@mariozechner/pi-ai";
 import { existsSync, readFileSync, writeFileSync } from "fs";
@@ -25,28 +27,29 @@ function loadCreds(): Record<string, any> {
 }
 
 /**
- * Returns a getApiKey resolver for Codex OAuth, or undefined if not using Codex.
- * Pass the result directly into new Agent({ getApiKey: codexApiKeyResolver() }).
+ * Returns a getApiKey resolver that handles Ollama and Codex OAuth.
+ * Safe to always pass into new Agent({ getApiKey: ... }).
  */
-export function codexApiKeyResolver():
-  | ((provider: string) => Promise<string | undefined>)
-  | undefined {
-  if (config.modelProvider !== "openai-codex") return undefined;
-
-  let creds = loadCreds();
+export function codexApiKeyResolver(): (provider: string) => Promise<string | undefined> {
+  const isCodex = config.modelProvider === "openai-codex";
+  let creds: Record<string, any> | null = null;
+  if (isCodex) creds = loadCreds();
 
   return async (provider: string) => {
-    if (provider !== "openai-codex") return undefined;
+    // Ollama doesn't use API keys — return a placeholder so pi-ai doesn't throw
+    if (provider === "ollama") return "ollama";
 
-    const result = await getOAuthApiKey("openai-codex", creds);
-    if (!result) return undefined;
-
-    // Persist refreshed token if it changed
-    if (result.newCredentials !== creds["openai-codex"]) {
-      creds = { ...creds, "openai-codex": result.newCredentials };
-      writeFileSync(CREDS_PATH, JSON.stringify(creds, null, 2));
+    // Codex OAuth token refresh
+    if (provider === "openai-codex" && creds) {
+      const result = await getOAuthApiKey("openai-codex", creds);
+      if (!result) return undefined;
+      if (result.newCredentials !== creds["openai-codex"]) {
+        creds = { ...creds, "openai-codex": result.newCredentials };
+        writeFileSync(CREDS_PATH, JSON.stringify(creds, null, 2));
+      }
+      return result.apiKey;
     }
 
-    return result.apiKey;
+    return undefined;
   };
 }

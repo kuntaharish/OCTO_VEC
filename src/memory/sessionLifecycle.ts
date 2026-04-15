@@ -16,6 +16,9 @@
 import fs from "fs";
 import path from "path";
 import { config } from "../config.js";
+import { log } from "../atp/logger.js";
+
+const L = log.for("sessionLifecycle");
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -41,8 +44,8 @@ export function shouldRunSunset(agentId: string): SunsetCheck {
   try {
     const mtime = fs.statSync(p).mtime.toISOString().slice(0, 10);
     if (mtime < today()) return { should: true, sessionDate: mtime };
-  } catch {
-    // Unreadable stat — skip sunset rather than crash
+  } catch (err) {
+    L.warn("Cannot stat history file — skipping sunset", { agentId, path: p, error: String(err) });
   }
   return { should: false };
 }

@@ -40,6 +40,7 @@ interface ProviderInfo {
   envKey: string;
   models: string[];
   iconUrl: string;
+  baseUrl?: string;
 }
 
 interface ModelConfigData {
@@ -316,6 +317,14 @@ function ModelTierRow({ tier, slot, color, icon, providers, onSave, saving }: {
   const [selModel, setSelModel] = useState(slot?.model ?? "");
   const [dirty, setDirty] = useState(false);
 
+  // Sync dropdowns when server state changes (e.g. after save or navigating back)
+  useEffect(() => {
+    if (!dirty) {
+      setSelProvider(slot?.provider ?? "");
+      setSelModel(slot?.model ?? "");
+    }
+  }, [slot?.provider, slot?.model]);
+
   const currentProvider = providers.find((p) => p.id === selProvider);
   const models = currentProvider?.models ?? [];
 
@@ -344,8 +353,8 @@ function ModelTierRow({ tier, slot, color, icon, providers, onSave, saving }: {
   function handleApply() {
     if (selProvider && selModel) {
       onSave({ provider: selProvider, model: selModel });
+      setDirty(false);
     }
-    setDirty(false);
   }
 
   function handleClear() {
@@ -478,6 +487,10 @@ export default function SettingsView() {
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [keySaving, setKeySaving] = useState(false);
+  const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaFetching, setOllamaFetching] = useState(false);
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
 
   // MCP config (editable)
   const [mcpConfig, setMcpConfig] = useState<MCPConfig>({ mcpServers: {} });
@@ -708,6 +721,37 @@ export default function SettingsView() {
       setKeyInput("");
     } catch { showToast("Failed to save API key"); }
     finally { setKeySaving(false); }
+  }
+
+  // Hydrate Ollama state from provider data
+  useEffect(() => {
+    if (!modelData) return;
+    const p = modelData.providers.find(p => p.id === "ollama");
+    if (p) {
+      if (p.models.length > 0) setOllamaModels(p.models);
+      if (p.baseUrl) setOllamaUrl(p.baseUrl);
+    }
+  }, [modelData]);
+
+  async function fetchOllamaModels() {
+    setOllamaFetching(true);
+    setOllamaError(null);
+    try {
+      // Save URL first so the server endpoint uses the right baseUrl
+      await postApi("/api/ollama/config", { baseUrl: ollamaUrl, models: ollamaModels });
+      const res = await fetch(apiUrl("/api/ollama/models"));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Fetch failed");
+      const discovered: string[] = data.models ?? [];
+      setOllamaModels(discovered);
+      await postApi("/api/ollama/config", { baseUrl: ollamaUrl, models: discovered });
+      refreshModels();
+      showToast(`Ollama: found ${discovered.length} model(s)`);
+    } catch (err: any) {
+      setOllamaError(err.message ?? "Cannot reach Ollama");
+    } finally {
+      setOllamaFetching(false);
+    }
   }
 
   async function saveIntegration(key: string, payload: Record<string, unknown>) {
@@ -1003,6 +1047,118 @@ export default function SettingsView() {
             </div>
           </div>
         )}
+
+        {/* Ollama (Local) */}
+        <div>
+          <SectionLabel title="Ollama (Local)" />
+          <div style={{
+            padding: "16px 18px", borderRadius: 10,
+            background: "var(--bg-card)", border: "1px solid var(--border)",
+            display: "flex", flexDirection: "column", gap: 14,
+          }}>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              Run local models via Ollama — no API key needed.{" "}
+              <a href="https://ollama.com" target="_blank" rel="noreferrer"
+                style={{ color: "var(--accent)", textDecoration: "none" }}>
+                ollama.com
+              </a>
+            </div>
+
+            {/* URL input + refresh button */}
+            <div>
+              <div style={{
+                fontSize: 11, fontWeight: 600, color: "var(--text-muted)",
+                marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.03em",
+              }}>
+                Base URL
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  value={ollamaUrl}
+                  onChange={e => setOllamaUrl(e.target.value)}
+                  placeholder="http://localhost:11434"
+                  style={{
+                    flex: 1, padding: "8px 12px", borderRadius: 8,
+                    border: "1px solid var(--border)", background: "var(--bg-tertiary)",
+                    color: "var(--text-primary)", fontSize: 12, fontFamily: "monospace",
+                    outline: "none",
+                  }}
+                  onFocus={e => { (e.target as HTMLInputElement).style.borderColor = "var(--accent)"; }}
+                  onBlur={e => { (e.target as HTMLInputElement).style.borderColor = "var(--border)"; }}
+                />
+                <button
+                  onClick={fetchOllamaModels}
+                  disabled={ollamaFetching}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "8px 14px", borderRadius: 8, border: "none",
+                    background: "var(--accent)", color: "#fff",
+                    fontSize: 12, fontWeight: 600, cursor: ollamaFetching ? "not-allowed" : "pointer",
+                    fontFamily: "inherit", flexShrink: 0,
+                    opacity: ollamaFetching ? 0.6 : 1,
+                  }}
+                >
+                  <RefreshCw size={12} style={ollamaFetching ? { animation: "spin 1s linear infinite" } : {}} />
+                  {ollamaFetching ? "Fetching..." : "Refresh Models"}
+                </button>
+              </div>
+            </div>
+
+            {/* Error message */}
+            {ollamaError && (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "8px 12px", borderRadius: 7,
+                background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
+                fontSize: 12, color: "#ef4444",
+              }}>
+                <span>{ollamaError}</span>
+                <button onClick={() => setOllamaError(null)} style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "#ef4444", padding: 0, display: "flex",
+                }}>
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+
+            {/* Discovered model list */}
+            {ollamaModels.length > 0 ? (
+              <div>
+                <div style={{
+                  fontSize: 11, fontWeight: 600, color: "var(--text-muted)",
+                  textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8,
+                }}>
+                  Available Models ({ollamaModels.length})
+                </div>
+                <div style={{
+                  maxHeight: 160, overflowY: "auto",
+                  border: "1px solid var(--border)", borderRadius: 8,
+                  background: "var(--bg-secondary)",
+                }}>
+                  {ollamaModels.map((m, i) => (
+                    <div key={m} style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "8px 12px",
+                      borderBottom: i < ollamaModels.length - 1 ? "1px solid var(--border)" : "none",
+                    }}>
+                      <Box size={11} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, fontFamily: "monospace", color: "var(--text-primary)" }}>
+                        {m}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              !ollamaError && (
+                <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: "4px 0" }}>
+                  Click "Refresh Models" to discover locally installed Ollama models.
+                </div>
+              )
+            )}
+          </div>
+        </div>
       </div>
     );
   }
@@ -3261,65 +3417,83 @@ function APIKeyModal({ provider, onClose, onSave, saving }: {
             </div>
           )}
 
-          {/* Key input */}
-          <div>
-            <label style={{
-              fontSize: 12, fontWeight: 500, color: "var(--text-secondary)",
-              marginBottom: 8, display: "block",
-            }}>
-              API Key
-            </label>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input
-                value={key}
-                onChange={e => setKey(e.target.value)}
-                placeholder={`Paste your ${provider.name} API key...`}
-                type={showKey ? "text" : "password"}
-                autoFocus
-                style={{
-                  ...inputStyle, flex: 1, fontSize: 13, fontFamily: "monospace",
-                  padding: "10px 12px",
-                }}
-                onKeyDown={e => e.key === "Enter" && key.trim() && onSave(key)}
-              />
-              <button
-                onClick={() => setShowKey(s => !s)}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  width: 38, height: 38, borderRadius: 8, flexShrink: 0,
-                  border: "1px solid var(--border)", background: "var(--bg-tertiary)",
-                  color: showKey ? "var(--accent)" : "var(--text-muted)",
-                  cursor: "pointer", padding: 0, transition: "color 0.12s",
-                }}
-                title={showKey ? "Hide key" : "Show key"}
-              >
-                <Eye size={14} />
-              </button>
-            </div>
-          </div>
+          {/* Key input — hidden for providers that need no API key (e.g. Ollama) */}
+          {provider.envKey !== "" ? (
+            <>
+              <div>
+                <label style={{
+                  fontSize: 12, fontWeight: 500, color: "var(--text-secondary)",
+                  marginBottom: 8, display: "block",
+                }}>
+                  API Key
+                </label>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    value={key}
+                    onChange={e => setKey(e.target.value)}
+                    placeholder={`Paste your ${provider.name} API key...`}
+                    type={showKey ? "text" : "password"}
+                    autoFocus
+                    style={{
+                      ...inputStyle, flex: 1, fontSize: 13, fontFamily: "monospace",
+                      padding: "10px 12px",
+                    }}
+                    onKeyDown={e => e.key === "Enter" && key.trim() && onSave(key)}
+                  />
+                  <button
+                    onClick={() => setShowKey(s => !s)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+                      border: "1px solid var(--border)", background: "var(--bg-tertiary)",
+                      color: showKey ? "var(--accent)" : "var(--text-muted)",
+                      cursor: "pointer", padding: 0, transition: "color 0.12s",
+                    }}
+                    title={showKey ? "Hide key" : "Show key"}
+                  >
+                    <Eye size={14} />
+                  </button>
+                </div>
+              </div>
 
-          {/* Actions */}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
-            <button onClick={onClose} style={{
-              ...btnSecondary, padding: "9px 18px", fontSize: 12, borderRadius: 8,
-            }}>Cancel</button>
-            <button
-              onClick={() => key.trim() && onSave(key)}
-              disabled={!key.trim() || saving}
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "9px 22px", borderRadius: 8, border: "none",
-                background: key.trim() ? "var(--accent)" : "var(--bg-tertiary)",
-                color: key.trim() ? "#fff" : "var(--text-muted)",
-                fontSize: 12, fontWeight: 600,
-                cursor: key.trim() ? "pointer" : "default",
-                fontFamily: "inherit",
-                opacity: saving ? 0.6 : 1, transition: "opacity 0.12s, background 0.12s",
-              }}
-            >
-              <Save size={13} /> {saving ? "Saving..." : "Save Key"}
-            </button>
-          </div>
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+                <button onClick={onClose} style={{
+                  ...btnSecondary, padding: "9px 18px", fontSize: 12, borderRadius: 8,
+                }}>Cancel</button>
+                <button
+                  onClick={() => key.trim() && onSave(key)}
+                  disabled={!key.trim() || saving}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "9px 22px", borderRadius: 8, border: "none",
+                    background: key.trim() ? "var(--accent)" : "var(--bg-tertiary)",
+                    color: key.trim() ? "#fff" : "var(--text-muted)",
+                    fontSize: 12, fontWeight: 600,
+                    cursor: key.trim() ? "pointer" : "default",
+                    fontFamily: "inherit",
+                    opacity: saving ? 0.6 : 1, transition: "opacity 0.12s, background 0.12s",
+                  }}
+                >
+                  <Save size={13} /> {saving ? "Saving..." : "Save Key"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "12px 14px", borderRadius: 10,
+              background: "var(--bg-card)", border: "1px solid var(--border)",
+            }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                background: "var(--green)",
+              }} />
+              <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                No API key required — runs locally on your machine.
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </>

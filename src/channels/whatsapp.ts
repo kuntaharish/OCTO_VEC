@@ -233,7 +233,13 @@ class WhatsAppChannel implements VECChannel {
     mkdirSync(WA_AUTH_DIR, { recursive: true });
 
     const { state, saveCreds } = await useMultiFileAuthState(WA_AUTH_DIR);
-    const { version } = await fetchLatestBaileysVersion();
+    let version: [number, number, number];
+    try {
+      ({ version } = await fetchLatestBaileysVersion());
+    } catch {
+      version = [2, 3000, 1015901307] as [number, number, number];
+      console.warn("  [WhatsApp] Could not fetch latest version — using fallback version");
+    }
 
     this.sock = makeWASocket({
       version,
